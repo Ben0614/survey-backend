@@ -1,0 +1,17 @@
+// Prisma schema：這裡定義資料模型，`prisma migrate` 依此產生 SQL，
+// `prisma generate` 依此產生型別安全的查詢 client。
+// 文件：https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client"
+  output   = "../src/generated/prisma"
+
+  // NestJS 預設編譯成 CommonJS，而 prisma-client generator 預設輸出 ESM
+  // （會用到 import.meta.url，Node 一看到就把檔案當 ESM 載入，於是 exports 未定義）。
+  // 明確指定 cjs 讓兩邊對齊。
+  moduleFormat = "cjs"
+}
+
+datasource db {
+  provider = "postgresql"
+}

@@ -1,0 +1,10 @@
+node_modules
+dist
+coverage
+
+# Keep environment variables out of version control
+.env
+.env.test
+
+# Prisma Client 是產生出來的，不進版控（clone 後跑 prisma generate 即可）
+/src/generated

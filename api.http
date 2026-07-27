@@ -1,0 +1,7 @@
+### 用 VS Code 的 REST Client 擴充套件開啟這個檔案，每個請求上方會出現 "Send Request"。
+### 先開一個終端機跑 `pnpm start:dev`，再回來這裡點送出。
+
+@host = http://localhost:3100
+
+### 健康檢查：確認服務活著、而且資料庫連得上
+GET {{host}}/health
