@@ -9,35 +9,51 @@
 
 ## 進度表
 
+**測試不獨立成章。** 從 Ch2 開始，每章的驗收標準就是「該章的 E2E 測試綠燈」——
+回頭補的測試只會驗證「現在的行為」，而不是在寫的當下幫你發現問題。
+
 ### 階段一：NestJS + Prisma + PostgreSQL
 
-| 章節 | 主題 | 狀態 |
-|:---:|---|:---:|
-| Ch0 | 環境建置與 `/health` | ✅ |
-| Ch1 | Schema 設計與第一次 migration | ⬜ |
-| Ch2 | 第一個 CRUD（Surveys） | ⬜ |
-| Ch3 | 巢狀資源與關聯查詢（Questions） | ⬜ |
-| Ch4 | 交易與巢狀寫入（Responses） | ⬜ |
-| Ch5 | 錯誤處理與例外過濾器 | ⬜ |
-| Ch6 | Swagger API 文件 | ⬜ |
-| Ch7 | E2E 測試 | ⬜ |
+| 章節 | 主題 | 這章的關鍵收穫 | 狀態 |
+| :---: | --- | --- | :---: |
+| Ch0 | 環境建置與 `/health` | DI、module 邊界、生命週期 | ✅ |
+| Ch1 | Schema 設計、第一次 migration、seed | 資料模型設計、migration 是什麼 | ⬜ |
+| Ch2 | 第一個 CRUD（Surveys） | DTO 驗證、404 處理、第一支資源 E2E | ⬜ |
+| Ch3 | 巢狀資源與關聯查詢（Questions） | `include`/`select`、**看 Prisma 產生的 SQL**、N+1 | ⬜ |
+| Ch4 | 分頁、排序、篩選 | query string 轉型驗證、`skip/take` vs cursor | ⬜ |
+| Ch5 | 交易與巢狀寫入（Responses） | 巢狀 write vs `$transaction`、原子性 | ⬜ |
+| Ch6 | 統一錯誤處理與回應格式 | Exception Filter 把 Prisma 錯誤碼轉 HTTP | ⬜ |
+| Ch7 | Swagger API 文件 | 產出前端能直接照著串的契約 | ⬜ |
 
 ### 階段二：JWT 與權限控管
 
-| 章節 | 主題 | 狀態 |
-|:---:|---|:---:|
-| Ch8 | User model、bcrypt、註冊登入 | ⬜ |
-| Ch9 | JWT 與全域 AuthGuard | ⬜ |
-| Ch10 | RBAC：只有管理員能刪問卷 | ⬜ |
-| Ch11 | 資源層授權：只能改自己的問卷 | ⬜ |
+| 章節 | 主題 | 這章的關鍵收穫 | 狀態 |
+| :---: | --- | --- | :---: |
+| Ch8 | User model、bcrypt、註冊登入 | 密碼雜湊；**對已有資料的表加 `ownerId`** | ⬜ |
+| Ch9 | JWT 與全域 AuthGuard | 認證流程、`@Public()` 的例外機制 | ⬜ |
+| Ch10 | RBAC：只有管理員能刪問卷 | 角色權限、`@Roles()` 自訂裝飾器 | ⬜ |
+| Ch11 | 資源層授權：只能改自己的問卷 | Guard 層 vs Service 層判斷的取捨 | ⬜ |
 
 ### 階段三：前端串接與部署
 
-| 章節 | 主題 | 狀態 |
-|:---:|---|:---:|
-| Ch12 | Nuxt 3 串接與 token 存放 | ⬜ |
-| Ch13 | CORS 與環境變數分離 | ⬜ |
-| Ch14 | 部署上雲（Render + Neon） | ⬜ |
+| 章節 | 主題 | 這章的關鍵收穫 | 狀態 |
+| :---: | --- | --- | :---: |
+| Ch12 | Nuxt 3 專案建置與 API client 封裝 | 型別共享、統一錯誤處理 | ⬜ |
+| Ch13 | 認證流程串接 | token 存放的安全取捨、路由守衛 | ⬜ |
+| Ch14 | 問卷功能頁面 | 前端狀態與後端契約的落差 | ⬜ |
+| Ch15 | CORS、環境變數分離、production build | 跨網域的實際運作機制 | ⬜ |
+| Ch16 | 部署上雲（Render + Neon） | `migrate deploy`、正式環境的連線管理 | ⬜ |
+
+### 課綱修訂紀錄
+
+2026-07-27 — 原訂 14 章，重新審視後調整為 17 章：
+
+- **移除獨立的「E2E 測試」章**，測試併入 Ch2 起的每一章
+- **新增 Ch4 分頁章** — 原課綱沒有分頁，`GET /surveys` 回傳全部資料在真實專案就是 bug，而且是面試高頻題
+- **Ch6 更名為「統一錯誤處理」** — 原名「錯誤處理」會誤導成「Ch2–5 可以不管錯誤」，實際上 Ch2 寫 `findOne` 就要處理 404，Ch6 的主題是把它們統一化
+- **明確寫入「看 Prisma 產生的 SQL」（Ch3）** — 只會 ORM 不懂底下的 SQL 是 ORM 使用者最常見的弱點
+- **明確寫入「對已有資料的表加欄位」（Ch8）** — 這是整個專案最真實的一堂 migration 課（既有列要填什麼值？能不能設 NOT NULL？），原課綱只用「Survey 加 ownerId」帶過
+- **階段三從 3 章拆為 5 章** — 原本的 Ch12 塞了「建置 + 串接 + token + 守衛」四件事
 
 ---
 
@@ -154,7 +170,7 @@ TypeScript 的 `rootDir` 是「所有輸入檔案的共同祖先目錄」自動�
 ## 踩到的坑
 
 | 症狀 | 根因 | 解法 |
-|---|---|---|
+| --- | --- | --- |
 | `dist/main.js` 不存在，變成 `dist/src/main.js` | 根目錄的 `prisma.config.ts` 把 tsc 推導的 `rootDir` 撐大 | `tsconfig.build.json` 的 `exclude` 加入 `prisma.config.ts` |
 | `ReferenceError: exports is not defined` | Prisma 產生 ESM，NestJS 編譯 CJS | `schema.prisma` 加 `moduleFormat = "cjs"` |
 | Jest `Cannot find module '../generated/prisma/client.js'` | Jest 不會把 `.js` 副檔名解析回 `.ts` | jest 設定加 `moduleNameMapper: {"^(\\.{1,2}/.*)\\.js$": "$1"}` |
@@ -190,7 +206,7 @@ pnpm exec prisma migrate deploy  # 正式環境套用 migration（Ch14 部署用
 
 ## 檔案地圖
 
-```
+```text
 survey-api/
 ├── prisma/
 │   └── schema.prisma          資料模型定義（migration 與 client 的唯一來源）
@@ -223,6 +239,7 @@ survey-api/
 
 ---
 
-# Ch1 — Schema 設計與第一次 migration
+# Ch1 — Schema 設計、第一次 migration、seed 資料
 
-*（尚未開始）*
+尚未開始。這章會設計四張表（Survey / Question / Response / Answer）、
+跑第一次 `prisma migrate dev` 看它產生什麼 SQL，並寫一份 seed 讓開發時有資料可用。
