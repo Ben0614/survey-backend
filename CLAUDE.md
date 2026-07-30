@@ -76,6 +76,8 @@ pnpm test:e2e -- test/health.e2e-spec.ts
 
 `.env` / `.env.test` 已 gitignore；新增變數時同步更新 `.env.example`（只放 key 的形狀）。本機 `PORT=3100`，`api.http` 也寫死這個 port。
 
+這個專案在兩台機器上輪流開發。若遇到「`src/generated` 不存在」「skills 連結壞掉」「`.env` 缺失」這類環境問題，多半是剛換機器 —— 重建步驟見 `LEARNING.md` 的「換機接續」一節。
+
 ## 其他
 
 - `.claude/skills/` 下有一組 Prisma 官方 skills（由 `skills-lock.json` 管理，`.agents/` 與 `.windsurf/` 是同一份的鏡像）。查 Prisma CLI / Client API 用法時優先使用它們。

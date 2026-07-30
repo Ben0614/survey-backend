@@ -199,6 +199,51 @@ TypeScript 的 `rootDir` 是「所有輸入檔案的共同祖先目錄」自動�
 
 ---
 
+## 換機接續（筆電 ↔ 桌電）
+
+這個專案在兩台機器上輪流開發，所以要清楚哪些東西跟著 git 走、哪些不會。
+
+**跟著 git 走的：** 程式碼、`LEARNING.md`、`CLAUDE.md`、`.agents/skills/`。
+
+**不會跟的：**
+
+| 類別 | 內容 |
+| --- | --- |
+| AI 工具的本機狀態 | 對話歷史、記憶、全域設定（都在 `~/.claude/`，且以絕對路徑當專案識別碼） |
+| 有 gitignore 的機密／產物 | `.env`、`.env.test`、`src/generated/` |
+| 含絕對路徑的連結 | `.claude/skills/*`、`.windsurf/skills/*` 的 junction |
+
+**因此有一條原則：`LEARNING.md` 是唯一的跨機進度來源。** 一章的決策與踩坑如果只存在於對話裡，換一台機器就等於沒發生過。這也是為什麼每章結束要把這份文件補完再 commit —— 它不是心得感想，是接續工作的依據。
+
+換機開工的步驟：
+
+```bash
+git pull
+pnpm install
+pnpm exec prisma generate   # src/generated 沒進版控，不跑就沒有型別
+```
+
+再照 `.env.example` 建立 `.env`（`DATABASE_URL` 從 Neon Console 的 Connection Details 複製）。
+
+> 如果是**專案目錄改名**而非全新 clone，`node_modules` 裡 pnpm 的連結同樣存絕對路徑、同樣會全斷（症狀：`Cannot find module '.../node_modules/prisma/build/index.js'`）。此時 `pnpm install` 會跳出互動式確認，直接用 `pnpm install --force` 重裝。
+
+最後重建 skills 的 junction。**junction 存的是絕對路徑，換機或專案目錄改名一定會斷**（曾因 `survey-api` 更名為 `survey-backend` 而全斷，見 commit `1b83a4d`）。在專案根目錄跑這段 PowerShell，不需要系統管理員權限：
+
+```powershell
+$root = $PWD
+foreach ($mirror in @('.claude','.windsurf')) {
+  foreach ($s in Get-ChildItem "$root\.agents\skills" -Directory) {
+    $link = Join-Path "$root\$mirror\skills" $s.Name
+    if (Test-Path $link) { (Get-Item $link).Delete() }
+    New-Item -ItemType Junction -Path $link -Target $s.FullName | Out-Null
+  }
+}
+```
+
+驗證：`Test-Path .claude\skills\prisma-cli\SKILL.md` 應為 `True`。
+
+---
+
 ## 指令速查
 
 ```bash
