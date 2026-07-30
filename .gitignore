@@ -8,3 +8,13 @@ coverage
 
 # Prisma Client 是產生出來的，不進版控（clone 後跑 prisma generate 即可）
 /src/generated
+
+# AI 工具設定：專案共用的規則（CLAUDE.md、.agents/skills）要進版控，
+# 個人層級的本機設定不進。
+.claude/settings.local.json
+
+# skills 的正本在 .agents/skills；.claude 與 .windsurf 底下只是指向它的
+# junction/symlink，內含絕對路徑（專案目錄改名就會斷），屬於本機產物。
+# 連結斷掉時重跑安裝器，或手動重建指向 .agents/skills/<name>。
+.claude/skills/
+.windsurf/skills/
