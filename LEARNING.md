@@ -226,7 +226,7 @@ pnpm exec prisma migrate deploy  # 正式環境套用 migration（Ch14 部署用
 ## 檔案地圖
 
 ```text
-survey-api/
+survey-backend/
 ├── prisma/
 │   └── schema.prisma          資料模型定義（migration 與 client 的唯一來源）
 ├── src/

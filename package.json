@@ -1,5 +1,5 @@
 {
-  "name": "survey-api",
+  "name": "survey-backend",
   "version": "1.0.0",
   "description": "問卷管理平台 API（NestJS + Prisma + PostgreSQL）",
   "private": true,
