@@ -7,6 +7,11 @@
     "isolatedModules": true,
     "declaration": true,
     "removeComments": true,
+    // [教學] 這兩行是 NestJS 能運作的前提，其他設定都可以先不管。
+    //   experimentalDecorators —— 允許使用 @Controller / @Injectable 這種語法
+    //   emitDecoratorMetadata  —— 編譯時額外寫入「建構子參數的型別」資訊，
+    //                             Nest 就是靠它決定該注入哪個零件
+    // 拿掉第二行，整個依賴注入會全面失效（Ch0 作業第 3 題看到的錯誤）。
     "emitDecoratorMetadata": true,
     "experimentalDecorators": true,
     "allowSyntheticDefaultImports": true,

@@ -1,17 +1,46 @@
-// Prisma schema：這裡定義資料模型，`prisma migrate` 依此產生 SQL，
-// `prisma generate` 依此產生型別安全的查詢 client。
-// 文件：https://pris.ly/d/prisma-schema
+// ============================================================
+// [教學] schema.prisma —— 資料模型的唯一來源
+//
+// 重要：這個檔案不是程式，不會被執行。它是一份宣告，餵給兩個指令用：
+//
+//   pnpm exec prisma migrate dev   讀它 → 產生 SQL → 真的去改資料庫的表結構
+//   pnpm exec prisma generate      讀它 → 產生 TypeScript 程式碼到 src/generated/
+//                                        （PrismaService 繼承的 PrismaClient 就是它）
+//
+// 所以「改完 schema 一定要跑 generate」不是儀式，是因為不跑的話
+// 程式裡用到的型別還停留在舊版本。
+//
+// Ch1 會在這個檔案下方加入四個 model（Survey / Question / Response / Answer）。
+// 目前還是空的，只有兩塊設定。
+//
+// 下一站：prisma.config.ts（CLI 執行時從哪裡拿到資料庫連線字串）
+// ============================================================
 
+// [教學] generator 區塊 = 「產生程式碼時要照什麼規則」。
+// 這裡的設定只影響 `prisma generate` 的產物，跟資料庫本身無關。
 generator client {
+  // 用哪一種產生器。prisma-client 是 v7 的新版產生器。
   provider = "prisma-client"
+
+  // 產生的程式碼放哪。放在 src/ 底下是刻意的，理由見 docs/chapters/ch00-環境建置.md 的
+  // 「為什麼 Prisma client 要輸出到 src/generated/」。這個資料夾不進版控。
   output   = "../src/generated/prisma"
 
+  // [教學↓] 以下這段是 Prisma 7 太新造成的相容性處理，跟學後端無關，
+  // 現階段可以直接跳過，知道「不能刪」就夠了。
+  //
   // NestJS 預設編譯成 CommonJS，而 prisma-client generator 預設輸出 ESM
   // （會用到 import.meta.url，Node 一看到就把檔案當 ESM 載入，於是 exports 未定義）。
   // 明確指定 cjs 讓兩邊對齊。
   moduleFormat = "cjs"
 }
 
+// [教學] datasource 區塊 = 「要連到哪一種資料庫」。
+// 注意這裡只寫了 provider、沒有 url —— 這是 Prisma 7 的特徵。
+// 連線字串改由兩個地方各自提供：
+//   執行期（跑 API 時）→ src/prisma/prisma.service.ts 的 ConfigService
+//   CLI（跑 migrate 時）→ prisma.config.ts
+// 好處是連線字串不會出現在這個進版控的檔案裡。
 datasource db {
   provider = "postgresql"
 }
