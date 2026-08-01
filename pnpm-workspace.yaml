@@ -1,0 +1,9 @@
+# pnpm 10 之後預設不執行依賴的安裝腳本（postinstall），必須在這裡逐一批准。
+# 沒批准的話連 `pnpm exec` 都會失敗 —— 它會先跑一次 install 檢查。
+#
+# 這個檔案要進版控：換一台機器、或 pnpm 升到新版本時，會卡在同一個地方。
+allowBuilds:
+  '@prisma/engines': true # Prisma 的查詢引擎，安裝時要下載對應平台的二進位檔
+  esbuild: true # 原生 binary，@nestjs/cli 與 tsx 依賴它
+  prisma: true # Prisma CLI 本身
+  unrs-resolver: true # eslint 的模組解析器（Rust 寫的原生模組）
