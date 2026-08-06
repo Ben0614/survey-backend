@@ -10,8 +10,9 @@
 // 所以「改完 schema 一定要跑 generate」不是儀式，是因為不跑的話
 // 程式裡用到的型別還停留在舊版本。
 //
-// Ch1 會在這個檔案下方加入四個 model（Survey / Question / Response / Answer）。
-// 目前還是空的，只有兩塊設定。
+// 四個 model（Survey / Question / Response / Answer）在檔案下方。
+// 它們背後的資料庫觀念（主鍵、外鍵、一對多、唯一約束）寫在
+// docs/關聯式資料庫基礎.md —— 這裡只負責「翻譯成 Prisma 的寫法」。
 //
 // 下一站：prisma.config.ts（CLI 執行時從哪裡拿到資料庫連線字串）
 // ============================================================
@@ -24,7 +25,7 @@ generator client {
 
   // 產生的程式碼放哪。放在 src/ 底下是刻意的，理由見 docs/chapters/ch00-環境建置.md 的
   // 「為什麼 Prisma client 要輸出到 src/generated/」。這個資料夾不進版控。
-  output   = "../src/generated/prisma"
+  output = "../src/generated/prisma"
 
   // [教學↓] 以下這段是 Prisma 7 太新造成的相容性處理，跟學後端無關，
   // 現階段可以直接跳過，知道「不能刪」就夠了。
@@ -43,4 +44,41 @@ generator client {
 // 好處是連線字串不會出現在這個進版控的檔案裡。
 datasource db {
   provider = "postgresql"
+}
+
+// ------------------------------------------------------------
+// 以下是資料模型。四個 model 對應四張資料表。
+// ------------------------------------------------------------
+
+// [教學] enum = 「這個欄位只能是這幾個值之一」，資料庫層級就擋住錯的值。
+// 只放實際用得到的兩個狀態：LEARNING.md 的兩條商業規則
+// （只有 PUBLISHED 能被填答、DRAFT 才能改題目）就只需要這兩個。
+// 多加一個沒人用的 CLOSED，就是課綱修訂紀錄裡檢討過的「死欄位」。
+enum SurveyStatus {
+  DRAFT
+  PUBLISHED
+}
+
+/// 問卷本身。它是最上層，不依附任何人，所以沒有任何外鍵。
+model Survey {
+  // [教學] @id 宣告主鍵，@default(cuid()) 指定「沒給值時自動產生一個 cuid」。
+  // 選 cuid 而不是自增整數，是因為問卷 id 會出現在給外部填答的網址裡：
+  // /surveys/7 只要改成 8 就能看到別人的問卷，而且等於公告「我們總共幾份問卷」。
+  id     String       @id @default(cuid())
+  title  String
+  status SurveyStatus @default(DRAFT)
+
+  // [教學] @default(now()) 由資料庫在新增時填入；
+  // @updatedAt 由 Prisma 在每次更新時自動改寫，不用自己記得帶。
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  // [教學] 這兩行是整個 schema 最容易誤解的地方：
+  // 它們**不會在資料庫產生任何欄位**，是給 Prisma Client 用的虛擬欄位，
+  // 存在的理由只是讓你之後能寫 include: { questions: true }。
+  //
+  // 真正的外鍵在 Question / Response 那一邊（外鍵永遠放在「多」那一邊）。
+  // 等一下讀 migration.sql 時，你會發現這兩行完全找不到對應的 SQL。
+  questions Question[]
+  responses Response[]
 }
