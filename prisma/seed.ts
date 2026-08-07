@@ -10,7 +10,7 @@
 // 這也是你第一次看到 Prisma Client 的查詢寫法 —— Ch2 會正式講，
 // 這裡先當範本讀過去就好。
 //
-// 下一站：test/health.e2e-spec.ts（怎麼自動驗證整條路都通）
+// 下一站：src/setup-app.ts（正式環境與測試怎麼共用同一組全域設定）
 // ============================================================
 
 // [教學] 這個檔案是獨立執行的腳本，沒有 NestJS 幫忙，
@@ -129,7 +129,7 @@ async function main() {
     create: { id: RESPONSE_ID, surveyId: PUBLISHED_SURVEY_ID },
   });
 
-  const answers = ['一到六個月', '匯出報表', '4'];
+  const answers = ['6到12個月', '匯出報表', '4'];
 
   for (const [index, content] of answers.entries()) {
     const questionId = `${PUBLISHED_SURVEY_ID}-q${index}`;

@@ -12,7 +12,8 @@
 > 換機或開新對話時**先讀這一節**。對話歷史與 AI 記憶都在 `~/.claude/` 底下，不跟 git 走 ——
 > 這裡沒寫的東西，換一台機器就等於沒發生過。
 
-**進度：** Ch0、Ch1 完成（皆含理解驗收）。**下一章是 Ch2 —— 第一個 CRUD + 測試資料庫隔離。**
+**進度：** Ch0、Ch1 完成（皆含理解驗收）。**Ch2 進行中 —— 隔離與 `findAll`/`create` 已完成，
+其餘 CRUD 待寫**（詳見下方「Ch2 接續點」）。
 
 **重要脈絡：** Ch0 的程式碼是 AI 產生的，因此進度表的 ✅ 起初**只代表環境可用**，
 不代表讀得懂 —— 為此補了一批 `[教學]` 註解當作理解鷹架（見 `docs/專案速查.md` 的「閱讀動線」）。
@@ -41,13 +42,48 @@ seed 可重複執行。三個 model 由自己寫、教練 review，第一輪抓�
 
 ---
 
-### Ch2 起點
+### Ch2 接續點（2026-08-07 停在這裡）
 
-主題是**第一個 CRUD（Surveys）+ 測試資料庫隔離**。順序上要先做隔離：
-E2E 測試會清資料，沒有 `.env.test` 指向獨立的 Neon test branch 就會清掉開發資料庫。
+**已完成並驗證**（`pnpm test:e2e` 7 passed、lint / build 綠、
+且已確認**開發**資料庫的 seed 資料沒被清掉：2 問卷 / 6 題 / 1 回覆 / 3 答案）：
 
-Ch1 留下的東西 Ch2 會直接用到：`prisma/seed.ts` 是目前唯一的 Prisma Client 範例
-（`upsert` 的 `where` / `update` / `create` 三段分工、複合唯一鍵的 `responseId_questionId` 寫法）。
+| 檔案 | 內容 |
+| --- | --- |
+| `test/setup-env.ts` | 載入 `.env.test`；兩道防呆：檔案不存在、或 `DATABASE_URL` 與 `.env` 相同 → 直接 throw |
+| `test/helpers/reset-db.ts` | `TRUNCATE` 四張表 `CASCADE`，各 e2e 檔在 `beforeEach` 呼叫 |
+| `test/jest-e2e.json` | 加 `setupFiles` |
+| `src/setup-app.ts` | `ValidationPipe({ whitelist, transform })`，`main.ts` 與 e2e **都要呼叫** |
+| `src/surveys/` | DTO / service / controller / module，只有 `findAll` + `create` |
+| `test/surveys.e2e-spec.ts` | 6 個案例，含「偷塞 `status` 會被 whitelist 無聲丟掉」 |
+
+> **換機器後 `.env.test` 不存在，測試會直接失敗**（防呆刻意如此）。重建：
+> Neon Console → Branches → New branch 命名 `test` → 複製連線字串寫進 `.env.test` →
+> `$env:DATABASE_URL="<test 的字串>"; pnpm exec prisma migrate deploy`（新 branch 是空的，要先建表）。
+
+**下一步：自己寫 `findOne` / `update` / `remove`**（教練模式，寫完再 review）：
+
+- **404** —— `findUnique` 回 `null` 時丟 `NotFoundException`，不要回 `200 null`
+- `UpdateSurveyDto` 用 `PartialType(CreateSurveyDto)`（`@nestjs/mapped-types` 已安裝）
+- `remove` 之後底下的 Question / Response / Answer 應一起消失 ——
+  Ch1 的 `onDelete: Cascade` 第一次被實際驗證，這值得寫一個 E2E
+- 每個端點**寫的當下**就補 E2E，不要留到最後
+
+**寫完之後的 Ch2 剩餘工作：** `docs/chapters/ch02-*.md`（核心概念 / 決策取捨 / 踩到的坑 / 作業）、
+`docs/設定檔導讀.md` 補 `setupFiles`、`docs/專案速查.md` 的檔案地圖與閱讀動線、進度表改 ✅。
+
+**已知要寫進 ch02 的坑：**
+1. `.env.test` 從 Ch0 起就**從來沒被載入過** —— `jest-e2e.json` 沒有 `setupFiles`，
+   `health.e2e-spec.ts` 檔頭那句「連 `.env.test`」一直是錯的（Ch2 開頭發現並修正）
+2. `Test.createTestingModule` 建的 app **不套用 `main.ts` 的全域設定** →
+   手測回 400、E2E 回 201。解法是抽 `src/setup-app.ts` 兩邊共用
+3. `jest-e2e.json` 的 `<rootDir>` 是**設定檔所在目錄**（`test/`），不是專案根目錄
+4. DTO 屬性的 `!`（definite assignment assertion）在本專案**不需要** ——
+   `tsconfig.json` 只開 `strictNullChecks`，沒開 `strict` / `strictPropertyInitialization`
+5. `whitelist: true` 判斷的是「屬性**有沒有驗證裝飾器**」，不是「class 有沒有宣告它」。
+   新增欄位忘了加裝飾器 → 該欄位被無聲丟掉，症狀是「怎麼傳都存不進去」
+
+**Ch2 不做的事：** 分頁/排序/篩選（Ch4）、Question 巢狀資源（Ch3）、
+統一錯誤處理 Filter（Ch6）、Swagger（Ch7）、單元測試（這章沒有商業邏輯）。
 
 > **加分項（非前提）：** 讀 NestJS 官方文件 Overview 前四篇
 > （First steps / Controllers / Providers / Modules，約一小時）。內容與閱讀動線的九個檔案

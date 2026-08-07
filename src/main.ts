@@ -5,17 +5,24 @@
 // 它只做三件事：組裝應用 → 設定關機行為 → 開始聽 HTTP。
 // 之後每一章新增的功能，幾乎都不會再改到這裡。
 //
+// 全域設定（驗證等）抽在 src/setup-app.ts，因為測試也要套用同一份。
+//
 // 下一站：src/app.module.ts（那張「零件清單」裡到底裝了什麼）
 // ============================================================
 
 import { NestFactory } from '@nestjs/core';
 import { AppModule } from './app.module';
+import { setupApp } from './setup-app';
 
 async function bootstrap() {
   // [教學] NestJS 的核心想法：你不自己 new 任何東西，只宣告「有哪些零件」。
   // AppModule 就是那張零件清單，NestFactory 拿著清單把所有 controller、
   // service 建立起來並互相接好，回傳一個組裝完成的應用。
   const app = await NestFactory.create(AppModule);
+
+  // [教學] 全域設定（目前是 ValidationPipe）抽在 setup-app.ts，
+  // 因為 E2E 測試也要套用同一份 —— 理由見那個檔案的檔頭。
+  setupApp(app);
 
   // 讓 Ctrl+C / SIGTERM 時能觸發 onModuleDestroy，正常關閉資料庫連線池。
   // 部署到 Render 之後這件事更重要，否則每次重啟都會留下沒關掉的連線。

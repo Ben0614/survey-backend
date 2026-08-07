@@ -5,12 +5,13 @@
 // 只是改由程式執行、而且會自己檢查結果對不對。
 //
 // 跑法：pnpm test:e2e
-// 它會連真實資料庫（.env.test 指定的 Neon test branch），不是假資料。
+// 它會連真實資料庫，不是假資料 —— 具體是哪一個由 test/setup-env.ts 決定
+// （Ch2 才真正接上 .env.test；在那之前這裡連的其實是開發資料庫）。
 //
 // 從 Ch2 開始，每一章的驗收標準就是「該章的 E2E 測試綠燈」，
 // 所以這個檔案的形狀你之後會反覆用到。
 //
-// 動線終點。回到 main.ts 再走一次，看看是不是都串起來了。
+// 下一站：test/surveys.e2e-spec.ts（一個會寫入資料的測試長什麼樣）
 // ============================================================
 
 import { INestApplication } from '@nestjs/common';
@@ -18,6 +19,7 @@ import { Test, TestingModule } from '@nestjs/testing';
 import request from 'supertest';
 import { App } from 'supertest/types';
 import { AppModule } from '../src/app.module';
+import { setupApp } from '../src/setup-app';
 
 /**
  * E2E 測試：不 mock 任何東西，把整個 Nest 應用（含真實資料庫連線）跑起來，
@@ -45,6 +47,8 @@ describe('Health (e2e)', () => {
     }).compile();
 
     app = moduleFixture.createNestApplication();
+    // [教學] 測試建立的應用不會自動套用 main.ts 的全域設定，要自己呼叫一次。
+    setupApp(app);
     await app.init();
   });
 

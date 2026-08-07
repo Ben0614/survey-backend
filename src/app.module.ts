@@ -15,6 +15,7 @@ import { Module } from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
 import { HealthModule } from './health/health.module';
 import { PrismaModule } from './prisma/prisma.module';
+import { SurveysModule } from './surveys/surveys.module';
 
 // [教學] @Module({...}) 是一個 decorator —— 寫在 class 上方、以 @ 開頭的東西。
 // decorator 本身不執行邏輯，只是把設定資料「貼」在 class 上，讓 Nest
@@ -38,6 +39,7 @@ import { PrismaModule } from './prisma/prisma.module';
     // Nest 會依照彼此的依賴關係自行決定實際的建立順序。
     PrismaModule,
     HealthModule,
+    SurveysModule,
   ],
 })
 export class AppModule {}
