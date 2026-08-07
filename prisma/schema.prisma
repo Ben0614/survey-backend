@@ -82,3 +82,46 @@ model Survey {
   questions Question[]
   responses Response[]
 }
+
+enum QuestionType {
+  TEXT
+  SINGLE_CHOICE
+}
+
+model Question {
+  id       String       @id @default(cuid())
+  surveyId String
+  title    String
+  type     QuestionType
+  order    Int
+  survey   Survey       @relation(fields: [surveyId], references: [id], onDelete: Cascade)
+  options  String[]
+
+  answers Answer[]
+
+  @@index([surveyId])
+}
+
+model Answer {
+  id         String @id @default(cuid())
+  questionId String
+  responseId String
+  content    String
+
+  question Question @relation(fields: [questionId], references: [id], onDelete: Cascade)
+  response Response @relation(fields: [responseId], references: [id], onDelete: Cascade)
+
+  @@unique([responseId, questionId])
+  @@index([questionId])
+}
+
+model Response {
+  id        String   @id @default(cuid())
+  surveyId  String
+  createdAt DateTime @default(now())
+  survey    Survey   @relation(fields: [surveyId], references: [id], onDelete: Cascade)
+
+  answers Answer[]
+
+  @@index([surveyId])
+}

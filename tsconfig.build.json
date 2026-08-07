@@ -1,7 +1,14 @@
 {
   "extends": "./tsconfig.json",
-  // prisma.config.ts 在專案根目錄，只給 Prisma CLI 用，不屬於 build 產物。
-  // 若不排除，tsc 推導出的 rootDir 會變成專案根目錄，
+  // prisma.config.ts 與 prisma/seed.ts 都在 src/ 外面，只給 Prisma CLI 用，
+  // 不屬於 build 產物。若不排除，tsc 推導出的 rootDir 會從 src/ 擴大到專案根目錄，
   // 輸出就會變成 dist/src/main.js，讓 `node dist/main` 找不到進入點。
-  "exclude": ["node_modules", "test", "dist", "**/*spec.ts", "prisma.config.ts"]
+  "exclude": [
+    "node_modules",
+    "test",
+    "dist",
+    "**/*spec.ts",
+    "prisma.config.ts",
+    "prisma/seed.ts"
+  ]
 }

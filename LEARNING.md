@@ -12,7 +12,7 @@
 > 換機或開新對話時**先讀這一節**。對話歷史與 AI 記憶都在 `~/.claude/` 底下，不跟 git 走 ——
 > 這裡沒寫的東西，換一台機器就等於沒發生過。
 
-**進度：** Ch0 完成（含理解驗收），**Ch1 進行中 —— 停在 schema 寫到一半**（詳見下方「Ch1 接續點」）。
+**進度：** Ch0、Ch1 完成（皆含理解驗收）。**下一章是 Ch2 —— 第一個 CRUD + 測試資料庫隔離。**
 
 **重要脈絡：** Ch0 的程式碼是 AI 產生的，因此進度表的 ✅ 起初**只代表環境可用**，
 不代表讀得懂 —— 為此補了一批 `[教學]` 註解當作理解鷹架（見 `docs/專案速查.md` 的「閱讀動線」）。
@@ -28,57 +28,26 @@
 **表是集合、列沒有固有順序**，所以位置與列號永遠不能拿來當資料；
 唯一約束的**作用範圍由它所在的表決定**（`(responseId, questionId)` 擋不住重複送出）。
 
+**2026-08-07 —— Ch1 完成。** 四張表建在 Neon（`20260807020256_init_survey_schema`），
+seed 可重複執行。三個 model 由自己寫、教練 review，第一輪抓到六項（最嚴重的是
+`Answer` 只有 `questionId` 欄位卻沒寫 `@relation`，等於**沒有外鍵**），全部自行修正後 `validate` 通過。
+
+讀 `migration.sql` 的驗收兩題半對半錯，已補講並寫進 [`ch01`](docs/chapters/ch01-schema設計與第一次migration.md)。
+兩個補講的重點：**`ON DELETE` 與 `ON UPDATE` 是兩個獨立的觸發時機**（後者盯的是主鍵本身被改）；
+**`@default(cuid())` 與 `@updatedAt` 完全沒有下放到資料庫**，繞過 Prisma 直接下 SQL 就會失效 ——
+「哪些規則真的活在資料庫裡」是這一章最該帶走的東西。
+
 原則不變：**確認前一章讀得懂，再進下一章。**
 
 ---
 
-### Ch1 接續點（2026-08-06 停在這裡）
+### Ch2 起點
 
-`prisma/schema.prisma` 目前**只寫了 `Survey` 與 `enum SurveyStatus`**，是教練示範的範本
-（`[教學]` 註解裡寫了三個決策的理由：為什麼用 cuid、為什麼狀態只放兩個值、
-為什麼 `questions Question[]` 不會產生欄位）。
+主題是**第一個 CRUD（Surveys）+ 測試資料庫隔離**。順序上要先做隔離：
+E2E 測試會清資料，沒有 `.env.test` 指向獨立的 Neon test branch 就會清掉開發資料庫。
 
-> **`pnpm exec prisma validate` 現在一定會報
-> `Type "Question" is neither a built-in type...` —— 這是預期的，不是 bug。**
-> `Survey` 已經提到了還不存在的 model，三個補齊後就會消失。不要為了消掉紅線去改 `Survey`。
-
-**下一步：自己寫 `Question` / `Response` / `Answer` 三個 model**（教練模式，寫完再 review）。
-背後的觀念全在 [`docs/關聯式資料庫基礎.md`](docs/關聯式資料庫基礎.md)，這一步只是翻譯成 Prisma 語法：
-
-| model | 要有的東西 |
-| --- | --- |
-| `Question` | 主鍵、外鍵 → Survey、題目文字、`enum QuestionType`（**只做 `SINGLE_CHOICE` / `TEXT`**）、`options String[]`、`order Int`（**表沒有固有順序**，所以排序必須是欄位）、`answers Answer[]`、外鍵索引 |
-| `Response` | 主鍵、外鍵 → Survey、填答時間、`answers Answer[]`、外鍵索引。**`userId` 是 Ch9 才加，現在不要預留** |
-| `Answer` | 主鍵、**兩個**外鍵（Response 與 Question）、內容字串、`@@unique([responseId, questionId])`、兩個外鍵各自的索引 |
-
-**三個要自己判斷並說得出理由的地方：**
-`Answer.responseId` 的 `onDelete`、`Answer.questionId` 的 `onDelete`
-（跟「一旦有人填答就不能再改題目」這條規則是什麼關係？）、
-以及 `Question.surveyId` 與 `Response.surveyId` 的 `onDelete` 是否相同。
-
-三個 model 寫完之後的 Ch1 剩餘工作：
-
-1. `pnpm exec prisma validate` → `pnpm exec prisma migrate dev --name init_survey_schema`
-   → `pnpm exec prisma generate`（**`migrate dev` 不會自動產生 client**）
-   - **可能踩的坑：shadow database。** Neon 不一定允許 CLI 自己建臨時資料庫。
-     真的失敗再處理：Neon 開一個 branch 當 shadow → `.env` 加 `SHADOW_DATABASE_URL`
-     （同步補進 `.env.example`）→ `prisma.config.ts` 的 `datasource` 加 `shadowDatabaseUrl`。
-     **失敗時不要亂試 `reset` 或手動去 Neon 建表**，migration 歷史搞亂比原錯誤難救。
-2. **讀 `prisma/migrations/<timestamp>_init_survey_schema/migration.sql`** ——
-   本章 CP 值最高的一步，把 `@relation` → `FOREIGN KEY`、`@@unique` → `CREATE UNIQUE INDEX`
-   一條一條對回去，並確認 `questions Question[]` 在 SQL 裡找不到對應欄位。
-   `prisma/migrations/` **要進版控**。
-3. `prisma/seed.ts`（一份 DRAFT + 一份 PUBLISHED 問卷，用 `upsert` 保證可重複執行）；
-   `prisma.config.ts` 的 `migrations` 加 `seed: 'tsx prisma/seed.ts'`（`tsx` 已安裝）。
-   **`prisma/seed.ts` 要加進 `tsconfig.build.json` 的 `exclude`** ——
-   它在 `src/` 外面，不排除會把 `rootDir` 撐大，輸出變成 `dist/src/main.js`
-   （跟 `prisma.config.ts` 同一個坑）。
-4. 把 `prisma/seed.ts` 插進閱讀動線的「下一站」鏈（接在 `prisma.config.ts` 之後），
-   並更新 `docs/專案速查.md` 的閱讀動線圖與檔案地圖。
-5. 補 `docs/chapters/ch01-*.md`，更新進度表。
-
-**Ch1 不做的事：** 不寫 E2E 測試（Ch2 才開始）、不建 `.env.test`（Ch2）、
-不寫任何 controller / service / DTO、不用 `db push` 取代 `migrate dev`。
+Ch1 留下的東西 Ch2 會直接用到：`prisma/seed.ts` 是目前唯一的 Prisma Client 範例
+（`upsert` 的 `where` / `update` / `create` 三段分工、複合唯一鍵的 `responseId_questionId` 寫法）。
 
 > **加分項（非前提）：** 讀 NestJS 官方文件 Overview 前四篇
 > （First steps / Controllers / Providers / Modules，約一小時）。內容與閱讀動線的九個檔案
@@ -100,7 +69,7 @@
 | 章節 | 主題 | 這章的關鍵收穫 | 狀態 |
 | :---: | --- | --- | :---: |
 | Ch0 | 環境建置與 `/health` | DI、module 邊界、生命週期 | ✅ |
-| Ch1 | Schema 設計、第一次 migration、seed | 資料模型設計、migration 是什麼 | ⬜ |
+| Ch1 | Schema 設計、第一次 migration、seed | 資料模型設計、migration 是什麼 | ✅ |
 | Ch2 | 第一個 CRUD（Surveys）+ **測試資料庫隔離** | DTO 驗證、404 處理、`.env.test` 與資料清理 | ⬜ |
 | Ch3 | 巢狀資源與關聯查詢（Questions） | `include`/`select`、**看 Prisma 產生的 SQL**、N+1 | ⬜ |
 | Ch4 | 分頁、排序、篩選 | query string 轉型驗證、`skip/take` vs cursor | ⬜ |
@@ -166,6 +135,7 @@
 | 章節 | 檔案 |
 | --- | --- |
 | Ch0 — 環境建置 | [`docs/chapters/ch00-環境建置.md`](docs/chapters/ch00-環境建置.md) |
+| Ch1 — Schema 設計與第一次 migration | [`docs/chapters/ch01-schema設計與第一次migration.md`](docs/chapters/ch01-schema設計與第一次migration.md) |
 
 ## 跨章節文件
 
