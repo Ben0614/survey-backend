@@ -12,8 +12,8 @@
 > 換機或開新對話時**先讀這一節**。對話歷史與 AI 記憶都在 `~/.claude/` 底下，不跟 git 走 ——
 > 這裡沒寫的東西，換一台機器就等於沒發生過。
 
-**進度：** Ch0、Ch1 完成（皆含理解驗收）。**Ch2 進行中 —— 隔離與 `findAll`/`create` 已完成，
-其餘 CRUD 待寫**（詳見下方「Ch2 接續點」）。
+**進度：** Ch0、Ch1 完成（皆含理解驗收）。**Ch2 進行中 —— 隔離與 `findAll`/`create`/`findOne`
+已完成，`update`/`remove` 待寫**（詳見下方「Ch2 接續點」）。
 
 **重要脈絡：** Ch0 的程式碼是 AI 產生的，因此進度表的 ✅ 起初**只代表環境可用**，
 不代表讀得懂 —— 為此補了一批 `[教學]` 註解當作理解鷹架（見 `docs/專案速查.md` 的「閱讀動線」）。
@@ -38,14 +38,27 @@ seed 可重複執行。三個 model 由自己寫、教練 review，第一輪抓�
 **`@default(cuid())` 與 `@updatedAt` 完全沒有下放到資料庫**，繞過 Prisma 直接下 SQL 就會失效 ——
 「哪些規則真的活在資料庫裡」是這一章最該帶走的東西。
 
+**2026-08-09 —— 換機後踩到「Prisma Client 沒跟上 schema」，並完成 `findOne`。**
+
+開工前先卡在一個會偽裝成「程式碼寫錯」的錯誤：ESLint 報 `Unsafe call of a type that
+could not be resolved`，紅線畫在自己寫的程式碼上，但真正的訊息是 `tsc` 的
+`TS2339` —— `PrismaClient<never, ...>`，那個 `never` 代表 client 認識的 model 集合是空的。
+根因是 `src/generated/` 的產物停在 08/01（當時 schema 有 0 個 model），
+而 **Prisma 7 的 `pnpm install` 不會自動 generate**（已驗證兩個套件都沒有 `postinstall`）。
+完整記錄寫進 [`ch01`](docs/chapters/ch01-schema設計與第一次migration.md) 的
+「Prisma Client 沒跟上 schema」專節。**這一節換機後值得先看一眼。**
+
+`findOne` 自己寫、教練 review，抓到四項：404 的 E2E 沒寫（等於那條路完全沒被驗證）、
+`service` 檔頭「沒有狀態碼」那句話因為加了 `NotFoundException` 而過期、
+方法缺 `/** */`、`@Param` 這個新概念沒有教學註解。全部已補。
+
 原則不變：**確認前一章讀得懂，再進下一章。**
 
 ---
 
-### Ch2 接續點（2026-08-07 停在這裡）
+### Ch2 接續點（2026-08-09 停在這裡）
 
-**已完成並驗證**（`pnpm test:e2e` 7 passed、lint / build 綠、
-且已確認**開發**資料庫的 seed 資料沒被清掉：2 問卷 / 6 題 / 1 回覆 / 3 答案）：
+**已完成並驗證**（`pnpm test:e2e` **9 passed**、`tsc --noEmit` 0 errors、`pnpm lint` 綠）：
 
 | 檔案 | 內容 |
 | --- | --- |
@@ -53,20 +66,47 @@ seed 可重複執行。三個 model 由自己寫、教練 review，第一輪抓�
 | `test/helpers/reset-db.ts` | `TRUNCATE` 四張表 `CASCADE`，各 e2e 檔在 `beforeEach` 呼叫 |
 | `test/jest-e2e.json` | 加 `setupFiles` |
 | `src/setup-app.ts` | `ValidationPipe({ whitelist, transform })`，`main.ts` 與 e2e **都要呼叫** |
-| `src/surveys/` | DTO / service / controller / module，只有 `findAll` + `create` |
-| `test/surveys.e2e-spec.ts` | 6 個案例，含「偷塞 `status` 會被 whitelist 無聲丟掉」 |
+| `src/surveys/` | DTO / service / controller / module，目前有 `findAll` + `create` + `findOne` |
+| `test/surveys.e2e-spec.ts` | 8 個案例，含「偷塞 `status` 會被 whitelist 無聲丟掉」與 `findOne` 的 404 |
 
 > **換機器後 `.env.test` 不存在，測試會直接失敗**（防呆刻意如此）。重建：
 > Neon Console → Branches → New branch 命名 `test` → 複製連線字串寫進 `.env.test` →
 > `$env:DATABASE_URL="<test 的字串>"; pnpm exec prisma migrate deploy`（新 branch 是空的，要先建表）。
 
-**下一步：自己寫 `findOne` / `update` / `remove`**（教練模式，寫完再 review）：
+**下一步：自己寫 `update` / `remove`**（教練模式，寫完再 review）。
+完整規格與提示在計畫檔，但那個檔案**不跟著 git 走**，所以重點抄在這裡：
 
-- **404** —— `findUnique` 回 `null` 時丟 `NotFoundException`，不要回 `200 null`
-- `UpdateSurveyDto` 用 `PartialType(CreateSurveyDto)`（`@nestjs/mapped-types` 已安裝）
-- `remove` 之後底下的 Question / Response / Answer 應一起消失 ——
-  Ch1 的 `onDelete: Cascade` 第一次被實際驗證，這值得寫一個 E2E
-- 每個端點**寫的當下**就補 E2E，不要留到最後
+**`update`**
+
+- 新檔案 `src/surveys/dto/update-survey.dto.ts`，body 只有三行：
+  `export class UpdateSurveyDto extends PartialType(CreateSurveyDto) {}`
+  （`PartialType` 來自 `@nestjs/mapped-types`，已安裝）
+- `PartialType` 做兩件事：屬性全變可選、**保留驗證裝飾器但只在該屬性出現時才套用**。
+  所以 `{}` 通過，`{ title: '' }` 仍被 `@IsNotEmpty()` 擋下回 400
+- 路由用 **`@Patch` 不是 `@Put`**（部分更新 vs 整份取代，要跟 `PartialType` 的語義一致）
+- 404 的處理**這一章選「先 `findOne` 確認存在，再 `update`」**（兩次查詢但直白、可重用）。
+  另一種是 `catch` Prisma 的 `P2025`，那是 Ch6 Exception Filter 的正題，屆時再回頭比較
+- `data: { title: dto.title }` 在 `dto.title` 是 `undefined` 時，Prisma **完全不碰這個欄位**。
+  `undefined` = 不要動，`null` = 設成空值 —— 兩者在 Prisma 是不同意思
+- E2E 5 個案例：改 title / 空 body `{}` 不變 / `title: ''` 回 400 / 不存在回 404 /
+  偷塞 `status` 被 whitelist 丟掉
+- **新檔案要接進閱讀動線**：插在 `create-survey.dto.ts` 與 `surveys.service.ts` 之間，
+  所以要同時改 `create-survey.dto.ts` 的「下一站」
+
+**`remove`**
+
+- 跟 `update` 同一套 404 處理。狀態碼**選回傳被刪的那筆（`200`）**，
+  不用 `204`（`prisma.delete()` 本來就回傳被刪的資料，E2E 也好斷言）
+- 重點不是端點本身，是 **cascade 的驗證**：用 `prisma` 直接建
+  `Survey → Question → Response → Answer`（資料形狀參考 `prisma/seed.ts`），
+  `DELETE` 之後用 `count()` 確認三張子表都空了。
+  **第 3 步必須用 `prisma` 直接查、不能用 API** —— 要驗的是資料庫層級的行為。
+  這是 Ch1 的 `onDelete: Cascade` 第一次被自動化測試實際驗證
+- E2E 3 個案例：刪掉後 `GET` 回 404 / 刪不存在的 id 回 404 / cascade
+
+**共通原則：** 一次做完一個端點（service → controller → E2E → 跑測試），不要兩個一起寫。
+每個端點**寫的當下**就補 E2E，不要留到最後。
+驗收是三個都綠：`pnpm test:e2e`（目標 16 passed）、`pnpm exec tsc --noEmit`、`pnpm lint`。
 
 **寫完之後的 Ch2 剩餘工作：** `docs/chapters/ch02-*.md`（核心概念 / 決策取捨 / 踩到的坑 / 作業）、
 `docs/設定檔導讀.md` 補 `setupFiles`、`docs/專案速查.md` 的檔案地圖與閱讀動線、進度表改 ✅。
@@ -81,6 +121,13 @@ seed 可重複執行。三個 model 由自己寫、教練 review，第一輪抓�
    `tsconfig.json` 只開 `strictNullChecks`，沒開 `strict` / `strictPropertyInitialization`
 5. `whitelist: true` 判斷的是「屬性**有沒有驗證裝飾器**」，不是「class 有沒有宣告它」。
    新增欄位忘了加裝飾器 → 該欄位被無聲丟掉，症狀是「怎麼傳都存不進去」
+6. **一個 `it` 只驗一件事。** 曾把「200 回傳問卷」和「404」寫在同一個 `it` 裡，測試照樣綠 ——
+   但**斷言失敗會中斷整個 `it`**，前面的 200 一紅，後面的 404 根本不會執行，
+   等於那條路默默失去保護，而且從測試報告上完全看不出來
+7. **改程式碼會讓註解過期。** 加了 `NotFoundException` 之後，`surveys.service.ts` 檔頭
+   那句「它不知道 HTTP 的存在 —— 沒有狀態碼」就變成錯的（404 就是狀態碼）。
+   **註解寫錯比沒寫更糟**，因為之後你會相信它。順帶帶出一個取捨：
+   service 丟 HTTP 例外破了分層，但另外兩種做法在 Ch2 都太重，Ch6 會回頭重看
 
 **Ch2 不做的事：** 分頁/排序/篩選（Ch4）、Question 巢狀資源（Ch3）、
 統一錯誤處理 Filter（Ch6）、Swagger（Ch7）、單元測試（這章沒有商業邏輯）。

@@ -132,4 +132,40 @@ describe('Surveys (e2e)', () => {
       expect(surveys[0].title).toBe('第二份');
     });
   });
+
+  describe('GET /surveys/:id', () => {
+    it('回傳指定問卷', async () => {
+      // [教學] 這裡要把 create 的回傳值接起來（前面的列表測試沒有這樣做）。
+      // 因為 id 是 cuid、是隨機的，測試無法預先知道它會是什麼，
+      // 只能從建立的結果拿回來再組進網址。
+      const survey = await prisma.survey.create({
+        data: { title: '指定問卷' },
+      });
+
+      const res = await request(app.getHttpServer())
+        .get(`/surveys/${survey.id}`)
+        .expect(200);
+
+      expect(res.body).toMatchObject({
+        id: survey.id,
+        title: '指定問卷',
+      });
+    });
+
+    // [教學] 404 刻意獨立成一個 it，不寫在上面那個裡面。
+    //
+    // 一個 it 只驗一件事，理由有兩層：
+    //   表面上 —— 失敗時光看測試名稱就知道壞的是哪一條路，不必進去讀程式碼。
+    //   實際上 —— 斷言失敗會**中斷**整個 it。兩件事寫在一起時，
+    //             只要前面的 200 先紅，後面的 404 根本不會被執行，
+    //             等於這條路默默失去保護，而你從報告上看不出來。
+    //
+    // 這一條不需要建任何前提資料 —— beforeEach 已經把資料庫清空了，
+    // 隨便一個 id 都必然不存在。
+    it('id 不存在時回 404', async () => {
+      await request(app.getHttpServer())
+        .get('/surveys/nonexistent-id')
+        .expect(404);
+    });
+  });
 });
