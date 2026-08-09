@@ -181,8 +181,128 @@ seed 必須能重複執行不出事，而 `upsert`（有就更新、沒有就新
 | `Answer` 有 `questionId` 欄位卻沒有外鍵約束 | 只寫了 `questionId String`，沒寫 `@relation` | 光有欄位不會產生 `FOREIGN KEY`，資料庫不會擋亂填的 id。要補 `@relation`，並在對方 model 加 `answers Answer[]` |
 | 外鍵查詢很慢 | PostgreSQL 只對主鍵和唯一約束自動建索引，**外鍵不會** | 每個外鍵欄位自己加 `@@index` |
 | `pnpm lint` / `pnpm format` 不檢查 `prisma/seed.ts` | 兩個指令的 glob 是 `{src,apps,libs,test}/**/*.ts`，不含 `prisma/` | 目前靠 IDE 的 ESLint 外掛與手動 `pnpm exec prettier --write prisma/seed.ts`。若之後 `prisma/` 底下的程式碼變多，再考慮擴大 glob |
+| ESLint 報 `Unsafe call of a type that could not be resolved` / `Unsafe member access .xxx on a type that cannot be resolved` | `src/generated/` 的 Prisma Client 沒跟上 `schema.prisma` | `pnpm exec prisma generate`。**這個坑會反覆出現且訊息會誤導，見下方專節** |
 
 **`prisma/seed.ts` 必須加進 `tsconfig.build.json` 的 `exclude`。** 它在 `src/` 外面，不排除的話 tsc 推導的 `rootDir` 會從 `src/` 擴大到專案根目錄，`pnpm build` 的輸出變成 `dist/src/main.js`，`pnpm start:prod` 直接找不到進入點。這跟 Ch0 的 `prisma.config.ts` 是同一個坑 —— **在專案根目錄或 `src/` 外面新增任何 `.ts` 檔都要記得這件事。**
+
+### Prisma Client 沒跟上 schema —— 一個會偽裝成「程式碼寫錯」的錯誤
+
+這個坑在 2026-08-09 實際踩到，而且**踩了兩次才找到根因**，值得完整記下來。它的麻煩不在於難修（一行指令），而在於**它給你的錯誤訊息指向錯誤的地方**。
+
+#### 症狀
+
+編輯器裡冒出這兩條，紅線畫在 `prisma/seed.ts`、`src/surveys/surveys.service.ts` 這些**你自己寫的程式碼**上：
+
+```text
+Unsafe call of a type that could not be resolved.
+Unsafe member access .upsert on a type that cannot be resolved.
+```
+
+`.upsert`、`.create`、`.findMany` —— 底線畫在哪個方法，取決於你剛好打開哪個檔案。**這是同一個病，不是好幾個。**
+
+#### 為什麼訊息會誤導
+
+這兩條是 **ESLint** 的規則（`@typescript-eslint/no-unsafe-call`、`no-unsafe-member-access`），不是 TypeScript 本身的錯誤。字面讀起來像是在說「你這樣呼叫不安全」，於是很自然會去改 `seed.ts` 或 service —— 但那裡沒有任何東西需要改。
+
+實情是：ESLint 這兩條規則只是在**轉述** TypeScript 的困惑。跑 `tsc` 才會看到原始訊息：
+
+```text
+prisma/seed.ts(99,18): error TS2339: Property 'survey' does not exist on
+  type 'PrismaClient<never, GlobalOmitConfig | undefined, DefaultArgs>'.
+src/surveys/surveys.service.ts(31,24): error TS2339: Property 'survey' does not exist on
+  type 'PrismaService'.
+```
+
+留意措辭上的一個細節：訊息說的是「a type that **could not be resolved**」，不是「of an `any` value」。這兩者在 typescript-eslint 是不同的分支 —— 前者代表 TypeScript **解析型別失敗**，後者才是「這東西是 `any`」。看到 could not be resolved，就該去追型別從哪裡來。
+
+> **通則：ESLint 抱怨型別時，第一件事是跑 `pnpm exec tsc --noEmit`。**
+> ESLint 站在 TypeScript 上面，它看到的是二手資訊。讓底層的錯誤自己講話，能省掉一整輪的瞎猜。
+
+#### 最關鍵的線索：那個 `never`
+
+`PrismaClient<never, ...>` 裡的 `never` 不是「型別壞掉了」，它精確地在說一件事：**這個 client 認識的 model 集合是空的。**
+
+`prisma generate` 產生的 `PrismaClient` 是泛型的，第一個型別參數帶的是「有哪些 model」。schema 裡有四個 model 時它是那四個的聯集；schema 裡一個 model 都沒有時，聯集就退化成 `never`。而 `never` 上面當然找不到 `.survey`、`.question`。
+
+驗證只要一眼：
+
+```bash
+ls src/generated/prisma/models/
+```
+
+正常應該有 `Survey.ts` / `Question.ts` / `Response.ts` / `Answer.ts` 四個檔案。當時那個目錄是**空的**，`models.ts` 只有 316 bytes 的空殼。
+
+> 看到 `never` 就直接去看 `models/` 有沒有東西 —— 這比讀任何 stack trace 都快。
+
+#### 根因：生成產物停在六天前
+
+把檔案時間戳和 git 歷史對起來，時間線一清二楚：
+
+| 時間 | 事件 | 當時 `schema.prisma` 的 model 數 |
+| --- | --- | --- |
+| 07/31 17:02 (`71e1c65`) | Ch0 的最後一次 schema 變動 | **0** |
+| **08/01 17:23** | **`src/generated/prisma/` 的檔案時間戳** | — |
+| 08/06 13:41 (`c498dbd`) | Ch1 寫了 `Survey` 範本 | 1 |
+| 08/07 14:08 (`3ca33ac`) | Ch1 四個 model 完成 | 4 |
+
+也就是說：**這台機器上的 Prisma Client 是在 schema 還沒有任何 model 的時候產生的**，之後兩次 schema 變動它都沒跟上。難怪 model 集合是空的。
+
+而 `schema.prisma`、`migrations/`、資料庫本身全都是對的 —— 四張表好端端在 Neon 上。**壞掉的只有「schema 翻譯成 TypeScript 型別」這一步的產物。**
+
+#### 為什麼 `pnpm install` 不會幫你補
+
+很多人（和很多網路教學）預設「裝完依賴 client 就會存在」。在 Prisma 7 **不成立**，這一點可以直接驗證：
+
+```bash
+node -e "console.log(require('./node_modules/@prisma/client/package.json').scripts)"
+```
+
+`@prisma/client@7.9.0` 的 `scripts` 裡**沒有 `postinstall`**，`prisma@7.9.0` 也只有 `preinstall`。沒有任何一個安裝階段的 hook 會去跑 generate。
+
+（`pnpm-workspace.yaml` 的 `allowBuilds` 批准的是 `@prisma/engines` 下載查詢引擎的二進位檔 —— 那是**引擎**，跟**產生型別**是兩件事。引擎下載成功不代表 client 有被產生。）
+
+再加上 `.gitignore` 第 10 行的 `/src/generated`，就湊出了這個坑最完整的形狀：
+
+> **`src/generated/` 不進版控、不會被 install 產生、也不會被任何指令自動補。
+> 它只在你手動跑 `prisma generate` 的那一刻存在，而且只反映那一刻的 schema。**
+
+#### 什麼時候必須跑 `prisma generate`
+
+`CLAUDE.md` 和速查裡寫的是「改完 schema 一定要跑」。實際的觸發時機比那句話更多：
+
+| 時機 | 為什麼 |
+| --- | --- |
+| 改完 `schema.prisma` | 最常見的那一種，型別要跟著新欄位／新 model 走 |
+| **換一台機器之後** | `src/generated/` 有 gitignore，`git pull` 不會帶過來，`pnpm install` 也不會補 |
+| **`node_modules` 被重建之後** | 引擎二進位檔在 `node_modules` 裡，被刪過就要重產 |
+| 從舊 branch 切回來，而兩邊 schema 不同 | 產物只反映「上次 generate 時」的 schema，不會跟著 git 切換 |
+
+本專案這次屬於第二種。速查的「換機接續」步驟裡本來就有 `pnpm exec prisma generate` 這一行，**漏掉它的代價就是這個坑**。
+
+#### 解法與驗證
+
+```bash
+pnpm exec prisma generate
+```
+
+然後照順序確認三件事，缺一不可：
+
+```bash
+ls src/generated/prisma/models/   # 應該有四個 .ts 檔
+pnpm exec tsc --noEmit            # 應該 0 errors
+pnpm lint                         # ESLint 那兩條會跟著消失
+```
+
+**不要只看編輯器的紅線有沒有消失。** 編輯器的 TypeScript server 會快取，檔案已經修好但紅線還在（或反過來）都很常見。以 CLI 的輸出為準；真的要讓編輯器同步，在 VS Code 按 `Ctrl+Shift+P` → `TypeScript: Restart TS Server`。
+
+#### 為什麼第一次沒修好
+
+第一次遇到時只看了 ESLint 的訊息，沒有往下追到 `tsc`，於是「處理好了」其實只是紅線暫時不見（很可能是編輯器重啟）。判準很明確：**`src/generated/prisma/` 的檔案時間戳沒有變**，代表那批檔案根本沒被重新產生過。
+
+這件事本身也是一個通則：
+
+> **修完之後要問「有什麼東西實際變了」。** 如果答不出哪個檔案被改寫、哪個輸出從紅變綠，
+> 那多半只是症狀被蓋住了，不是問題被解決了。
 
 ### 沒踩到的坑：shadow database
 
