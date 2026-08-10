@@ -9,7 +9,15 @@
 // 下一站：src/surveys/dto/create-survey.dto.ts（body 進來之前先被誰檢查）
 // ============================================================
 
-import { Body, Controller, Get, Post, Patch, Param } from '@nestjs/common';
+import {
+  Body,
+  Controller,
+  Get,
+  Post,
+  Patch,
+  Delete,
+  Param,
+} from '@nestjs/common';
 import { CreateSurveyDto } from './dto/create-survey.dto';
 import { UpdateSurveyDto } from './dto/update-survey.dto';
 import { SurveysService } from './surveys.service';
@@ -83,5 +91,22 @@ export class SurveysController {
     // 把 id 塞進 body 是很常見的直覺錯誤（照著 create 的形狀想就會這樣）。
     // 那樣路由就不需要 :id，等於整支 API 沒有辦法指定對象，資源識別會整個錯位。
     return this.surveysService.update(id, updateSurveyDto);
+  }
+
+  // [教學] 狀態碼在這一支第一次是「可以選的」——前面四支都直接吃預設值。
+  //
+  //   200 OK          回傳被刪掉的那筆資料（@Delete 的預設值）
+  //   204 No Content  成功但完全沒有 body，要寫 @HttpCode(204) 覆蓋
+  //
+  // 兩種都常見。這裡選 200：prisma.delete() 本來就回傳那筆資料，
+  // 不給白不給（前端可以顯示「已刪除《員工滿意度調查》」），E2E 也好斷言。
+  //
+  // 但要記得那個 body 是**刪除前的快照** —— 它有內容，不代表資料還在。
+  // 所以 e2e 除了看 body，還要再查一次資料庫確認真的沒了。
+  @Delete(':id')
+  remove(@Param('id') id: string) {
+    // [教學] 只吃網址、不吃 body —— DELETE 依規範不帶 body，
+    // 「要刪哪一筆」是它唯一需要知道的事，而那個資訊在網址裡。
+    return this.surveysService.remove(id);
   }
 }

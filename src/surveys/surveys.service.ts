@@ -116,4 +116,26 @@ export class SurveysService {
       data: { title: dto.title },
     });
   }
+
+  /** 刪除一份問卷，連同它的題目與回覆。回傳被刪掉的那一筆。 */
+  async remove(id: string) {
+    // 404 的處理跟 update 同一套（理由見上面那段）。
+    // 這正是當初選「先 findOne 再操作」而不是 catch P2025 的好處 ——
+    // 第二次要用的時候，一行原封不動搬過來就成立了。
+    await this.findOne(id);
+
+    // [教學] delete 回傳的是**被刪掉的那一筆資料**，不是「刪了幾筆」。
+    // 它等於一張刪除前的快照 —— 那筆資料在資料庫裡此刻已經不存在了。
+    //
+    // 另一件事更重要：這裡**沒有任何一行程式碼**去刪題目、回覆、答案，
+    // 但它們真的會一起消失。那是 schema.prisma 的 onDelete: Cascade
+    // 被寫進 migration.sql、由 PostgreSQL 自己執行的，跟這一行無關。
+    //
+    // Ch1 那句「哪些規則真的活在資料庫裡」，這是最直接的一個例子：
+    // 規則不在這裡，所以看這個檔案永遠看不出來 ——
+    // 只有 e2e 的 cascade 那條測試會告訴你它還活著。
+    return this.prisma.survey.delete({
+      where: { id },
+    });
+  }
 }

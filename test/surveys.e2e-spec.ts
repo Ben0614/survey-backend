@@ -262,4 +262,101 @@ describe('Surveys (e2e)', () => {
       expect((res.body as SurveyBody).status).toBe('DRAFT');
     });
   });
+
+  describe('DELETE /surveys/:id', () => {
+    // [教學] 這一條的兩段斷言不是重複，它們各自證明不同的事：
+    //   res.body   —— 「API 說它刪掉了這一筆」
+    //   findUnique —— 「它真的不在資料庫裡了」
+    //
+    // DELETE 特別需要第二段。因為回應 body 就是刪除前的快照，
+    // 一支「只把資料回吐、根本沒執行 DELETE」的爛實作，第一段照樣會過。
+    it('刪除問卷', async () => {
+      const survey = await prisma.survey.create({
+        data: { title: '要刪掉的問卷' },
+      });
+
+      const res = await request(app.getHttpServer())
+        .delete(`/surveys/${survey.id}`)
+        .expect(200);
+
+      expect(res.body).toMatchObject({
+        id: survey.id,
+        title: '要刪掉的問卷',
+      });
+
+      const deleted = await prisma.survey.findUnique({
+        where: { id: survey.id },
+      });
+      expect(deleted).toBeNull();
+    });
+
+    it('id 不存在時回 404', async () => {
+      await request(app.getHttpServer())
+        .delete('/surveys/nonexistent-id')
+        .expect(404);
+    });
+
+    // [教學] 這一條才是 remove 真正的重點。
+    //
+    // 端點本身跟 update 同一套（借 findOne 丟 404 再操作），沒什麼新東西；
+    // 這條測試驗的是 **Ch1 寫下的 onDelete: Cascade 到底有沒有生效** ——
+    // 整個專案第一次用自動化測試檢查「活在資料庫裡的規則」。
+    //
+    // 前提資料必須照順序建，因為外鍵要等上一層的 id 先出來：
+    //   Survey → Question（要 survey.id）
+    //          → Response（要 survey.id）
+    //          → Answer  （要 question.id 和 response.id 兩個）
+    //
+    // Answer 是三張裡最不能省的：它**沒有直接掛在 Survey 上**（見 schema.prisma），
+    // 能被清掉是因為 Question（或 Response）先被清掉、再連鎖一次。
+    // 少了它，驗到的只有第一層，多層連鎖哪天壞了不會有人發現。
+    it('刪除問卷會連帶刪掉題目、回覆與答案（cascade）', async () => {
+      const survey = await prisma.survey.create({
+        data: { title: '有題目也有人填過的問卷' },
+      });
+
+      const question = await prisma.question.create({
+        data: {
+          surveyId: survey.id,
+          title: '你滿意嗎？',
+          type: 'SINGLE_CHOICE',
+          order: 0,
+          options: ['滿意', '不滿意'],
+        },
+      });
+
+      const response = await prisma.response.create({
+        data: {
+          surveyId: survey.id,
+        },
+      });
+
+      await prisma.answer.create({
+        data: {
+          questionId: question.id,
+          responseId: response.id,
+          content: '滿意',
+        },
+      });
+
+      await request(app.getHttpServer())
+        .delete(`/surveys/${survey.id}`)
+        .expect(200);
+
+      // [教學] 這三行**必須用 prisma 直接查、不能改用 API**。
+      // 要驗的規則活在 PostgreSQL 裡（prisma/migrations/*/migration.sql 的
+      // ON DELETE CASCADE），不是 Prisma Client 的行為、更不是 API 的行為 ——
+      // 用 API 查就變成在測 API 了。
+      //
+      // count() 不帶 where 是刻意的：beforeEach 已經清空資料庫，
+      // 全表只有剛才建的這一串，所以「全表是 0」就等於「這一串被清光了」。
+      //
+      // 寫成 expect(await x()).toBe(0)，不要寫 expect(x()).resolves.toBe(0)：
+      // 後者回傳一個 Promise，忘了 await 就沒人等結果，it 會立刻結束並判定通過，
+      // count() 回 5 也照樣綠。這種假綠 lint 的 no-floating-promises 抓得到。
+      expect(await prisma.question.count()).toBe(0);
+      expect(await prisma.response.count()).toBe(0);
+      expect(await prisma.answer.count()).toBe(0);
+    });
+  });
 });
