@@ -9,8 +9,9 @@
 // 下一站：src/surveys/dto/create-survey.dto.ts（body 進來之前先被誰檢查）
 // ============================================================
 
-import { Body, Controller, Get, Post, Param } from '@nestjs/common';
+import { Body, Controller, Get, Post, Patch, Param } from '@nestjs/common';
 import { CreateSurveyDto } from './dto/create-survey.dto';
+import { UpdateSurveyDto } from './dto/update-survey.dto';
 import { SurveysService } from './surveys.service';
 
 // [教學] @Controller('surveys') 是這個 class 所有路由的共同前綴。
@@ -50,8 +51,13 @@ export class SurveysController {
     return this.surveysService.findOne(id);
   }
 
-  // [教學] @Post() 的預設回應狀態碼是 **201 Created**（@Get() 是 200）。
-  // 這是 Nest 內建的慣例，不必自己設；要改才需要 @HttpCode()。
+  // [教學] @Post() 的預設回應狀態碼是 **201 Created**，
+  // 其餘方法（@Get / @Patch / @Put / @Delete）**一律是 200 OK**。
+  //
+  // 這不是隨便定的：201 的語義是「產生了一個新資源」，只有 POST 符合。
+  // 改既有資源、查詢、刪除都沒有「新資源」，所以是 200。
+  //
+  // 這是 Nest 內建的預設值，不必自己設；要覆蓋才需要 @HttpCode()。
   @Post()
   create(@Body() createSurveyDto: CreateSurveyDto) {
     // [教學] @Body() 把 request body 取出來塞進這個參數。
@@ -60,5 +66,22 @@ export class SurveysController {
     // 知道該用哪一份規則來檢查。**型別寫錯或漏寫，驗證就靜靜地不生效**，
     // 跟 Ch0 依賴注入靠型別找零件是同一套機制（emitDecoratorMetadata）。
     return this.surveysService.create(createSurveyDto);
+  }
+
+  // [教學] 是 @Patch 不是 @Put。兩者都是「改」，差在語義：
+  //   @Put   整份取代 —— 沒給的欄位視為要清空
+  //   @Patch 部分更新 —— 沒給的欄位不動
+  //
+  // 必須跟 UpdateSurveyDto 的 PartialType 對齊：DTO 都說「每個欄位都可以不給」了，
+  // 路由卻宣稱自己是整份取代，前端就會照著錯的語義來用這支 API。
+  @Patch(':id')
+  update(@Param('id') id: string, @Body() updateSurveyDto: UpdateSurveyDto) {
+    // [教學] 這是第一個同時吃兩個來源的方法：
+    //   id    來自**網址**（@Param）—— 「要改哪一筆」
+    //   title 來自 **body**（@Body）—— 「要改成什麼」
+    //
+    // 把 id 塞進 body 是很常見的直覺錯誤（照著 create 的形狀想就會這樣）。
+    // 那樣路由就不需要 :id，等於整支 API 沒有辦法指定對象，資源識別會整個錯位。
+    return this.surveysService.update(id, updateSurveyDto);
   }
 }

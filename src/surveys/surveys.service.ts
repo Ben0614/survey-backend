@@ -5,8 +5,9 @@
 // 它**幾乎**不知道 HTTP 的存在 —— 沒有 request、沒有網址。
 //
 // 「幾乎」是因為有一個例外：findOne 找不到資料時直接丟 NotFoundException，
-// 而 404 是不折不扣的 HTTP 概念。這是一道刻意留著的裂縫，
-// 取捨寫在 findOne 裡面，Ch6 有了 Exception Filter 之後會回頭重看。
+// 而 404 是不折不扣的 HTTP 概念（update 也借用它做同一件事）。
+// 這是一道刻意留著的裂縫，取捨寫在 findOne 裡面，
+// Ch6 有了 Exception Filter 之後會回頭重看。
 //
 // 為什麼要有這一層，不讓 controller 直接用 Prisma：
 // 從 Ch3 開始這裡會長出商業規則（「有人填答就不能改題目」），
@@ -19,6 +20,7 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { CreateSurveyDto } from './dto/create-survey.dto';
+import { UpdateSurveyDto } from './dto/update-survey.dto';
 
 @Injectable()
 export class SurveysService {
@@ -81,6 +83,36 @@ export class SurveysService {
     // 兩道防線的成本很低，而漏掉的代價是有人能直接寫入任意欄位。
     // 之後 dto 多了欄位時，這裡也會逼你想一次「這個該不該進資料庫」。
     return this.prisma.survey.create({
+      data: { title: dto.title },
+    });
+  }
+
+  /** 更新一份問卷。只有 dto 裡實際出現的欄位會被改動。 */
+  async update(id: string, dto: UpdateSurveyDto) {
+    // [教學] 這行沒有接回傳值，看起來像白呼叫一次 ——
+    // 它的作用不是取值，是**借 findOne 丟例外**。
+    //
+    // 找不到時 findOne 會 throw，一 throw 下面整段就不會執行，
+    // 例外往上冒到 Nest 變成 404 回應；查得到就安靜通過，程式往下走。
+    //
+    // 少了這行不是「一樣 404、只是訊息不同」，而是 **500**：
+    // Prisma 會丟 P2025（要更新的紀錄不存在），Nest 不認識這個錯誤碼，
+    // 就當成沒預期的例外。這對前端差很多 ——
+    // 404 是「這東西不存在」（可以顯示「查無此問卷」），500 是「伺服器壞了」。
+    //
+    // 代價是同一筆資料查了兩次。這一章選直白，remove 也會原封不動再用一次；
+    // 另一種做法是 catch P2025，那是 Ch6 Exception Filter 的正題。
+    await this.findOne(id);
+
+    // [教學] dto.title 是 undefined 時（例如空 body），Prisma **完全不碰這個欄位** ——
+    // 它把該欄位整個從 SQL 拿掉，而不是寫入空值。所以在 Prisma 眼中：
+    //   undefined —— 不要動它
+    //   null      —— 把它設成空值
+    // 「空 body 什麼都不改」靠的是這個約定，不是我們額外寫了 if 判斷。
+    //
+    // data 明確只寫 title、不是 `data: dto`，理由同 create（見上面那段）。
+    return this.prisma.survey.update({
+      where: { id },
       data: { title: dto.title },
     });
   }

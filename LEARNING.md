@@ -12,8 +12,8 @@
 > 換機或開新對話時**先讀這一節**。對話歷史與 AI 記憶都在 `~/.claude/` 底下，不跟 git 走 ——
 > 這裡沒寫的東西，換一台機器就等於沒發生過。
 
-**進度：** Ch0、Ch1 完成（皆含理解驗收）。**Ch2 進行中 —— 隔離與 `findAll`/`create`/`findOne`
-已完成，`update`/`remove` 待寫**（詳見下方「Ch2 接續點」）。
+**進度：** Ch0、Ch1 完成（皆含理解驗收）。**Ch2 進行中 —— 隔離與
+`findAll`/`create`/`findOne`/`update` 已完成，只剩 `remove`**（詳見下方「Ch2 接續點」）。
 
 **重要脈絡：** Ch0 的程式碼是 AI 產生的，因此進度表的 ✅ 起初**只代表環境可用**，
 不代表讀得懂 —— 為此補了一批 `[教學]` 註解當作理解鷹架（見 `docs/專案速查.md` 的「閱讀動線」）。
@@ -52,13 +52,24 @@ could not be resolved`，紅線畫在自己寫的程式碼上，但真正的訊�
 `service` 檔頭「沒有狀態碼」那句話因為加了 `NotFoundException` 而過期、
 方法缺 `/** */`、`@Param` 這個新概念沒有教學註解。全部已補。
 
+**2026-08-10 —— `update` 完成（`PATCH /surveys/:id`）。** 自己寫、教練 review 兩輪。
+
+第一輪抓到七項，但**根因只有一個觀念**：`create` 沒有「要改哪一筆」的問題，`update` 有，
+而那個識別資訊**屬於網址、不屬於 body**。把 `create` 的 DTO 形狀整份複製過來，
+就被迫把 id 塞進 DTO、路由不需要 `:id`、`data` 只能整包展開 —— 一個誤解推倒三個決策。
+
+第二輪抓到兩條**綠燈但什麼都沒測**的假測試：從對照版本複製後忘了改動詞
+（404 那條發的是 `.get()`、whitelist 那條發的是 `.post()`），兩條都在 PATCH 的
+`describe` 裡卻測著別的端點。假綠比紅燈危險 —— 它讓人以為那條路有被保護。
+同時抓到 controller `await` 了卻沒 `return`，導致 200 配空 body。
+
 原則不變：**確認前一章讀得懂，再進下一章。**
 
 ---
 
-### Ch2 接續點（2026-08-09 停在這裡）
+### Ch2 接續點（2026-08-10 停在這裡）
 
-**已完成並驗證**（`pnpm test:e2e` **9 passed**、`tsc --noEmit` 0 errors、`pnpm lint` 綠）：
+**已完成並驗證**（`pnpm test:e2e` **14 passed**、`tsc --noEmit` 0 errors、`eslint` 綠）：
 
 | 檔案 | 內容 |
 | --- | --- |
@@ -66,32 +77,15 @@ could not be resolved`，紅線畫在自己寫的程式碼上，但真正的訊�
 | `test/helpers/reset-db.ts` | `TRUNCATE` 四張表 `CASCADE`，各 e2e 檔在 `beforeEach` 呼叫 |
 | `test/jest-e2e.json` | 加 `setupFiles` |
 | `src/setup-app.ts` | `ValidationPipe({ whitelist, transform })`，`main.ts` 與 e2e **都要呼叫** |
-| `src/surveys/` | DTO / service / controller / module，目前有 `findAll` + `create` + `findOne` |
-| `test/surveys.e2e-spec.ts` | 8 個案例，含「偷塞 `status` 會被 whitelist 無聲丟掉」與 `findOne` 的 404 |
+| `src/surveys/` | DTO ×2 / service / controller / module，目前有 `findAll` + `create` + `findOne` + `update` |
+| `test/surveys.e2e-spec.ts` | 13 個案例，含 whitelist、`findOne` 的 404、`update` 的五條 |
 
 > **換機器後 `.env.test` 不存在，測試會直接失敗**（防呆刻意如此）。重建：
 > Neon Console → Branches → New branch 命名 `test` → 複製連線字串寫進 `.env.test` →
 > `$env:DATABASE_URL="<test 的字串>"; pnpm exec prisma migrate deploy`（新 branch 是空的，要先建表）。
 
-**下一步：自己寫 `update` / `remove`**（教練模式，寫完再 review）。
+**下一步：自己寫 `remove`**（教練模式，寫完再 review）。
 完整規格與提示在計畫檔，但那個檔案**不跟著 git 走**，所以重點抄在這裡：
-
-**`update`**
-
-- 新檔案 `src/surveys/dto/update-survey.dto.ts`，body 只有三行：
-  `export class UpdateSurveyDto extends PartialType(CreateSurveyDto) {}`
-  （`PartialType` 來自 `@nestjs/mapped-types`，已安裝）
-- `PartialType` 做兩件事：屬性全變可選、**保留驗證裝飾器但只在該屬性出現時才套用**。
-  所以 `{}` 通過，`{ title: '' }` 仍被 `@IsNotEmpty()` 擋下回 400
-- 路由用 **`@Patch` 不是 `@Put`**（部分更新 vs 整份取代，要跟 `PartialType` 的語義一致）
-- 404 的處理**這一章選「先 `findOne` 確認存在，再 `update`」**（兩次查詢但直白、可重用）。
-  另一種是 `catch` Prisma 的 `P2025`，那是 Ch6 Exception Filter 的正題，屆時再回頭比較
-- `data: { title: dto.title }` 在 `dto.title` 是 `undefined` 時，Prisma **完全不碰這個欄位**。
-  `undefined` = 不要動，`null` = 設成空值 —— 兩者在 Prisma 是不同意思
-- E2E 5 個案例：改 title / 空 body `{}` 不變 / `title: ''` 回 400 / 不存在回 404 /
-  偷塞 `status` 被 whitelist 丟掉
-- **新檔案要接進閱讀動線**：插在 `create-survey.dto.ts` 與 `surveys.service.ts` 之間，
-  所以要同時改 `create-survey.dto.ts` 的「下一站」
 
 **`remove`**
 
@@ -104,12 +98,14 @@ could not be resolved`，紅線畫在自己寫的程式碼上，但真正的訊�
   這是 Ch1 的 `onDelete: Cascade` 第一次被自動化測試實際驗證
 - E2E 3 個案例：刪掉後 `GET` 回 404 / 刪不存在的 id 回 404 / cascade
 
-**共通原則：** 一次做完一個端點（service → controller → E2E → 跑測試），不要兩個一起寫。
-每個端點**寫的當下**就補 E2E，不要留到最後。
-驗收是三個都綠：`pnpm test:e2e`（目標 16 passed）、`pnpm exec tsc --noEmit`、`pnpm lint`。
+**共通原則：** 一次做完一個端點（service → controller → E2E → 跑測試）。
+每個端點**寫的當下**就補 E2E，不要留到最後；而且**每寫一條測試就跑一次**
+（`update` 那次一口氣寫完五條才跑，結果兩條是假綠、一條根本沒存檔就在討論）。
+驗收是三個都綠：`pnpm test:e2e`（目標 **17 passed**）、`pnpm exec tsc --noEmit`、`pnpm lint`。
 
 **寫完之後的 Ch2 剩餘工作：** `docs/chapters/ch02-*.md`（核心概念 / 決策取捨 / 踩到的坑 / 作業）、
-`docs/設定檔導讀.md` 補 `setupFiles`、`docs/專案速查.md` 的檔案地圖與閱讀動線、進度表改 ✅。
+進度表改 ✅。（`docs/設定檔導讀.md` 的 `setupFiles`、`docs/專案速查.md` 的檔案地圖與
+閱讀動線**已完成**，`update` 的註解與教學鷹架也已補齊。）
 
 **已知要寫進 ch02 的坑：**
 1. `.env.test` 從 Ch0 起就**從來沒被載入過** —— `jest-e2e.json` 沒有 `setupFiles`，
@@ -127,7 +123,26 @@ could not be resolved`，紅線畫在自己寫的程式碼上，但真正的訊�
 7. **改程式碼會讓註解過期。** 加了 `NotFoundException` 之後，`surveys.service.ts` 檔頭
    那句「它不知道 HTTP 的存在 —— 沒有狀態碼」就變成錯的（404 就是狀態碼）。
    **註解寫錯比沒寫更糟**，因為之後你會相信它。順帶帶出一個取捨：
-   service 丟 HTTP 例外破了分層，但另外兩種做法在 Ch2 都太重，Ch6 會回頭重看
+   service 丟 HTTP 例外破了分層，但另外兩種做法在 Ch2 都太重，Ch6 會回頭重看。
+   （`update` 又踩一次：註解寫「否則會回 404，只是訊息不同」，實際上是 **500**）
+8. **資源識別屬於網址，不屬於 body。** `update` 最貴的一個誤解 ——
+   照著 `create` 的 DTO 形狀想，就會把 id 塞進 body，然後路由不需要 `:id`、
+   `data` 只能整包展開、404 無處可放。**一個誤解推倒三個決策**，逐項修是修不完的
+9. **編輯器的紅線不代表程式碼有錯**，只代表「有人認為它錯」。新增檔案之後，
+   TS / ESLint server 的 program 還是舊的 → 解析不到新型別 → `Unsafe assignment of
+   an error typed value`。**CLI 是唯一權威**（`pnpm exec tsc --noEmit`、
+   `pnpm exec eslint <檔案>`），CLI 綠而編輯器紅就重啟 server，不要去改程式碼。
+   跟 Ch1 的「Prisma Client 沒跟上 schema」合起來是一張判斷表：
+   兩邊都紅 → 磁碟上的產物舊了；只有編輯器紅 → 記憶體裡的 program 舊了
+10. **測試沒跑過等於沒寫**，而「綠燈」不等於「有被保護」。三種都遇到了：
+    斷言字串多打一個空格（跑一次就會看到）；從對照版本複製卻忘了改動詞
+    （404 那條發 `.get()`、whitelist 那條發 `.post()`，兩條都在 PATCH 的
+    `describe` 裡測著別的端點，**照樣全綠**）；請求漏了 `.expect(狀態碼)`，
+    於是 500 的症狀偽裝成「body 不對」。另外：只斷言回應 body 有盲點 ——
+    若 API 把收到的 body 原封不動回吐也會綠，寫入型端點該再用 `prisma` 查一次 DB
+11. **狀態碼預設值只有 `@Post()` 是 201**，`@Get` / `@Patch` / `@Put` / `@Delete`
+    一律 200。因為 201 Created 的語義是「產生了一個新資源」，只有 POST 符合。
+    要覆蓋才用 `@HttpCode()`
 
 **Ch2 不做的事：** 分頁/排序/篩選（Ch4）、Question 巢狀資源（Ch3）、
 統一錯誤處理 Filter（Ch6）、Swagger（Ch7）、單元測試（這章沒有商業邏輯）。

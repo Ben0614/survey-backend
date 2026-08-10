@@ -168,4 +168,98 @@ describe('Surveys (e2e)', () => {
         .expect(404);
     });
   });
+
+  describe('PATCH /surveys/:id', () => {
+    it('更新問卷標題', async () => {
+      const survey = await prisma.survey.create({
+        data: { title: '舊標題' },
+      });
+
+      const res = await request(app.getHttpServer())
+        .patch(`/surveys/${survey.id}`)
+        .send({ title: '新標題' })
+        .expect(200);
+
+      expect(res.body).toMatchObject({
+        id: survey.id,
+        title: '新標題',
+      });
+
+      // [教學] 上面已經斷言過回應 body 了，這裡再用 prisma 查一次資料庫 ——
+      // 看似重複，但兩者驗的不是同一件事。
+      //
+      // 只看回應 body 有一個盲點：如果哪天 controller 被寫成
+      // 「把收到的 body 原封不動回吐」，這個測試照樣綠，但資料庫根本沒被改。
+      // 多查這一次，才能分辨「API 說它改了」和「它真的改了」。
+      //
+      // 這是寫入型端點才需要的加碼；查詢型（GET）沒有這個問題。
+      const updated = await prisma.survey.findUnique({
+        where: { id: survey.id },
+      });
+      expect(updated).toMatchObject({
+        id: survey.id,
+        title: '新標題',
+      });
+    });
+
+    // [教學] 這一條保護的是 surveys.service.ts 裡 update 開頭的 `await this.findOne(id)`。
+    // 把那行刪掉，這裡就會從 404 變成 500 —— 這是唯一會抓到那件事的測試。
+    //
+    // **動詞一定要跟 describe 一致。** 這條原本誤寫成 .get(...)（從上面的
+    // GET 版本複製過來忘了改），結果它照樣綠 —— 因為 GET 的 404 本來就會過。
+    // 一條測著別條路的綠燈，比紅燈危險：它讓人以為 PATCH 的 404 有被保護。
+    it('id 不存在時回 404', async () => {
+      await request(app.getHttpServer())
+        .patch('/surveys/nonexistent-id')
+        .send({ title: '新標題' })
+        .expect(404);
+    });
+
+    // [教學] 這一條在驗 PartialType 的短路開關（見 dto/update-survey.dto.ts）：
+    // title 沒出現 → 驗證整組跳過 → 通過；再往下 dto.title 是 undefined
+    // → Prisma 完全不碰這個欄位 → 標題維持原值。
+    //
+    // 它跟下面「title 是空字串回 400」是一組的：兩條都在驗同一個機制，
+    // 一條驗「沒出現就跳過」，一條驗「出現了就照常檢查」。少任何一條都看不出差別。
+    it('空 body 不會改動任何欄位', async () => {
+      const survey = await prisma.survey.create({
+        data: { title: '舊標題' },
+      });
+
+      const res = await request(app.getHttpServer())
+        .patch(`/surveys/${survey.id}`)
+        .send({})
+        .expect(200);
+
+      expect((res.body as SurveyBody).title).toBe('舊標題');
+    });
+
+    it('title 是空字串時回 400', async () => {
+      const survey = await prisma.survey.create({
+        data: { title: '舊標題' },
+      });
+
+      await request(app.getHttpServer())
+        .patch(`/surveys/${survey.id}`)
+        .send({ title: '' })
+        .expect(400);
+    });
+
+    // [教學] whitelist 的行為見上面 POST 的同名案例，這裡不重複。
+    // 之所以兩支端點各測一次：whitelist 是**逐個路由**套用在該路由的 DTO 上，
+    // POST 綠不代表 PATCH 綠 —— 例如 UpdateSurveyDto 若哪天自己宣告了 status，
+    // POST 那條照樣過，只有這條會紅。
+    it('偷塞 DTO 沒宣告的 status 會被忽略', async () => {
+      const survey = await prisma.survey.create({
+        data: { title: '舊標題' },
+      });
+
+      const res = await request(app.getHttpServer())
+        .patch(`/surveys/${survey.id}`)
+        .send({ title: '想偷跑的問卷', status: 'PUBLISHED' })
+        .expect(200);
+
+      expect((res.body as SurveyBody).status).toBe('DRAFT');
+    });
+  });
 });

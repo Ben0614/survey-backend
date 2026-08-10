@@ -11,7 +11,7 @@
 //   Model  —— 資料庫裡**實際存**什麼（schema.prisma 決定）
 // 兩者刻意不共用，因為「能被寫入」和「有這個欄位」是不同的問題。
 //
-// 下一站：src/surveys/surveys.service.ts（通過檢查之後誰來處理）
+// 下一站：src/surveys/dto/update-survey.dto.ts（同一份規則，改成「部分更新」版）
 // ============================================================
 
 import { IsNotEmpty, IsString, MaxLength } from 'class-validator';
