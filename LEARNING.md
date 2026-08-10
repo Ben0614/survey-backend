@@ -12,8 +12,8 @@
 > 換機或開新對話時**先讀這一節**。對話歷史與 AI 記憶都在 `~/.claude/` 底下，不跟 git 走 ——
 > 這裡沒寫的東西，換一台機器就等於沒發生過。
 
-**進度：** Ch0、Ch1 完成（皆含理解驗收）。**Ch2 進行中 —— 隔離與
-`findAll`/`create`/`findOne`/`update` 已完成，只剩 `remove`**（詳見下方「Ch2 接續點」）。
+**進度：** Ch0、Ch1、Ch2 完成。**下一章是 Ch3（巢狀資源與關聯查詢 / Questions）**，
+起點見下方「Ch3 起點」。
 
 **重要脈絡：** Ch0 的程式碼是 AI 產生的，因此進度表的 ✅ 起初**只代表環境可用**，
 不代表讀得懂 —— 為此補了一批 `[教學]` 註解當作理解鷹架（見 `docs/專案速查.md` 的「閱讀動線」）。
@@ -63,93 +63,64 @@ could not be resolved`，紅線畫在自己寫的程式碼上，但真正的訊�
 `describe` 裡卻測著別的端點。假綠比紅燈危險 —— 它讓人以為那條路有被保護。
 同時抓到 controller `await` 了卻沒 `return`，導致 200 配空 body。
 
+**2026-08-10 —— Ch2 完成。** `remove` 也寫完（`DELETE /surveys/:id`），
+**17 passed**、`tsc --noEmit` 0 errors、`eslint` 0 problems。
+
+`remove` 的 review 抓到第三種假綠：`expect(x()).resolves.toBe(0)` **忘了 `await`** ——
+斷言沒人等結果，`it` 立刻判定通過，`count()` 回 5 也照樣綠。
+（`pnpm lint` 的 `no-floating-promises` 抓得到它 —— **lint 不只是排版**。）
+
+章節文件 [`ch02`](docs/chapters/ch02-第一個CRUD與測試資料庫隔離.md) 已寫完，
+本節之前累積的 11 條坑全部搬進去了，這裡不再重複。其中兩個作業的答案是**實際跑出來**的，
+不是推論：`whitelist: false` 單獨拿掉時測試**全綠**（因為 service 的
+`data: { title: dto.title }` 是第二道防線），兩層都拆掉才會紅。
+
 原則不變：**確認前一章讀得懂，再進下一章。**
 
 ---
 
-### Ch2 接續點（2026-08-10 停在這裡）
+### Ch3 起點（2026-08-10 從這裡開始）
 
-**已完成並驗證**（`pnpm test:e2e` **14 passed**、`tsc --noEmit` 0 errors、`eslint` 綠）：
+**Ch2 交出來的東西**（`pnpm test:e2e` **17 passed**、`tsc --noEmit` 0 errors、`eslint` 綠）：
 
 | 檔案 | 內容 |
 | --- | --- |
 | `test/setup-env.ts` | 載入 `.env.test`；兩道防呆：檔案不存在、或 `DATABASE_URL` 與 `.env` 相同 → 直接 throw |
 | `test/helpers/reset-db.ts` | `TRUNCATE` 四張表 `CASCADE`，各 e2e 檔在 `beforeEach` 呼叫 |
-| `test/jest-e2e.json` | 加 `setupFiles` |
 | `src/setup-app.ts` | `ValidationPipe({ whitelist, transform })`，`main.ts` 與 e2e **都要呼叫** |
-| `src/surveys/` | DTO ×2 / service / controller / module，目前有 `findAll` + `create` + `findOne` + `update` |
-| `test/surveys.e2e-spec.ts` | 13 個案例，含 whitelist、`findOne` 的 404、`update` 的五條 |
+| `src/surveys/` | DTO ×2 / service / controller / module，五支端點齊全 |
+| `test/surveys.e2e-spec.ts` | 16 個案例（health 另有 1 個） |
 
-> **換機器後 `.env.test` 不存在，測試會直接失敗**（防呆刻意如此）。重建：
-> Neon Console → Branches → New branch 命名 `test` → 複製連線字串寫進 `.env.test` →
-> `$env:DATABASE_URL="<test 的字串>"; pnpm exec prisma migrate deploy`（新 branch 是空的，要先建表）。
+觀念與取捨全部寫在 [`ch02`](docs/chapters/ch02-第一個CRUD與測試資料庫隔離.md)，
+**開 Ch3 之前先把它的「作業」做過一遍** —— 那五題是設計來驗證理解的，
+其中三題會讓你親眼看到「測試綠但什麼都沒保護」。
 
-**下一步：自己寫 `remove`**（教練模式，寫完再 review）。
-完整規格與提示在計畫檔，但那個檔案**不跟著 git 走**，所以重點抄在這裡：
+> **換機器後 `.env.test` 不存在，測試會直接失敗**（防呆刻意如此）。
+> 重建步驟見 [`docs/專案速查.md`](docs/專案速查.md) 的「換機接續」。
 
-**`remove`**
+**Ch3 是什麼：巢狀資源與關聯查詢（Questions）。** 課綱寫的關鍵收穫是
+`include`/`select`、**看 Prisma 產生的 SQL**、N+1。它跟 Ch2 的三個實質差異：
 
-- 跟 `update` 同一套 404 處理。狀態碼**選回傳被刪的那筆（`200`）**，
-  不用 `204`（`prisma.delete()` 本來就回傳被刪的資料，E2E 也好斷言）
-- 重點不是端點本身，是 **cascade 的驗證**：用 `prisma` 直接建
-  `Survey → Question → Response → Answer`（資料形狀參考 `prisma/seed.ts`），
-  `DELETE` 之後用 `count()` 確認三張子表都空了。
-  **第 3 步必須用 `prisma` 直接查、不能用 API** —— 要驗的是資料庫層級的行為。
-  這是 Ch1 的 `onDelete: Cascade` 第一次被自動化測試實際驗證
-- E2E 3 個案例：刪掉後 `GET` 回 404 / 刪不存在的 id 回 404 / cascade
+1. **路由是巢狀的**（`/surveys/:surveyId/questions`）—— 「題目不能脫離問卷存在」
+   這件事要反映在網址上，而且每一支都要先確認**父資源**存不存在
+2. **第一次寫單元測試** —— Ch3 有這一章的商業規則：
+   **`DRAFT` 才能自由增刪題目；一旦有人填答就不能再改題目**。
+   那是純判斷、不碰資料庫，正是單元測試唯一適用的地方（Ch2 沒有這種東西）
+3. **第一次看 Prisma 產生的 SQL** —— 只會 ORM 不懂底下的 SQL 是 ORM 使用者最常見的弱點
 
-**共通原則：** 一次做完一個端點（service → controller → E2E → 跑測試）。
-每個端點**寫的當下**就補 E2E，不要留到最後；而且**每寫一條測試就跑一次**
-（`update` 那次一口氣寫完五條才跑，結果兩條是假綠、一條根本沒存檔就在討論）。
-驗收是三個都綠：`pnpm test:e2e`（目標 **17 passed**）、`pnpm exec tsc --noEmit`、`pnpm lint`。
+**沿用 Ch2 的工作方式**（這些是實際付出代價換來的）：
 
-**寫完之後的 Ch2 剩餘工作：** `docs/chapters/ch02-*.md`（核心概念 / 決策取捨 / 踩到的坑 / 作業）、
-進度表改 ✅。（`docs/設定檔導讀.md` 的 `setupFiles`、`docs/專案速查.md` 的檔案地圖與
-閱讀動線**已完成**，`update` 的註解與教學鷹架也已補齊。）
+- 一次做完一個端點：service → controller → E2E → **跑測試**
+- **每寫一條測試就跑一次**，不要一口氣寫完才跑
+- 每個新檔案都要接進閱讀動線（改前一站的「下一站」），別讓鏈斷掉
+- 每章驗收都是三個綠：`pnpm test:e2e`、`pnpm exec tsc --noEmit`、`pnpm lint`
 
-**已知要寫進 ch02 的坑：**
-1. `.env.test` 從 Ch0 起就**從來沒被載入過** —— `jest-e2e.json` 沒有 `setupFiles`，
-   `health.e2e-spec.ts` 檔頭那句「連 `.env.test`」一直是錯的（Ch2 開頭發現並修正）
-2. `Test.createTestingModule` 建的 app **不套用 `main.ts` 的全域設定** →
-   手測回 400、E2E 回 201。解法是抽 `src/setup-app.ts` 兩邊共用
-3. `jest-e2e.json` 的 `<rootDir>` 是**設定檔所在目錄**（`test/`），不是專案根目錄
-4. DTO 屬性的 `!`（definite assignment assertion）在本專案**不需要** ——
-   `tsconfig.json` 只開 `strictNullChecks`，沒開 `strict` / `strictPropertyInitialization`
-5. `whitelist: true` 判斷的是「屬性**有沒有驗證裝飾器**」，不是「class 有沒有宣告它」。
-   新增欄位忘了加裝飾器 → 該欄位被無聲丟掉，症狀是「怎麼傳都存不進去」
-6. **一個 `it` 只驗一件事。** 曾把「200 回傳問卷」和「404」寫在同一個 `it` 裡，測試照樣綠 ——
-   但**斷言失敗會中斷整個 `it`**，前面的 200 一紅，後面的 404 根本不會執行，
-   等於那條路默默失去保護，而且從測試報告上完全看不出來
-7. **改程式碼會讓註解過期。** 加了 `NotFoundException` 之後，`surveys.service.ts` 檔頭
-   那句「它不知道 HTTP 的存在 —— 沒有狀態碼」就變成錯的（404 就是狀態碼）。
-   **註解寫錯比沒寫更糟**，因為之後你會相信它。順帶帶出一個取捨：
-   service 丟 HTTP 例外破了分層，但另外兩種做法在 Ch2 都太重，Ch6 會回頭重看。
-   （`update` 又踩一次：註解寫「否則會回 404，只是訊息不同」，實際上是 **500**）
-8. **資源識別屬於網址，不屬於 body。** `update` 最貴的一個誤解 ——
-   照著 `create` 的 DTO 形狀想，就會把 id 塞進 body，然後路由不需要 `:id`、
-   `data` 只能整包展開、404 無處可放。**一個誤解推倒三個決策**，逐項修是修不完的
-9. **編輯器的紅線不代表程式碼有錯**，只代表「有人認為它錯」。新增檔案之後，
-   TS / ESLint server 的 program 還是舊的 → 解析不到新型別 → `Unsafe assignment of
-   an error typed value`。**CLI 是唯一權威**（`pnpm exec tsc --noEmit`、
-   `pnpm exec eslint <檔案>`），CLI 綠而編輯器紅就重啟 server，不要去改程式碼。
-   跟 Ch1 的「Prisma Client 沒跟上 schema」合起來是一張判斷表：
-   兩邊都紅 → 磁碟上的產物舊了；只有編輯器紅 → 記憶體裡的 program 舊了
-10. **測試沒跑過等於沒寫**，而「綠燈」不等於「有被保護」。三種都遇到了：
-    斷言字串多打一個空格（跑一次就會看到）；從對照版本複製卻忘了改動詞
-    （404 那條發 `.get()`、whitelist 那條發 `.post()`，兩條都在 PATCH 的
-    `describe` 裡測著別的端點，**照樣全綠**）；請求漏了 `.expect(狀態碼)`，
-    於是 500 的症狀偽裝成「body 不對」。另外：只斷言回應 body 有盲點 ——
-    若 API 把收到的 body 原封不動回吐也會綠，寫入型端點該再用 `prisma` 查一次 DB
-11. **狀態碼預設值只有 `@Post()` 是 201**，`@Get` / `@Patch` / `@Put` / `@Delete`
-    一律 200。因為 201 Created 的語義是「產生了一個新資源」，只有 POST 符合。
-    要覆蓋才用 `@HttpCode()`
-
-**Ch2 不做的事：** 分頁/排序/篩選（Ch4）、Question 巢狀資源（Ch3）、
-統一錯誤處理 Filter（Ch6）、Swagger（Ch7）、單元測試（這章沒有商業邏輯）。
+**Ch3 不做的事：** 分頁/排序/篩選（Ch4）、提交作答（Ch5）、
+統一錯誤處理 Filter（Ch6）、Swagger（Ch7）。
 
 > **加分項（非前提）：** 讀 NestJS 官方文件 Overview 前四篇
-> （First steps / Controllers / Providers / Modules，約一小時）。內容與閱讀動線的九個檔案
-> 一一對應，等於同一件事的第二個講法。
+> （First steps / Controllers / Providers / Modules，約一小時）。內容與閱讀動線上的
+> `src/` 檔案一一對應，等於同一件事的第二個講法。
 > Prisma 則不要上網找教學：v7 太新，網路上九成是 v5/v6，會是負收益；用 `.agents/skills/` 的官方技能包。
 
 > 如果卡住的是 TypeScript 本身（型別註記、interface、async/await、泛型），那要先處理那一層 ——
@@ -168,7 +139,7 @@ could not be resolved`，紅線畫在自己寫的程式碼上，但真正的訊�
 | :---: | --- | --- | :---: |
 | Ch0 | 環境建置與 `/health` | DI、module 邊界、生命週期 | ✅ |
 | Ch1 | Schema 設計、第一次 migration、seed | 資料模型設計、migration 是什麼 | ✅ |
-| Ch2 | 第一個 CRUD（Surveys）+ **測試資料庫隔離** | DTO 驗證、404 處理、`.env.test` 與資料清理 | ⬜ |
+| Ch2 | 第一個 CRUD（Surveys）+ **測試資料庫隔離** | DTO 驗證、404 處理、`.env.test` 與資料清理 | ✅ |
 | Ch3 | 巢狀資源與關聯查詢（Questions） | `include`/`select`、**看 Prisma 產生的 SQL**、N+1 | ⬜ |
 | Ch4 | 分頁、排序、篩選 | query string 轉型驗證、`skip/take` vs cursor | ⬜ |
 | Ch5 | 提交與查詢作答（Responses） | 巢狀 write vs `$transaction`、原子性、**商業規則與單元測試** | ⬜ |
@@ -234,6 +205,7 @@ could not be resolved`，紅線畫在自己寫的程式碼上，但真正的訊�
 | --- | --- |
 | Ch0 — 環境建置 | [`docs/chapters/ch00-環境建置.md`](docs/chapters/ch00-環境建置.md) |
 | Ch1 — Schema 設計與第一次 migration | [`docs/chapters/ch01-schema設計與第一次migration.md`](docs/chapters/ch01-schema設計與第一次migration.md) |
+| Ch2 — 第一個 CRUD 與測試資料庫隔離 | [`docs/chapters/ch02-第一個CRUD與測試資料庫隔離.md`](docs/chapters/ch02-第一個CRUD與測試資料庫隔離.md) |
 
 ## 跨章節文件
 
