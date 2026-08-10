@@ -66,9 +66,10 @@ could not be resolved`，紅線畫在自己寫的程式碼上，但真正的訊�
 **2026-08-10 —— Ch2 完成。** `remove` 也寫完（`DELETE /surveys/:id`），
 **17 passed**、`tsc --noEmit` 0 errors、`eslint` 0 problems。
 
-`remove` 的 review 抓到第三種假綠：`expect(x()).resolves.toBe(0)` **忘了 `await`** ——
-斷言沒人等結果，`it` 立刻判定通過，`count()` 回 5 也照樣綠。
-（`pnpm lint` 的 `no-floating-promises` 抓得到它 —— **lint 不只是排版**。）
+`remove` 的 review 抓到第三種假綠：`expect(x()).resolves.toBe(0)` **忘了 `await`**。
+實測後發現它比想像中陰險 —— **會不會現形取決於它放在哪一行**：後面還有被 `await` 的斷言時
+Jest 30 抓得到（測試紅），但它若是 `it` 的最後一行，rejection 沒人等，**測試就是綠的**。
+`pnpm lint` 的 `no-floating-promises` 兩種位置都會叫，比 Jest 可靠 —— **lint 不只是排版**。
 
 章節文件 [`ch02`](docs/chapters/ch02-第一個CRUD與測試資料庫隔離.md) 已寫完，
 本節之前累積的 11 條坑全部搬進去了，這裡不再重複。其中兩個作業的答案是**實際跑出來**的，
