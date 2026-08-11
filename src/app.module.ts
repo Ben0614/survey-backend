@@ -16,6 +16,7 @@ import { ConfigModule } from '@nestjs/config';
 import { HealthModule } from './health/health.module';
 import { PrismaModule } from './prisma/prisma.module';
 import { SurveysModule } from './surveys/surveys.module';
+import { QuestionsModule } from './questions/questions.module';
 
 // [教學] @Module({...}) 是一個 decorator —— 寫在 class 上方、以 @ 開頭的東西。
 // decorator 本身不執行邏輯，只是把設定資料「貼」在 class 上，讓 Nest
@@ -35,11 +36,12 @@ import { SurveysModule } from './surveys/surveys.module';
     // 沒有這行的話，每個要讀環境變數的 module 都得自己 import ConfigModule。
     ConfigModule.forRoot({ isGlobal: true }),
 
-    // [教學] 以下兩個是專案自己寫的 module。排列順序不影響結果，
+    // [教學] 以下是專案自己寫的 module。排列順序不影響結果，
     // Nest 會依照彼此的依賴關係自行決定實際的建立順序。
     PrismaModule,
     HealthModule,
     SurveysModule,
+    QuestionsModule,
   ],
 })
 export class AppModule {}
