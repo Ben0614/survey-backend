@@ -12,8 +12,8 @@
 > 換機或開新對話時**先讀這一節**。對話歷史與 AI 記憶都在 `~/.claude/` 底下，不跟 git 走 ——
 > 這裡沒寫的東西，換一台機器就等於沒發生過。
 
-**進度：** Ch0、Ch1、Ch2 完成。**下一章是 Ch3（巢狀資源與關聯查詢 / Questions）**，
-起點見下方「Ch3 起點」。
+**進度：** Ch0、Ch1、Ch2 完成。**Ch3 第一段進行中 —— `GET` / `POST` 已完成，
+剩 `PATCH` / `DELETE` / `include`**（詳見下方「Ch3 接續點」）。
 
 **重要脈絡：** Ch0 的程式碼是 AI 產生的，因此進度表的 ✅ 起初**只代表環境可用**，
 不代表讀得懂 —— 為此補了一批 `[教學]` 註解當作理解鷹架（見 `docs/專案速查.md` 的「閱讀動線」）。
@@ -76,48 +76,135 @@ Jest 30 抓得到（測試紅），但它若是 `it` 的最後一行，rejection
 不是推論：`whitelist: false` 單獨拿掉時測試**全綠**（因為 service 的
 `data: { title: dto.title }` 是第二道防線），兩層都拆掉才會紅。
 
+**2026-08-11 —— Ch3 第一段做到一半，`GET` 與 `POST` 完成。**
+兩個 commit：`4d03691`（questions module）、`a5818f3`（`maxWorkers` 修正）。
+
+最有價值的一次意外：拔掉 `@IsEnum` 想看「資料庫的 enum 會不會擋」，結果**根本沒到資料庫** ——
+`whitelist: true` 判斷的是「屬性有沒有驗證裝飾器」，`type` 少了裝飾器就被整個丟掉，
+`prisma.create` 收到 `undefined` 直接炸。**TypeScript 的 `type: QuestionType` 宣告
+對 `whitelist` 毫無意義，它只認裝飾器。** 這是 Ch2 坑 #5 的現場重演。
+
+另一個是 `maxWorkers`：Ch2 建的測試隔離只擋了「測試 vs 開發」，
+第二個會清資料庫的 e2e 檔一出現就穿幫了。**隔離做得夠不夠，要等第二個參與者出現才知道。**
+
 原則不變：**確認前一章讀得懂，再進下一章。**
 
 ---
 
-### Ch3 起點（2026-08-10 從這裡開始）
+### Ch3 接續點（2026-08-11 停在這裡）
 
-**Ch2 交出來的東西**（`pnpm test:e2e` **17 passed**、`tsc --noEmit` 0 errors、`eslint` 綠）：
+**目前狀態**：`pnpm test:e2e` **23 passed**、`tsc --noEmit` 0 errors、`eslint` 0 problems，
+working tree 乾淨。
+
+#### Ch3 的四塊與切分（已定案，不要重新討論）
+
+| 塊 | 內容 | 狀態 |
+| --- | --- | --- |
+| ① Questions 的巢狀 CRUD | 多一層「父資源存不存在」 | 第一段·進行中 |
+| ② `include` / `select` | `GET /surveys/:id` 帶出題目 | 第一段·未做 |
+| ③ 看 Prisma 產生的 SQL、N+1 | 打開 query log | **第二段** |
+| ④ 商業規則 + 第一次單元測試 | 「`DRAFT` 才能改題目」 | **第二段** |
+
+Ch3 內容比 Ch2 多，**切成兩段**：第一段 ①②，第二段 ③④。
+
+#### 已經做出的決策（新對話不必再問）
+
+- **路由用混合形狀**：列表與建立巢狀（語義離不開父問卷），改與刪扁平
+  （`question.id` 是 cuid、本來就唯一，不需要父資源才找得到）
+
+  ```text
+  GET    /surveys/:surveyId/questions
+  POST   /surveys/:surveyId/questions
+  PATCH  /questions/:id        ← 還沒做
+  DELETE /questions/:id        ← 還沒做
+  ```
+
+- **因此拆成兩個 controller**：一個 `@Controller()` 只能有一個前綴。
+  巢狀那組在 `survey-questions.controller.ts`（前綴帶路徑參數，`@Param` 照樣抓得到），
+  扁平那組之後放 `questions.controller.ts`，**兩者共用同一個 `questions.service.ts`**
+- **`questions.controller.ts` 等步驟 ④ 真的有 `PATCH` 時再建**
+  （同「不要預先開放」：沒有內容的東西就先不要存在）
+- **`order` 不進 DTO**，`create` 時用 `count({ where: { surveyId } })` 算。
+  前端給容易撞號，而 Ch1 決定過不加 `@@unique([surveyId, order])`。
+  已知的洞：`count` 再 `create` 是兩次查詢，並發時可能撞號 —— 現階段接受，
+  真要根治靠交易（Ch5 的主題）
+- **`QuestionsModule` 依賴 `SurveysModule`**：`SurveysModule` 加 `exports`、
+  `QuestionsModule` 加 `imports`。這是第一次 feature module 依賴另一個 feature module；
+  對照 `PrismaModule` 的 `@Global()` 是刻意的例外，**不能套用到業務 service**
+
+#### 已完成
 
 | 檔案 | 內容 |
 | --- | --- |
-| `test/setup-env.ts` | 載入 `.env.test`；兩道防呆：檔案不存在、或 `DATABASE_URL` 與 `.env` 相同 → 直接 throw |
-| `test/helpers/reset-db.ts` | `TRUNCATE` 四張表 `CASCADE`，各 e2e 檔在 `beforeEach` 呼叫 |
-| `src/setup-app.ts` | `ValidationPipe({ whitelist, transform })`，`main.ts` 與 e2e **都要呼叫** |
-| `src/surveys/` | DTO ×2 / service / controller / module，五支端點齊全 |
-| `test/surveys.e2e-spec.ts` | 16 個案例（health 另有 1 個） |
+| `src/questions/questions.module.ts` | `imports: [SurveysModule]`，已註冊進 `AppModule` |
+| `src/questions/questions.service.ts` | `findAll` / `create`，兩支都先 `await surveysService.findOne(surveyId)` 借它丟 404 |
+| `src/questions/survey-questions.controller.ts` | `@Controller('surveys/:surveyId/questions')` + `@Get()` `@Post()` |
+| `src/questions/dto/create-question.dto.ts` | `title` / `type` / `options`；第一次出現 `@IsEnum(QuestionType)` 與 `@IsArray` + `@IsString({ each: true })` |
+| `test/questions.e2e-spec.ts` | 6 個案例 |
+| `test/jest-e2e.json` | 加 `maxWorkers: 1`（說明在 `docs/設定檔導讀.md`） |
 
-觀念與取捨全部寫在 [`ch02`](docs/chapters/ch02-第一個CRUD與測試資料庫隔離.md)，
-**開 Ch3 之前先把它的「作業」做過一遍** —— 那五題是設計來驗證理解的，
-其中三題會讓你親眼看到「測試綠但什麼都沒保護」。
+`QuestionType` 從產生的程式碼 import：`'../../generated/prisma/enums.js'`（帶 `.js`）。
+它**同時是值也是型別**，一次 import 兩種用途都拿到。
 
-> **換機器後 `.env.test` 不存在，測試會直接失敗**（防呆刻意如此）。
-> 重建步驟見 [`docs/專案速查.md`](docs/專案速查.md) 的「換機接續」。
+#### 下一步
 
-**Ch3 是什麼：巢狀資源與關聯查詢（Questions）。** 課綱寫的關鍵收穫是
-`include`/`select`、**看 Prisma 產生的 SQL**、N+1。它跟 Ch2 的三個實質差異：
+1. **`PATCH /questions/:id`** —— 建 `questions.controller.ts`（第一支扁平路由）、
+   `UpdateQuestionDto extends PartialType(CreateQuestionDto)`
+2. **`DELETE /questions/:id`**
+3. **`GET /surveys/:id` 加 `include: { questions: ... }`** ——
+   `include` 是「原本欄位全要、額外再帶關聯」，`select` 是「只要我列的」。
+   這一章一律帶題目（由 query 控制是 Ch4 的事）。
+   順帶確認既有的 surveys e2e 不會壞（`toMatchObject` 對多出來的欄位寬容）
 
-1. **路由是巢狀的**（`/surveys/:surveyId/questions`）—— 「題目不能脫離問卷存在」
-   這件事要反映在網址上，而且每一支都要先確認**父資源**存不存在
-2. **第一次寫單元測試** —— Ch3 有這一章的商業規則：
-   **`DRAFT` 才能自由增刪題目；一旦有人填答就不能再改題目**。
-   那是純判斷、不碰資料庫，正是單元測試唯一適用的地方（Ch2 沒有這種東西）
-3. **第一次看 Prisma 產生的 SQL** —— 只會 ORM 不懂底下的 SQL 是 ORM 使用者最常見的弱點
+#### Ch3 已累積的坑（第一段結束後搬進 `ch03`）
 
-**沿用 Ch2 的工作方式**（這些是實際付出代價換來的）：
+1. **「跑起來了」不等於「接上了」。** `QuestionsModule` 忘了註冊進 `AppModule`，
+   `pnpm start:dev` 照樣成功 —— 因為那個 module 不在樹上，Nest 根本沒去建立它，
+   裡面寫什麼都不會報錯。**沒被載入的程式碼不會報錯。**
+2. **假綠第五種樣態：「端點還沒接上」也會讓 404 測試變綠。** 那時的 404 來自
+   「Nest 找不到路由」，不是來自 `findOne` 丟的例外，但兩者從測試看起來一模一樣
+3. **`whitelist` 只認驗證裝飾器，不認 TypeScript 的型別宣告。**
+   拔掉 `@IsEnum` → `type` 被無聲丟掉 → `prisma.create` 收到 `undefined` → 500。
+   症狀看起來像「Prisma 的問題」，兇手其實在 `setup-app.ts`
+4. **測試裡除了「被驗的那件事」，其他前提都要保持正常。** 驗證測試若打
+   `nonexistent-id`，平常是綠的（驗證比 service 早跑），但壞掉時會拿到
+   `expected 400, got 404` —— 訊息把人帶往「路由或父資源有問題」的錯方向。
+   建一份真的問卷，變因只剩一個
+5. **何時需要二次查詢資料庫**：斷言的欄位若**全是自己送進去的**才需要；
+   只要有一個是伺服器產生的（例如 `order: 0`），回應本身就有證據力
+6. **`maxWorkers: 1` —— 測試檔之間也需要隔離。** Jest 預設並行跑不同測試檔，
+   而它們共用同一個測試資料庫、各自 `TRUNCATE`。症狀：**每次失敗的組合都不一樣，
+   而且紅的常是「上一章明明會過」的測試**。
+   `.env.test` 隔離「測試 vs 開發」，`maxWorkers` 隔離「測試 vs 測試」，兩層不同
+7. **複製測試忘了改動詞，第三次發生**（Ch2 兩次）。共同觸發條件都是「從對照版本複製」。
+   已升級成習慣：**貼上的當下就核對動詞與路徑跟 `describe` 一致**
+
+#### 欠的債（第一段做完要補，別以為已經做了）
+
+- `src/questions/` 四個檔 + `test/questions.e2e-spec.ts` 的 **`[教學]` 檔頭全部還沒寫**
+- **閱讀動線還沒接上** —— `surveys.service.ts` 的「下一站」目前直接跳到
+  `test/setup-env.ts`，questions 那幾個檔要插在中間
+- `docs/專案速查.md` 的**檔案地圖與閱讀動線還沒有 `src/questions/`**
+- `docs/chapters/ch03-*.md` 尚未建立
+
+（`docs/設定檔導讀.md` 的 `maxWorkers` **已補**，不用再做。）
+
+**Ch3 不做的事：** 分頁/排序/篩選（Ch4）、提交作答（Ch5）、
+統一錯誤處理 Filter（Ch6）、Swagger（Ch7）。
+
+#### 沿用 Ch2 的工作方式（實際付出代價換來的）
 
 - 一次做完一個端點：service → controller → E2E → **跑測試**
 - **每寫一條測試就跑一次**，不要一口氣寫完才跑
 - 每個新檔案都要接進閱讀動線（改前一站的「下一站」），別讓鏈斷掉
-- 每章驗收都是三個綠：`pnpm test:e2e`、`pnpm exec tsc --noEmit`、`pnpm lint`
+- **丟給教練 review 之前先自己跑三項驗收**：
+  `pnpm test:e2e`、`pnpm exec tsc --noEmit`、`pnpm lint`
 
-**Ch3 不做的事：** 分頁/排序/篩選（Ch4）、提交作答（Ch5）、
-統一錯誤處理 Filter（Ch6）、Swagger（Ch7）。
+> 觀念與取捨全部寫在 [`ch02`](docs/chapters/ch02-第一個CRUD與測試資料庫隔離.md)，
+> **它的「作業」五題值得做過一遍** —— 其中三題會讓你親眼看到「測試綠但什麼都沒保護」。
+
+> **換機器後 `.env.test` 不存在，測試會直接失敗**（防呆刻意如此）。
+> 重建步驟見 [`docs/專案速查.md`](docs/專案速查.md) 的「換機接續」。
 
 > **加分項（非前提）：** 讀 NestJS 官方文件 Overview 前四篇
 > （First steps / Controllers / Providers / Modules，約一小時）。內容與閱讀動線上的
