@@ -152,4 +152,108 @@ describe('Questions (e2e)', () => {
         .expect(400);
     });
   });
+
+  describe('Patch /questions/:id', () => {
+    it('修改題目', async () => {
+      const survey = await prisma.survey.create({
+        data: {
+          title: '指定問卷',
+        },
+      });
+
+      const question = await prisma.question.create({
+        data: {
+          surveyId: survey.id,
+          title: '題目一',
+          type: 'SINGLE_CHOICE',
+          order: 0,
+          options: ['選項1', '選項2', '選項3'],
+        },
+      });
+
+      const res = await request(app.getHttpServer())
+        .patch(`/questions/${question.id}`)
+        .send({
+          title: '修改後的題目一',
+          options: ['修改後的選項1', '修改後的選項2', '修改後的選項3'],
+        })
+        .expect(200);
+
+      expect(res.body).toMatchObject({
+        surveyId: survey.id,
+        title: '修改後的題目一',
+        type: 'SINGLE_CHOICE',
+        order: 0,
+        options: ['修改後的選項1', '修改後的選項2', '修改後的選項3'],
+      });
+    });
+
+    it('id 不存在時回 404', async () => {
+      await request(app.getHttpServer())
+        .patch('/questions/nonexistent-id')
+        .send({
+          title: '修改後的題目一',
+          type: 'SINGLE_CHOICE',
+          options: ['修改後的選項1', '修改後的選項2', '修改後的選項3'],
+        })
+        .expect(404);
+    });
+
+    it('options 含有非字串元素時回 400', async () => {
+      const survey = await prisma.survey.create({
+        data: {
+          title: '指定問卷',
+        },
+      });
+
+      const question = await prisma.question.create({
+        data: {
+          surveyId: survey.id,
+          title: '題目一',
+          type: 'SINGLE_CHOICE',
+          order: 0,
+          options: ['選項1', '選項2', '選項3'],
+        },
+      });
+
+      await request(app.getHttpServer())
+        .patch(`/questions/${question.id}`)
+        .send({
+          title: '題目一',
+          type: 'SINGLE_CHOICE',
+          options: ['選項1', 2, 3],
+        })
+        .expect(400);
+    });
+
+    it('空 body 回 200 且不改動任何欄位', async () => {
+      const survey = await prisma.survey.create({
+        data: {
+          title: '指定問卷',
+        },
+      });
+
+      const question = await prisma.question.create({
+        data: {
+          surveyId: survey.id,
+          title: '題目一',
+          type: 'SINGLE_CHOICE',
+          order: 0,
+          options: ['選項1', '選項2', '選項3'],
+        },
+      });
+
+      const res = await request(app.getHttpServer())
+        .patch(`/questions/${question.id}`)
+        .send({})
+        .expect(200);
+
+      expect(res.body).toMatchObject({
+        title: '題目一',
+        type: 'SINGLE_CHOICE',
+        order: 0,
+        options: ['選項1', '選項2', '選項3'],
+      });
+    });
+  });
 });

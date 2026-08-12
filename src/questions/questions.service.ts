@@ -1,7 +1,8 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { SurveysService } from '../surveys/surveys.service';
 import { CreateQuestionDto } from './dto/create-question.dto';
+import { UpdateQuestionDto } from './dto/update-question.dto';
 
 @Injectable()
 export class QuestionsService {
@@ -19,6 +20,18 @@ export class QuestionsService {
     });
   }
 
+  async findOne(id: string) {
+    const question = await this.prisma.question.findUnique({
+      where: { id },
+    });
+
+    if (!question) {
+      throw new NotFoundException('題目不存在');
+    }
+
+    return question;
+  }
+
   async create(surveyId: string, dto: CreateQuestionDto) {
     await this.surveysService.findOne(surveyId);
     const order = await this.prisma.question.count({ where: { surveyId } });
@@ -31,6 +44,15 @@ export class QuestionsService {
         order,
         surveyId,
       },
+    });
+  }
+
+  async update(id: string, dto: UpdateQuestionDto) {
+    await this.findOne(id);
+
+    return this.prisma.question.update({
+      where: { id },
+      data: { title: dto.title, type: dto.type, options: dto.options },
     });
   }
 }
