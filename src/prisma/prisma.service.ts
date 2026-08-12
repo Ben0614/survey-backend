@@ -41,10 +41,27 @@ export class PrismaService
     // 比等到第一次查詢才炸掉容易 debug 得多。
     const connectionString = config.getOrThrow<string>('DATABASE_URL');
 
+    // [教學] Ch3 第二段加的：把 Prisma 實際送出的 SQL 印出來。
+    //
+    // 用 get 而不是 getOrThrow —— 這個變數沒設也要能正常跑（不像 DATABASE_URL）。
+    // **預設關**是刻意的：開著會把每次測試的輸出淹掉，而它只在「想看清楚
+    // 某段程式碼跑了幾句查詢」時才有用。
+    //
+    // 留成開關而不是「改了再改回來」，是因為 Ch4（分頁）與 Ch5（交易）還會用到它。
+    //
+    // 用法：把 .env 的 PRISMA_LOG_QUERIES 改成 1，看完改回空的。
+    // 不想改檔案的話，PowerShell 是先設環境變數、再跑指令（$env: 只影響當下這個視窗）：
+    //   $env:PRISMA_LOG_QUERIES=1; pnpm start:dev
+    // 網路上常見的 `PRISMA_LOG_QUERIES=1 pnpm start:dev` 是 bash 語法，PowerShell 不吃。
+    const logQueries = config.get<string>('PRISMA_LOG_QUERIES') === '1';
+
     // [教學] super() 是「呼叫父類別的建構子」，也就是把設定交給 PrismaClient。
     // 這裡交出去的是一個 driver adapter：Prisma 7 自己不連資料庫了，
     // 改由 Node 生態的 pg 套件負責，PrismaPg 就是兩者之間的轉接頭。
-    super({ adapter: new PrismaPg({ connectionString }) });
+    super({
+      adapter: new PrismaPg({ connectionString }),
+      log: logQueries ? ['query'] : [],
+    });
   }
 
   /** Nest 建好這個 module 後會呼叫。提早連線，避免第一個請求承擔連線成本。 */

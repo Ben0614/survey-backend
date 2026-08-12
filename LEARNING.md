@@ -112,46 +112,132 @@ Jest 30 抓得到（測試紅），但它若是 `it` 的最後一行，rejection
 
 ### Ch3 接續點（2026-08-12 更新）
 
-**目前狀態**：`pnpm test:e2e` **30 passed**、`tsc --noEmit` 0 errors、`eslint` 0 problems，
-working tree 乾淨、已 push。**債全部補完了**（教學註解、閱讀動線、`ch03`、`api.http`）。
+**目前狀態**：`pnpm test:e2e` **30 passed**、`pnpm test` 0 個 spec（靠 `--passWithNoTests`）、
+`tsc --noEmit` 0 errors、`eslint` 0 problems，working tree 乾淨、已 push。
 
 #### Ch3 的四塊與切分（已定案，不要重新討論）
 
 | 塊 | 內容 | 狀態 |
 | --- | --- | --- |
-| ① Questions 的巢狀 CRUD | 多一層「父資源存不存在」 | ✅ 第一段 |
-| ② `include` / `select` | `GET /surveys/:id` 帶出題目 | ✅ 第一段 |
-| ③ 看 Prisma 產生的 SQL、N+1 | 打開 query log | **第二段·下一步** |
-| ④ 商業規則 + 第一次單元測試 | 「`DRAFT` 才能改題目」 | **第二段** |
+| ① Questions 的巢狀 CRUD | 多一層「父資源存不存在」 | ✅ |
+| ② `include` / `select` | `GET /surveys/:id` 帶出題目 | ✅ |
+| ③ 看 Prisma 產生的 SQL、N+1 | 打開 query log | **觀察完成，修正未做** |
+| ④ 商業規則 + 第一次單元測試 | 「`DRAFT` 才能改題目」 | **未開始** |
 
-第一段的決策、取捨、11 條坑與作業解答全部在
-[`ch03`](docs/chapters/ch03-巢狀資源與關聯查詢.md)，**這裡不再重複**。
+已完成部分的決策、取捨、坑、作業解答、以及 ③ 的完整觀察結果（含真實 SQL）
+全部在 [`ch03`](docs/chapters/ch03-巢狀資源與關聯查詢.md)，**這裡不再重複**。
 
-#### 下一步：第二段
+---
 
-**③ 看 Prisma 產生的 SQL、N+1**
+#### 第二段·已經做出的決策（換機後不必重問）
 
-現成的素材是第一段刻意留下的兩個問題，不必另外造：
+**規則定案 —— 這是兩條規則，不是一條。** 原本課綱寫「`DRAFT` 才能自由增刪題目；
+一旦有人填答就不能再改題目」，但因為只有 `PUBLISHED` 能被填答，`DRAFT` 永遠沒有填答 ——
+兩句只在「已發布但還沒人填答」這一種狀態下會給出不同答案。定案：
 
-1. **`SurveysService.findOne` 加了 `include` 之後，一次呼叫跑幾句 SQL？**
-   （猜測是兩句：先撈 survey、再用 `surveyId` 撈 questions，但**要打開 log 親眼看**，
-   Prisma 7 有 `relationLoadStrategy` 這個變數）
-2. **它有四個呼叫者，其中三個只是借它丟 404、根本不看回傳值**
-   （`update`、`remove`、`QuestionsService.findAll` / `create`），
-   卻都會一起把題目撈出來 —— 這是純粹的浪費，要不要處理、怎麼處理
+| 規則 | 判準 | 為什麼 |
+| --- | --- | --- |
+| 能不能**改題目** | `status === 'DRAFT'` | 「已發布」代表**可能有人正在填寫**，那跟「目前有幾筆填答紀錄」不是同一件事 —— 有人開著頁面還沒送出時 `responseCount` 仍是 0，用它當判準會漏掉這種人 |
+| 能不能**撤回發布** | 還沒有任何填答 | 這是「要改已發布的問卷」的正式路徑：先撤回、再改。已經有人填過就不給撤回，否則舊答案會對不上新題目 |
 
-起手式是打開 query log（`new PrismaClient({ log: ['query'] })`，位置在
-`src/prisma/prisma.service.ts`）。N+1 則需要一個「回圈裡逐筆查」的情境才示範得出來，
-可能要臨時寫一段對照用的程式碼，看完就刪。
+其餘定案：
 
-**④ 商業規則 + 第一次單元測試**
+- **錯誤一律回 409 Conflict** —— 請求本身沒錯，是跟資源目前的狀態衝突。
+  不用 403（不是權限問題，換一個人來也一樣不能改）、
+  不用 400（body 完全合法，而且會跟 `ValidationPipe` 的 400 混在一起分不出來）
+- **一併做「發布 / 撤回發布」兩支端點。** 現在 API 上根本沒有辦法把問卷變成 `PUBLISHED`
+  （`UpdateSurveyDto` 只有 `title`，`status` 被 whitelist 擋掉），不做的話規則等於死程式碼
+- **`status` 不進 `UpdateSurveyDto`**，用自己的動作型路由。
+  `create-survey.dto.ts` 的註解早就寫了「發布是一個獨立的動作」，現在兌現
+- **query log 開關已完成**：`PRISMA_LOG_QUERIES=1`，預設關（見 `ch03` 第二段）
 
-規則是「`DRAFT` 才能自由增刪題目；一旦有人填答就不能再改題目」。它會住在
-`QuestionsService`，是**整個專案第一段值得單元測試的邏輯**（純判斷、不碰資料庫）——
-Ch5 會再對比一次單元測試與 E2E 的適用時機。
+#### 下一步（依序做，每一步做完跑驗收）
 
-注意 `Response` / `Answer` 這兩張表到 Ch5 才會有端點，所以「有人填答」的前提資料
-在測試裡要用 `prisma` 直接建。
+**步驟 1 — ③ 的修正：`SurveysService.assertExists`**
+
+`ch03` 第二段量到三個浪費，最嚴重的是 `GET /surveys/:surveyId/questions`
+**把同一批題目撈了兩次**。修法（完整說明與 `select` 的寫法在 `ch03`）：
+
+1. `SurveysService` 新增 `assertExists(id)` ——
+   `findUnique({ where: { id }, select: { id: true, status: true } })`，找不到丟 404
+2. 四個呼叫點從 `findOne` 改成 `assertExists`：
+   `SurveysService.update` / `remove`、`QuestionsService.findAll` / `create`
+3. `GET /surveys/:id` 那條路徑**維持 `findOne`**（它要完整內容）
+4. 跑 `pnpm test:e2e` —— **30 passed 不該變**（行為沒變，只是少撈東西）
+5. **把 `.env` 的 `PRISMA_LOG_QUERIES` 設成 1 再跑那兩條，親眼確認查詢真的少了。**
+   這一步不能省，否則只是相信文件寫的
+
+**步驟 2 — ④ 規則抽成純函式 + 專案第一支單元測試**
+
+新檔 `src/surveys/survey.rules.ts`，兩個**純述詞**（回 boolean、不丟例外、不碰資料庫、
+**不需要 `@Injectable()` 也不必註冊進 module**，直接 `import` 就好 ——
+這是順帶的觀念：**不是所有東西都要變成可注入的零件**）：
+
+```ts
+export function canEditQuestions(status: SurveyStatus): boolean
+export function canUnpublish(responseCount: number): boolean
+```
+
+回 boolean 而不是直接 `throw`：丟 `ConflictException` 是 HTTP 的事，
+放進規則檔會把「純判斷」這個唯一的好處弄丟。由 service 翻譯成 409。
+
+新檔 `src/surveys/survey.rules.spec.ts` —— **專案第一支單元測試**
+（`pnpm test` 跑的是 `rootDir: src` + `*.spec.ts`，設定在 `package.json`）。四個案例起跳：
+`canEditQuestions('DRAFT')` → true、`('PUBLISHED')` → false、
+`canUnpublish(0)` → true、`canUnpublish(1)` → false。
+
+**這裡是全專案唯一適合單元測試的地方** —— 純判斷，不必啟動 Nest、不必連資料庫、
+不必 mock 任何東西。跟 e2e 的適用時機對比要寫進 `ch03`（Ch5 會再對比一次）。
+
+**步驟 3 — 規則套用 + 兩支新端點**
+
+- **改題目**：`QuestionsService` 的 `create` / `update` / `remove` 三支都要擋
+  - `create` 已經有 `await this.surveysService.assertExists(surveyId)`（步驟 1 改的），
+    把回傳值接起來就有 `status`
+  - `update` / `remove` 只有 `question.id`，拿不到問卷 →
+    **把 `QuestionsService.findOne` 改成 `include: { survey: true }`**，
+    一次查詢同時拿到題目與問卷狀態，不必再多呼叫一次。
+    （`include` 第二次出場，而且這次它是**省查詢**的那一邊，正好跟步驟 1 的觀察對照）
+- **撤回發布**：`SurveysService.unpublish` 要先
+  `prisma.response.count({ where: { surveyId: id } })`
+- **兩支端點**寫在既有的 `src/surveys/surveys.controller.ts`：
+  `PATCH /surveys/:id/publish`、`PATCH /surveys/:id/unpublish`
+  - 路徑段數跟 `@Patch(':id')` 不同，**不會互相吃掉** ——
+    但 controller 裡已經有一段講「路由依宣告順序比對」的註解，這裡值得標一句為什麼這次不衝突
+  - **冪等**：已經是 `PUBLISHED` 再 publish 回 200（不當錯誤），unpublish 同理。PATCH 本該冪等
+
+**步驟 4 — E2E（6 條）**
+
+| 檔案 | 案例 |
+| --- | --- |
+| `test/surveys.e2e-spec.ts` | publish 後 `status` 變 `PUBLISHED` |
+| `test/surveys.e2e-spec.ts` | unpublish 後變回 `DRAFT` |
+| `test/surveys.e2e-spec.ts` | **有填答時 unpublish 回 409** |
+| `test/questions.e2e-spec.ts` | 問卷是 `PUBLISHED` 時 `POST` 題目回 409 |
+| `test/questions.e2e-spec.ts` | 問卷是 `PUBLISHED` 時 `PATCH` 題目回 409 |
+| `test/questions.e2e-spec.ts` | 問卷是 `PUBLISHED` 時 `DELETE` 題目回 409 |
+
+`Response` / `Answer` 到 Ch5 才有端點，所以「有人填答」的前提**只能用 `prisma` 直接建** ——
+這剛好符合專案原則（前提資料一律不透過 API）。
+
+**步驟 5 — 文件與註解（別忘了，Ch3 第一段就是因為累積才變成一大筆債）**
+
+- `[教學]` 檔頭：`survey.rules.ts`、`survey.rules.spec.ts`
+- **接進閱讀動線**：`surveys.service.ts → survey.rules.ts → questions.module.ts`；
+  `survey.rules.spec.ts` 接在 `test/questions.e2e-spec.ts` 之後**成為新終點**
+  （最後看一支單元測試，正好跟前面全部的 e2e 對照）。**`CLAUDE.md` 的終點要同步**
+- `docs/專案速查.md`：檔案地圖 + 動線 + `pnpm test` 的說明
+- `docs/chapters/ch03-*.md`：往「第二段」那一節繼續追加 ④ 的內容、新的坑、新的作業
+- `LEARNING.md`：進度表 Ch3 改 ✅、這一節改寫成 Ch4 的起手式
+
+#### 第二段的驗收
+
+```bash
+pnpm test                # 4 passed（目前是 0 個 spec）
+pnpm test:e2e            # 30 + 6 = 36 passed
+pnpm exec tsc --noEmit   # 0 errors
+pnpm lint                # 0 problems
+```
 
 **Ch3 不做的事：** 分頁/排序/篩選（Ch4）、提交作答（Ch5）、
 統一錯誤處理 Filter（Ch6）、Swagger（Ch7）。
