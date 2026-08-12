@@ -14,7 +14,7 @@
 // 那種判斷需要一個能被單元測試、且不必假裝發 HTTP 請求的地方。
 // Ch2 的方法確實只是薄薄一層轉發，但位置先擺對，之後才有地方放東西。
 //
-// 下一站：test/setup-env.ts（上面這些怎麼被自動驗證，而且不弄髒開發資料庫）
+// 下一站：src/questions/questions.module.ts（子資源怎麼借用這裡的 findOne）
 // ============================================================
 
 import { Injectable, NotFoundException } from '@nestjs/common';
@@ -39,7 +39,7 @@ export class SurveysService {
     });
   }
 
-  /** 查一份問卷。找不到就是 404，不會回 200 配一個空的 body。 */
+  /** 查一份問卷，連同它的題目。找不到就是 404，不會回 200 配一個空的 body。 */
   async findOne(id: string) {
     // [教學] 這是第一個必須寫 async / await 的方法。
     //
@@ -55,6 +55,17 @@ export class SurveysService {
     // 左邊是資料表的欄位名，右邊是這個方法的參數，只是剛好同名。
     const survey = await this.prisma.survey.findUnique({
       where: { id },
+
+      // [教學] include（Ch3 加的）—— 「本表欄位全要，額外再把關聯帶回來」。
+      //
+      // 沒有它的話回應只有 Survey 自己的欄位：schema.prisma 裡的 `questions Question[]`
+      // 是虛擬欄位、不對應任何資料庫欄位（見 Ch1 那段註解），所以預設不會出現在結果裡，
+      // 前端要顯示一份完整問卷得再打一次 /surveys/:id/questions。
+      //
+      // 對照 select：include 是「加東西」，select 是「只要我列的」（連純量欄位也是）。
+      // 同一層只能擇一。這一章一律帶題目，由 query 決定要不要帶是 Ch4 的事。
+      //
+      // orderBy 一樣不能省，理由同 findAll。
       include: {
         questions: {
           orderBy: { order: 'asc' },
@@ -74,9 +85,16 @@ export class SurveysService {
       throw new NotFoundException('問卷不存在');
     }
 
-    // [教學] 這裡的型別是 Survey 而不是 Survey | null。
-    // TypeScript 知道 throw 之後的程式碼走不到，所以型別自動收窄了 ——
-    // 換句話說，上面那個 if 不只是執行期的保護，也是在對型別系統交代。
+    // [教學] 這裡的型別不是 Survey | null。TypeScript 知道 throw 之後的程式碼走不到，
+    // 所以型別自動收窄了 —— 上面那個 if 不只是執行期的保護，也是在對型別系統交代。
+    //
+    // 而且它現在也不只是 Survey，是 `Survey & { questions: Question[] }` ——
+    // **加了 include，回傳型別自己就跟著變了**，我們沒有寫任何型別註記。
+    // 把游標移到 survey 上看一眼，這是 Prisma 型別系統最有感的地方。
+    //
+    // 代價：update / remove / QuestionsService 都只是借這支丟 404、不看回傳值，
+    // 但它們現在也會一起把題目撈出來。現階段接受 ——
+    // 「這一次 include 到底跑了幾句 SQL」是 Ch3 第二段打開 query log 要親眼確認的第一件事。
     return survey;
   }
 

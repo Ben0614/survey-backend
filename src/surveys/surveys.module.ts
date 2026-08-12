@@ -7,9 +7,12 @@
 // health 那邊的 controller 直接注入全域的 PrismaService，不需要自己的 service；
 // 這裡的 SurveysService 是本 module 自己的零件，所以要註冊在 providers。
 //
-// 沒有 exports —— 目前沒有別的 module 需要用 SurveysService。
-// 等 Ch3 的 QuestionsModule 需要它時再加，**不要預先開放**
-// （沒 export 就等於 private，這是 module 邊界的意義）。
+// exports 是 Ch3 才加上的。Ch2 寫這個檔案時刻意留空，並註明「等 QuestionsModule
+// 需要它時再加，不要預先開放」—— 沒 export 就等於 private，這是 module 邊界的意義。
+// 現在 QuestionsService 真的要借 findOne 丟 404 了，所以它才出現。
+//
+// **這一行的意思是「我允許外面用 SurveysService」**，不是「我把它公開給全世界」：
+// 對方還是得在自己的 module 寫 imports: [SurveysModule]，兩邊都做才通。
 //
 // 下一站：src/surveys/surveys.controller.ts（請求進來誰接手）
 // ============================================================

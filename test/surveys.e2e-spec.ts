@@ -6,7 +6,7 @@
 //
 // 跑法：pnpm test:e2e -- test/surveys.e2e-spec.ts
 //
-// 動線終點。回到 src/main.ts 再走一次，看看是不是都串起來了。
+// 下一站：test/questions.e2e-spec.ts（測「子資源」時多出來的那些前提）
 // ============================================================
 
 import { INestApplication } from '@nestjs/common';
