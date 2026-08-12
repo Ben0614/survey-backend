@@ -55,6 +55,11 @@ export class SurveysService {
     // 左邊是資料表的欄位名，右邊是這個方法的參數，只是剛好同名。
     const survey = await this.prisma.survey.findUnique({
       where: { id },
+      include: {
+        questions: {
+          orderBy: { order: 'asc' },
+        },
+      },
     });
 
     // [教學] findUnique 找不到時回 null、不丟錯 —— 在 Prisma 眼中「沒找到」是正常結果。

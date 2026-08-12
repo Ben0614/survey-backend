@@ -27,6 +27,10 @@ interface SurveyBody {
   status: string;
 }
 
+interface SurveyWithQuestionsBody extends SurveyBody {
+  questions: { id: string; title: string; order: number }[];
+}
+
 describe('Surveys (e2e)', () => {
   let app: INestApplication<App>;
   let prisma: PrismaService;
@@ -166,6 +170,41 @@ describe('Surveys (e2e)', () => {
       await request(app.getHttpServer())
         .get('/surveys/nonexistent-id')
         .expect(404);
+    });
+
+    it('帶出題目且依 order 排序', async () => {
+      const survey = await prisma.survey.create({
+        data: { title: '指定問卷' },
+      });
+
+      await prisma.question.create({
+        data: {
+          surveyId: survey.id,
+          title: '題目二',
+          type: 'SINGLE_CHOICE',
+          order: 1,
+          options: ['選項4', '選項5', '選項6'],
+        },
+      });
+      await prisma.question.create({
+        data: {
+          surveyId: survey.id,
+          title: '題目一',
+          type: 'SINGLE_CHOICE',
+          order: 0,
+          options: ['選項1', '選項2', '選項3'],
+        },
+      });
+
+      const res = await request(app.getHttpServer())
+        .get(`/surveys/${survey.id}`)
+        .expect(200);
+
+      const body = res.body as SurveyWithQuestionsBody;
+
+      expect(body.questions).toHaveLength(2);
+      expect(body.questions[0].order).toBe(0);
+      expect(body.questions[1].order).toBe(1);
     });
   });
 
