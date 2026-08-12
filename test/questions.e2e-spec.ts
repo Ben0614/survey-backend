@@ -153,7 +153,7 @@ describe('Questions (e2e)', () => {
     });
   });
 
-  describe('Patch /questions/:id', () => {
+  describe('PATCH /questions/:id', () => {
     it('修改題目', async () => {
       const survey = await prisma.survey.create({
         data: {
@@ -254,6 +254,50 @@ describe('Questions (e2e)', () => {
         order: 0,
         options: ['選項1', '選項2', '選項3'],
       });
+    });
+  });
+
+  describe('DELETE /questions/:id', () => {
+    it('刪除題目', async () => {
+      const survey = await prisma.survey.create({
+        data: {
+          title: '指定問卷',
+        },
+      });
+
+      const question = await prisma.question.create({
+        data: {
+          surveyId: survey.id,
+          title: '題目一',
+          type: 'SINGLE_CHOICE',
+          order: 0,
+          options: ['選項1', '選項2', '選項3'],
+        },
+      });
+
+      const res = await request(app.getHttpServer())
+        .delete(`/questions/${question.id}`)
+        .expect(200);
+
+      expect(res.body).toMatchObject({
+        surveyId: survey.id,
+        title: '題目一',
+        type: 'SINGLE_CHOICE',
+        order: 0,
+        options: ['選項1', '選項2', '選項3'],
+      });
+
+      const deleted = await prisma.question.findUnique({
+        where: { id: question.id },
+      });
+
+      expect(deleted).toBeNull();
+    });
+
+    it('id 不存在時回 404', async () => {
+      await request(app.getHttpServer())
+        .delete('/questions/nonexistent-id')
+        .expect(404);
     });
   });
 });

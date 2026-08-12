@@ -55,4 +55,12 @@ export class QuestionsService {
       data: { title: dto.title, type: dto.type, options: dto.options },
     });
   }
+
+  async remove(id: string) {
+    await this.findOne(id);
+
+    return this.prisma.question.delete({
+      where: { id },
+    });
+  }
 }
