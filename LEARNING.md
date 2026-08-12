@@ -12,8 +12,8 @@
 > 換機或開新對話時**先讀這一節**。對話歷史與 AI 記憶都在 `~/.claude/` 底下，不跟 git 走 ——
 > 這裡沒寫的東西，換一台機器就等於沒發生過。
 
-**進度：** Ch0、Ch1、Ch2 完成。**Ch3 第一段進行中 —— `GET` / `POST` 已完成，
-剩 `PATCH` / `DELETE` / `include`**（詳見下方「Ch3 接續點」）。
+**進度：** Ch0、Ch1、Ch2 完成。**Ch3 第一段完成（含補債），下一步是第二段**
+（詳見下方「Ch3 接續點」）。
 
 **重要脈絡：** Ch0 的程式碼是 AI 產生的，因此進度表的 ✅ 起初**只代表環境可用**，
 不代表讀得懂 —— 為此補了一批 `[教學]` 註解當作理解鷹架（見 `docs/專案速查.md` 的「閱讀動線」）。
@@ -87,107 +87,71 @@ Jest 30 抓得到（測試紅），但它若是 `it` 的最後一行，rejection
 另一個是 `maxWorkers`：Ch2 建的測試隔離只擋了「測試 vs 開發」，
 第二個會清資料庫的 e2e 檔一出現就穿幫了。**隔離做得夠不夠，要等第二個參與者出現才知道。**
 
+**2026-08-12 —— Ch3 第一段完成（`PATCH` / `DELETE` / `include`），並把債補完。**
+四個 commit：`d43ee9e`（PATCH）、`5544241`（DELETE）、`ad4c408`（include）、
+`fb278bc`（教學註解＋閱讀動線＋修過期註解＋`api.http`）。**30 passed。**
+
+這一段最有價值的一次意外，是三條測試裡**那條綠的**：網址都少打一個 `s`，
+於是「id 不存在回 404」綠了 —— 它的 404 來自「Nest 找不到路由」，
+**404 的邏輯一行都沒被執行過**。而它的診斷價值是負的：看到「兩紅一綠」會去查那兩條，
+但三條錯在同一件事。留下的判準是「**404 那條綠、其他全紅 → 先懷疑路由沒接上**」。
+
+另一個是作業第 1、2 題的對比：同樣是「少一行借來的 404」，`remove` 少了會變 **500**、
+`findAll` 少了會變 **200 配空陣列**。後者危險得多 —— 它是完全合法的回應，
+沒有任何地方會亮紅燈，前端只會以為「這份問卷還沒出題」。**「沒有錯誤」不等於「正確」。**
+
+補債時另外抓到**註解過期第三次**（`surveys.module.ts` 還寫著「沒有 exports」，
+但早就加了）。三次的形狀都一樣：**這次改的是 A 檔案，而描述 A 的那句話在 B 檔案。**
+
+觀念、取捨、11 條坑與**五題全部實跑**的作業解答都在
+[`ch03`](docs/chapters/ch03-巢狀資源與關聯查詢.md)，這裡不重複。
+
 原則不變：**確認前一章讀得懂，再進下一章。**
 
 ---
 
-### Ch3 接續點（2026-08-11 停在這裡）
+### Ch3 接續點（2026-08-12 更新）
 
-**目前狀態**：`pnpm test:e2e` **23 passed**、`tsc --noEmit` 0 errors、`eslint` 0 problems，
-working tree 乾淨。
+**目前狀態**：`pnpm test:e2e` **30 passed**、`tsc --noEmit` 0 errors、`eslint` 0 problems，
+working tree 乾淨、已 push。**債全部補完了**（教學註解、閱讀動線、`ch03`、`api.http`）。
 
 #### Ch3 的四塊與切分（已定案，不要重新討論）
 
 | 塊 | 內容 | 狀態 |
 | --- | --- | --- |
-| ① Questions 的巢狀 CRUD | 多一層「父資源存不存在」 | 第一段·進行中 |
-| ② `include` / `select` | `GET /surveys/:id` 帶出題目 | 第一段·未做 |
-| ③ 看 Prisma 產生的 SQL、N+1 | 打開 query log | **第二段** |
+| ① Questions 的巢狀 CRUD | 多一層「父資源存不存在」 | ✅ 第一段 |
+| ② `include` / `select` | `GET /surveys/:id` 帶出題目 | ✅ 第一段 |
+| ③ 看 Prisma 產生的 SQL、N+1 | 打開 query log | **第二段·下一步** |
 | ④ 商業規則 + 第一次單元測試 | 「`DRAFT` 才能改題目」 | **第二段** |
 
-Ch3 內容比 Ch2 多，**切成兩段**：第一段 ①②，第二段 ③④。
+第一段的決策、取捨、11 條坑與作業解答全部在
+[`ch03`](docs/chapters/ch03-巢狀資源與關聯查詢.md)，**這裡不再重複**。
 
-#### 已經做出的決策（新對話不必再問）
+#### 下一步：第二段
 
-- **路由用混合形狀**：列表與建立巢狀（語義離不開父問卷），改與刪扁平
-  （`question.id` 是 cuid、本來就唯一，不需要父資源才找得到）
+**③ 看 Prisma 產生的 SQL、N+1**
 
-  ```text
-  GET    /surveys/:surveyId/questions
-  POST   /surveys/:surveyId/questions
-  PATCH  /questions/:id        ← 還沒做
-  DELETE /questions/:id        ← 還沒做
-  ```
+現成的素材是第一段刻意留下的兩個問題，不必另外造：
 
-- **因此拆成兩個 controller**：一個 `@Controller()` 只能有一個前綴。
-  巢狀那組在 `survey-questions.controller.ts`（前綴帶路徑參數，`@Param` 照樣抓得到），
-  扁平那組之後放 `questions.controller.ts`，**兩者共用同一個 `questions.service.ts`**
-- **`questions.controller.ts` 等步驟 ④ 真的有 `PATCH` 時再建**
-  （同「不要預先開放」：沒有內容的東西就先不要存在）
-- **`order` 不進 DTO**，`create` 時用 `count({ where: { surveyId } })` 算。
-  前端給容易撞號，而 Ch1 決定過不加 `@@unique([surveyId, order])`。
-  已知的洞：`count` 再 `create` 是兩次查詢，並發時可能撞號 —— 現階段接受，
-  真要根治靠交易（Ch5 的主題）
-- **`QuestionsModule` 依賴 `SurveysModule`**：`SurveysModule` 加 `exports`、
-  `QuestionsModule` 加 `imports`。這是第一次 feature module 依賴另一個 feature module；
-  對照 `PrismaModule` 的 `@Global()` 是刻意的例外，**不能套用到業務 service**
+1. **`SurveysService.findOne` 加了 `include` 之後，一次呼叫跑幾句 SQL？**
+   （猜測是兩句：先撈 survey、再用 `surveyId` 撈 questions，但**要打開 log 親眼看**，
+   Prisma 7 有 `relationLoadStrategy` 這個變數）
+2. **它有四個呼叫者，其中三個只是借它丟 404、根本不看回傳值**
+   （`update`、`remove`、`QuestionsService.findAll` / `create`），
+   卻都會一起把題目撈出來 —— 這是純粹的浪費，要不要處理、怎麼處理
 
-#### 已完成
+起手式是打開 query log（`new PrismaClient({ log: ['query'] })`，位置在
+`src/prisma/prisma.service.ts`）。N+1 則需要一個「回圈裡逐筆查」的情境才示範得出來，
+可能要臨時寫一段對照用的程式碼，看完就刪。
 
-| 檔案 | 內容 |
-| --- | --- |
-| `src/questions/questions.module.ts` | `imports: [SurveysModule]`，已註冊進 `AppModule` |
-| `src/questions/questions.service.ts` | `findAll` / `create`，兩支都先 `await surveysService.findOne(surveyId)` 借它丟 404 |
-| `src/questions/survey-questions.controller.ts` | `@Controller('surveys/:surveyId/questions')` + `@Get()` `@Post()` |
-| `src/questions/dto/create-question.dto.ts` | `title` / `type` / `options`；第一次出現 `@IsEnum(QuestionType)` 與 `@IsArray` + `@IsString({ each: true })` |
-| `test/questions.e2e-spec.ts` | 6 個案例 |
-| `test/jest-e2e.json` | 加 `maxWorkers: 1`（說明在 `docs/設定檔導讀.md`） |
+**④ 商業規則 + 第一次單元測試**
 
-`QuestionType` 從產生的程式碼 import：`'../../generated/prisma/enums.js'`（帶 `.js`）。
-它**同時是值也是型別**，一次 import 兩種用途都拿到。
+規則是「`DRAFT` 才能自由增刪題目；一旦有人填答就不能再改題目」。它會住在
+`QuestionsService`，是**整個專案第一段值得單元測試的邏輯**（純判斷、不碰資料庫）——
+Ch5 會再對比一次單元測試與 E2E 的適用時機。
 
-#### 下一步
-
-1. **`PATCH /questions/:id`** —— 建 `questions.controller.ts`（第一支扁平路由）、
-   `UpdateQuestionDto extends PartialType(CreateQuestionDto)`
-2. **`DELETE /questions/:id`**
-3. **`GET /surveys/:id` 加 `include: { questions: ... }`** ——
-   `include` 是「原本欄位全要、額外再帶關聯」，`select` 是「只要我列的」。
-   這一章一律帶題目（由 query 控制是 Ch4 的事）。
-   順帶確認既有的 surveys e2e 不會壞（`toMatchObject` 對多出來的欄位寬容）
-
-#### Ch3 已累積的坑（第一段結束後搬進 `ch03`）
-
-1. **「跑起來了」不等於「接上了」。** `QuestionsModule` 忘了註冊進 `AppModule`，
-   `pnpm start:dev` 照樣成功 —— 因為那個 module 不在樹上，Nest 根本沒去建立它，
-   裡面寫什麼都不會報錯。**沒被載入的程式碼不會報錯。**
-2. **假綠第五種樣態：「端點還沒接上」也會讓 404 測試變綠。** 那時的 404 來自
-   「Nest 找不到路由」，不是來自 `findOne` 丟的例外，但兩者從測試看起來一模一樣
-3. **`whitelist` 只認驗證裝飾器，不認 TypeScript 的型別宣告。**
-   拔掉 `@IsEnum` → `type` 被無聲丟掉 → `prisma.create` 收到 `undefined` → 500。
-   症狀看起來像「Prisma 的問題」，兇手其實在 `setup-app.ts`
-4. **測試裡除了「被驗的那件事」，其他前提都要保持正常。** 驗證測試若打
-   `nonexistent-id`，平常是綠的（驗證比 service 早跑），但壞掉時會拿到
-   `expected 400, got 404` —— 訊息把人帶往「路由或父資源有問題」的錯方向。
-   建一份真的問卷，變因只剩一個
-5. **何時需要二次查詢資料庫**：斷言的欄位若**全是自己送進去的**才需要；
-   只要有一個是伺服器產生的（例如 `order: 0`），回應本身就有證據力
-6. **`maxWorkers: 1` —— 測試檔之間也需要隔離。** Jest 預設並行跑不同測試檔，
-   而它們共用同一個測試資料庫、各自 `TRUNCATE`。症狀：**每次失敗的組合都不一樣，
-   而且紅的常是「上一章明明會過」的測試**。
-   `.env.test` 隔離「測試 vs 開發」，`maxWorkers` 隔離「測試 vs 測試」，兩層不同
-7. **複製測試忘了改動詞，第三次發生**（Ch2 兩次）。共同觸發條件都是「從對照版本複製」。
-   已升級成習慣：**貼上的當下就核對動詞與路徑跟 `describe` 一致**
-
-#### 欠的債（第一段做完要補，別以為已經做了）
-
-- `src/questions/` 四個檔 + `test/questions.e2e-spec.ts` 的 **`[教學]` 檔頭全部還沒寫**
-- **閱讀動線還沒接上** —— `surveys.service.ts` 的「下一站」目前直接跳到
-  `test/setup-env.ts`，questions 那幾個檔要插在中間
-- `docs/專案速查.md` 的**檔案地圖與閱讀動線還沒有 `src/questions/`**
-- `docs/chapters/ch03-*.md` 尚未建立
-
-（`docs/設定檔導讀.md` 的 `maxWorkers` **已補**，不用再做。）
+注意 `Response` / `Answer` 這兩張表到 Ch5 才會有端點，所以「有人填答」的前提資料
+在測試裡要用 `prisma` 直接建。
 
 **Ch3 不做的事：** 分頁/排序/篩選（Ch4）、提交作答（Ch5）、
 統一錯誤處理 Filter（Ch6）、Swagger（Ch7）。
@@ -200,8 +164,10 @@ Ch3 內容比 Ch2 多，**切成兩段**：第一段 ①②，第二段 ③④�
 - **丟給教練 review 之前先自己跑三項驗收**：
   `pnpm test:e2e`、`pnpm exec tsc --noEmit`、`pnpm lint`
 
-> 觀念與取捨全部寫在 [`ch02`](docs/chapters/ch02-第一個CRUD與測試資料庫隔離.md)，
-> **它的「作業」五題值得做過一遍** —— 其中三題會讓你親眼看到「測試綠但什麼都沒保護」。
+> **[`ch03`](docs/chapters/ch03-巢狀資源與關聯查詢.md) 的「作業」五題值得做過一遍**
+> —— 解答全部是實跑的輸出。其中第 1、2 題是一組對照：同樣少一行借來的 404，
+> 一個變 500、一個變 200 配空陣列。
+> （[`ch02`](docs/chapters/ch02-第一個CRUD與測試資料庫隔離.md) 的五題同樣值得做。）
 
 > **換機器後 `.env.test` 不存在，測試會直接失敗**（防呆刻意如此）。
 > 重建步驟見 [`docs/專案速查.md`](docs/專案速查.md) 的「換機接續」。
@@ -294,6 +260,7 @@ Ch3 內容比 Ch2 多，**切成兩段**：第一段 ①②，第二段 ③④�
 | Ch0 — 環境建置 | [`docs/chapters/ch00-環境建置.md`](docs/chapters/ch00-環境建置.md) |
 | Ch1 — Schema 設計與第一次 migration | [`docs/chapters/ch01-schema設計與第一次migration.md`](docs/chapters/ch01-schema設計與第一次migration.md) |
 | Ch2 — 第一個 CRUD 與測試資料庫隔離 | [`docs/chapters/ch02-第一個CRUD與測試資料庫隔離.md`](docs/chapters/ch02-第一個CRUD與測試資料庫隔離.md) |
+| Ch3 — 巢狀資源與關聯查詢（第一段） | [`docs/chapters/ch03-巢狀資源與關聯查詢.md`](docs/chapters/ch03-巢狀資源與關聯查詢.md) |
 
 ## 跨章節文件
 
