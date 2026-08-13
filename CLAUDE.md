@@ -14,7 +14,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 - **註解採兩種並行的寫法**（使用者目前是 NestJS / Prisma 初學者）：
   - `// [教學] ...` —— 解釋「這行在做什麼」的鷹架註解。密度是**逐段不逐行**：每個「做一件事」的段落配一個註解區塊，`import` 這種一看就懂的不寫。**同一個概念只解釋一次**，後續檔案改寫「（見 `xxx.ts` 檔頭）」指回去。這批註解是暫時的，使用者熟悉後會搜尋 `[教學]` 整批清除。
   - 無標記的一般註解 —— 解釋「為什麼這樣選」，永久保留（見 `src/prisma/prisma.module.ts` 的 `@Global()` 說明）。**不要把既有的無標記註解改寫或加上標記。**
-  - 每個檔案開頭有一段 `[教學]` 檔頭：一句話說明角色、2-4 行說明何時被執行，最後一行是「下一站：<檔案>」。這串「下一站」把所有檔案接成一條閱讀動線，起點是 `src/main.ts`，終點是 `test/questions.e2e-spec.ts`（完整順序見 `docs/專案速查.md` 的「閱讀動線」）。**新增檔案時要把它插進這條動線，別讓鏈斷掉。**
+  - 每個檔案開頭有一段 `[教學]` 檔頭：一句話說明角色、2-4 行說明何時被執行，最後一行是「下一站：<檔案>」。這串「下一站」把所有檔案接成一條閱讀動線，起點是 `src/main.ts`，終點是 `src/surveys/survey.rules.spec.ts`（完整順序見 `docs/專案速查.md` 的「閱讀動線」）。**新增檔案時要把它插進這條動線，別讓鏈斷掉。**
   - Prisma 7 因版本太新而衍生的相容性設定（`moduleFormat = "cjs"`、`--experimental-vm-modules`、`moduleNameMapper`），註解要明確標示「這現階段可以跳過」，避免使用者把力氣花在與學習目標無關的地方。
   - `package.json` 與 `test/jest-e2e.json` 是純 JSON **不能加註解**，它們的說明寫在 `docs/設定檔導讀.md`。
 - 教練模式：使用者要自己寫程式碼再 review。除非明確要求「幫我寫」，否則優先解釋概念與取捨，而非直接產生整段實作。
@@ -72,10 +72,14 @@ pnpm test:e2e -- test/health.e2e-spec.ts
 
 **E2E 優先**：後端絕大多數程式碼是「HTTP 請求 → Prisma → 資料庫狀態」的轉發，mock 掉 Prisma 等於在測 mock。E2E 測試連真實資料庫（Neon test branch，`.env.test`），從 Ch2 開始每章的驗收標準就是該章 E2E 綠燈。
 
-**單元測試只寫在有真正商業邏輯的地方**——目前規劃只有 `Survey.status` 那兩條規則：
+**單元測試只寫在有真正商業邏輯的地方**——目前全專案只有一支：`src/surveys/survey.rules.spec.ts`。
 
-- 只有 `PUBLISHED` 的問卷能被填答（Ch5）
-- `DRAFT` 才能自由增刪題目；一旦有人填答就不能再改題目（Ch3）
+判準不是「這段程式碼重不重要」，而是**「拿掉外部依賴之後還剩下什麼」**——剩下判斷邏輯才值得單元測試，什麼都不剩就別寫。`survey.rules.ts` 的兩個函式符合（純判斷、無依賴、不碰 HTTP）：
+
+- `canEditQuestions(status)` —— 只有 `DRAFT` 能增刪改題目（Ch3 已完成）
+- `canUnpublish(responseCount)` —— 沒有任何填答才能撤回發布（Ch3 已完成）
+
+Ch5 的「只有 `PUBLISHED` 的問卷能被填答」預計是第三條。**新規則一律加進 `survey.rules.ts`，不要寫進 service**——寫進 service 就得啟動 Nest 才測得到。
 
 不要回頭補測試：測試要在寫功能的當下寫，否則只是驗證「現在的行為」。
 
@@ -88,5 +92,5 @@ pnpm test:e2e -- test/health.e2e-spec.ts
 ## 其他
 
 - `.claude/skills/` 下有一組 Prisma 官方 skills（由 `skills-lock.json` 管理，`.agents/` 與 `.windsurf/` 是同一份的鏡像）。查 Prisma CLI / Client API 用法時優先使用它們。
-- 手動打 API 用 `api.http`（VS Code REST Client）。
+- 手動打 API 用 `api.http`（VS Code REST Client，擴充套件 `humao.rest-client`）。用法與踩過的坑寫在 `docs/專案速查.md` 的「`api.http` 怎麼用」。
 - ESLint 忽略 `src/generated/**`（Prisma 產生的程式碼）。

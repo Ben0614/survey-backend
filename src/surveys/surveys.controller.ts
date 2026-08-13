@@ -110,13 +110,27 @@ export class SurveysController {
     return this.surveysService.remove(id);
   }
 
+  // [教學] 這兩支是**動作型端點**：網址表達的不是「哪一個資源」，而是「對它做什麼」。
+  //
+  // 另一種做法是把 status 加進 UpdateSurveyDto，讓前端送 PATCH { status: 'PUBLISHED' }。
+  // 沒有選它的理由：發布不只是改一個欄位，它還帶著「撤回時要檢查有沒有人填答」
+  // 這種規則。混進 update 之後，那支方法就得依 dto 裡有沒有 status 分岔判斷，
+  // 而網址完全看不出來這件事會發生。create-survey.dto.ts 的註解早就寫了
+  // 「發布是一個獨立的動作而不是建立時的參數」—— 這裡是它的兌現。
+  //
+  // 上面 @Get(':id') 那段講過「路由依宣告順序比對」，那這兩支放在 @Patch(':id')
+  // 下面會不會被吃掉？**不會。** :id 是一段路徑，:id/publish 是兩段，
+  // 段數不同就不可能撞上 —— 順序問題只發生在**同樣段數**的路由之間。
+  //
+  // 兩支都沒有 @Body()，所以也不需要 DTO：要做什麼已經寫在網址裡了。
+  // 網址也要注意大小寫 —— /unpublish 和 /unPublish 是兩條不同的路由。
   @Patch(':id/publish')
   publish(@Param('id') id: string) {
     return this.surveysService.publish(id);
   }
 
   @Patch(':id/unpublish')
-  unPublish(@Param('id') id: string) {
+  unpublish(@Param('id') id: string) {
     return this.surveysService.unpublish(id);
   }
 }

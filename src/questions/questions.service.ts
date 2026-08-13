@@ -60,6 +60,21 @@ export class QuestionsService {
     // service 是按**要做的事**切的，不是按路由切的。
     const question = await this.prisma.question.findUnique({
       where: { id },
+
+      // [教學] include 第二次出場，而且方向反過來了：
+      // surveys.service.ts 的 findOne 是「問卷帶題目」（一對多），這裡是「題目帶問卷」。
+      //
+      // 兩個方向都走得通，因為 schema.prisma 兩邊都宣告了關聯欄位
+      // （Survey.questions 與 Question.survey），而它們靠的是同一根外鍵 Question.surveyId。
+      //
+      // 形狀不同：往下拿到的是 Question[]（0 到 N 筆，所以要 orderBy），
+      // 往上拿到的是 Survey 而不是 Survey | null —— surveyId 在 schema 是 String 不是 String?，
+      // 題目沒有「不屬於任何問卷」這個狀態，所以下面可以直接寫 question.survey.status。
+      //
+      // 為什麼是 include: { survey: true } 而不是 select 只挑 status：
+      // 判準是**有沒有上界**，不是「有沒有多撈」。assertExists 之所以值得用 select，
+      // 是因為它避開的是「一份問卷的所有題目」（500 題就 500 筆）；
+      // 這裡多撈的是一筆問卷的幾個欄位，永遠是一筆。
       include: { survey: true },
     });
 
@@ -72,7 +87,18 @@ export class QuestionsService {
 
   /** 在指定問卷底下新增一題，order 自動接在最後。 */
   async create(surveyId: string, dto: CreateQuestionDto) {
+    // [教學] 這行跟 findAll 那行是同一個呼叫，差別只在**這次接了回傳值**。
+    // assertExists 的 select 裡放 status 就是為了這一刻 —— 一次查詢同時滿足
+    // 「問卷存不存在」（404）和「能不能改題目」（409）兩個問題。
     const survey = await this.surveysService.assertExists(surveyId);
+
+    // [教學] 規則本身寫在 survey.rules.ts，這裡只負責把 false 翻譯成 409。
+    // 那個分工的好處在 survey.rules.spec.ts 看得最清楚：規則不認識 HTTP，
+    // 所以測它不必啟動 Nest。
+    //
+    // 注意是 `!canEditQuestions(...)` —— 少一個驚嘆號，意思會變成
+    // 「可以改就丟錯」，DRAFT 全被擋、PUBLISHED 反而放行。實際寫反過一次，
+    // 是既有的 e2e（前提資料全是 DRAFT）把它抓出來的。
     if (!canEditQuestions(survey.status)) {
       throw new ConflictException('問卷已發布，無法新增題目');
     }
@@ -103,6 +129,10 @@ export class QuestionsService {
     // 借 findOne 丟 404。沒有這行的話 Prisma 會丟 P2025，Nest 不認識 → 500
     // （完整說明見 surveys.service.ts 的 update）。
     const question = await this.findOne(id);
+
+    // [教學] 這裡的 question.survey 就是上面 include 帶回來的東西。
+    // 沒有它的話，這行得改成再呼叫一次 surveysService.assertExists(question.surveyId)
+    // —— 多一次來回。這是 include 少見的**省事**用法（多數時候它是多撈）。
     if (!canEditQuestions(question.survey.status)) {
       throw new ConflictException('問卷已發布，無法修改題目');
     }
@@ -125,6 +155,8 @@ export class QuestionsService {
     // 這裡實際漏寫過一次，結果是 `id 不存在時回 404` 那條測試拿到 500 ——
     // 少了它不是「一樣 404、訊息不同」，是完全不同的狀態碼。
     const question = await this.findOne(id);
+
+    // 規則檢查跟 update 同一套（說明見上面那支）。
     if (!canEditQuestions(question.survey.status)) {
       throw new ConflictException('問卷已發布，無法刪除題目');
     }

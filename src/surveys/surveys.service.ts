@@ -14,7 +14,7 @@
 // 那種判斷需要一個能被單元測試、且不必假裝發 HTTP 請求的地方。
 // Ch2 的方法確實只是薄薄一層轉發，但位置先擺對，之後才有地方放東西。
 //
-// 下一站：src/questions/questions.module.ts（子資源怎麼借用這裡的 assertExists）
+// 下一站：src/surveys/survey.rules.ts（publish / unpublish 借去問「可以嗎」的那兩條規則）
 // ============================================================
 
 import {
@@ -202,7 +202,17 @@ export class SurveysService {
     });
   }
 
+  /** 發布問卷。沒有任何前置條件，重複發布也不算錯誤。 */
   async publish(id: string) {
+    // [教學] 這裡沒有「已經是 PUBLISHED 就提早 return」的判斷，是刻意的。
+    //
+    // PATCH 應該是**冪等**的：送幾次結果都一樣，第二次不該被當成失敗。
+    // 而「冪等」不只指資料庫的狀態，**回應內容也算在內** ——
+    // 如果提早 return assertExists 的結果，第二次呼叫拿到的會是 { id, status }，
+    // 少了 title；同一支 API 回兩種形狀，前端就得判斷自己拿到的是哪一種。
+    //
+    // 把已發布的問卷再設成已發布是無害的，代價只是那一句 UPDATE 照樣發出去。
+    // 一個出口、一種形狀，換一句 SQL —— 這個交易划算。
     await this.assertExists(id);
 
     return this.prisma.survey.update({
@@ -213,13 +223,33 @@ export class SurveysService {
     });
   }
 
+  /** 撤回發布。已經有人填答就不給撤回（409）。 */
   async unpublish(id: string) {
     await this.assertExists(id);
 
+    // [教學] 要的是「幾筆」，就用 count —— 不要撈出來再自己數 .length。
+    //
+    // count 發出的是 SELECT COUNT(*)，數數在資料庫裡完成，網路上只回一個數字。
+    // 換成 include: { responses: true } 再取 .length 的話，500 筆填答就要把
+    // 500 筆完整資料搬過網路，只為了看它有幾筆 —— 那正是 assertExists
+    // 當初要消滅的那種浪費，只是換了個位置。
+    //
+    // 另一個理由等 Ch4 才會踩到：分頁之後 .length 只會是「這一頁幾筆」，
+    // count 則完全不受 take / skip 影響，因為它根本沒有在取資料。
+    //
+    // where 是 { surveyId: id } 不是 { id }。後者會變成「回覆的 id 等於這個字串」，
+    // 拿問卷 id 去比對回覆 id，永遠是 0 —— 而它型別完全正確，
+    // tsc 與 lint 都不會抗議，只有 e2e 那條「有填答時回 409」抓得到。
     const responseCount = await this.prisma.response.count({
       where: { surveyId: id },
     });
 
+    // [教學] 規則檔回 boolean，這裡才把它翻譯成 HTTP 的 409。
+    //
+    // 選 409 Conflict 而不是 403 或 400：
+    //   403 是權限問題（換一個人來就可以），但這裡換誰來都一樣不行
+    //   400 是請求本身有錯，但這個請求完全合法，而且會跟 ValidationPipe 的 400 混在一起
+    // 409 的語義正是「請求沒問題，是跟資源目前的狀態衝突」。
     if (!canUnpublish(responseCount)) {
       throw new ConflictException('問卷已被填寫，無法恢復成未發布狀態');
     }

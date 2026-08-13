@@ -12,8 +12,9 @@
 > 換機或開新對話時**先讀這一節**。對話歷史與 AI 記憶都在 `~/.claude/` 底下，不跟 git 走 ——
 > 這裡沒寫的東西，換一台機器就等於沒發生過。
 
-**進度：** Ch0、Ch1、Ch2 完成。**Ch3 第一段完成（含補債）；第二段的 ③ 只剩修正沒做、
-④ 尚未開始** —— 下一步的四個步驟逐條寫在下方「Ch3 接續點」，換機後照著做即可。
+**進度：** Ch0、Ch1、Ch2、**Ch3 全部完成**（兩段皆完成並補完文件）。
+`pnpm test:e2e` **36 passed**、`pnpm test` **4 passed**、`tsc --noEmit` 0 errors、`lint` 0 problems。
+下一步是 Ch4（分頁、排序、篩選），起手式寫在下方「Ch4 接續點」。
 
 **重要脈絡：** Ch0 的程式碼是 AI 產生的，因此進度表的 ✅ 起初**只代表環境可用**，
 不代表讀得懂 —— 為此補了一批 `[教學]` 註解當作理解鷹架（見 `docs/專案速查.md` 的「閱讀動線」）。
@@ -120,163 +121,96 @@ commit `d1b7b8b`。加了 `PRISMA_LOG_QUERIES` 開關（預設關），其餘全
 第 3 點是這一段的重點：**回應完全正確、測試全綠、沒有任何錯誤訊息 ——
 不打開 log 永遠不會有人發現。ORM 讓你用一行程式碼換到不知道幾句 SQL。**
 
-修正方向（`assertExists`）已設計、**尚未實作**，是第二段步驟 1。
-
 同一輪還修正了自己寫錯的一處機制解釋（`.env` 在 e2e 裡是被 `AppModule` 的
 `ConfigModule` 讀進去的，不是 `setup-env.ts` —— 它只讀進一個丟棄用的物件做比對）。
 結論對、機制錯，照錯的理解去推下一步就會出錯。**註解寫錯比沒寫更糟，這是第四次。**
+
+**2026-08-13 —— Ch3 完成。** commit `811b191`（實作）＋文件。
+`assertExists` 砍掉重複查詢（`GET /surveys/:surveyId/questions` 3 句 → **2 句**，實測確認）；
+兩條商業規則抽成純函式、`publish` / `unpublish` 兩支動作型端點；
+**36 passed**（+6）、`pnpm test` **4 passed** —— 專案第一支單元測試，0.5 秒對比 e2e 的 12 秒。
+
+這一段最貴的三課：
+
+1. **`tsc` 綠燈不代表跑得起來。** VS Code 自動補的 `import from 'src/...'` 絕對路徑，
+   `tsc --noEmit` 0 errors，`pnpm test:e2e` 卻是 `Tests: 0 total`（三個 suite 全部
+   `Cannot find module`）。`baseUrl` 只管編譯期，執行期的 Node 不吃。**同一輪踩了兩次。**
+2. **假綠的第六種：查詢語法對、查錯欄位。** `response.count({ where: { id } })` ——
+   `Response.id` 是合法欄位、型別完全正確，但它恆為 0，於是「有人填答就不能撤回」
+   這條規則**從來不會生效**。三項驗收全綠，唯一的偵測器是那條還沒寫的 e2e。
+   **寫規則的當下就要寫那條測試。**
+3. **冪等連回應的形狀都算。** 「已經是 PUBLISHED 就提早 return」會回
+   `assertExists` 的 `{ id, status }`，正常路徑回完整 `Survey` —— 同一支 API
+   第二次呼叫少了 `title`。而這個坑的來源是 ③ 給 `assertExists` 加的 `select`，
+   設計 ④ 時沒接上：**改了一支方法的回傳形狀，就要回頭想「誰在用它、用來做什麼」。**
+
+另外把「什麼時候用 API、什麼時候用 Prisma」寫成 `docs/專案速查.md` 的一節 ——
+那是實際卡住的地方，而且跨章節（controller / service / e2e 三處判準不同）。
+
+觀念、取捨、13 條坑與兩批作業都在
+[`ch03`](docs/chapters/ch03-巢狀資源與關聯查詢.md)，這裡不重複。
 
 原則不變：**確認前一章讀得懂，再進下一章。**
 
 ---
 
-### Ch3 接續點（2026-08-12 更新）
+### Ch4 接續點（2026-08-13）
 
-**目前狀態**：`pnpm test:e2e` **30 passed**、`pnpm test` 0 個 spec（靠 `--passWithNoTests`）、
+**目前狀態**：`pnpm test:e2e` **36 passed**、`pnpm test` **4 passed**、
 `tsc --noEmit` 0 errors、`eslint` 0 problems，working tree 乾淨、已 push。
 
-#### Ch3 的四塊與切分（已定案，不要重新討論）
+Ch3 兩段全部完成。觀念、取捨、13 條坑與兩批作業在
+[`ch03`](docs/chapters/ch03-巢狀資源與關聯查詢.md)，**這裡不重複**。
 
-| 塊 | 內容 | 狀態 |
-| --- | --- | --- |
-| ① Questions 的巢狀 CRUD | 多一層「父資源存不存在」 | ✅ |
-| ② `include` / `select` | `GET /surveys/:id` 帶出題目 | ✅ |
-| ③ 看 Prisma 產生的 SQL、N+1 | 打開 query log | **觀察完成，修正未做** |
-| ④ 商業規則 + 第一次單元測試 | 「`DRAFT` 才能改題目」 | **未開始** |
+#### 進 Ch4 之前先確認的兩件事
 
-已完成部分的決策、取捨、坑、作業解答、以及 ③ 的完整觀察結果（含真實 SQL）
-全部在 [`ch03`](docs/chapters/ch03-巢狀資源與關聯查詢.md)，**這裡不再重複**。
+1. **Ch3 的程式碼讀得懂嗎。** 進度表的 ✅ 只代表「跑得起來」。
+   最值得自己講一遍的三處：
+   - `assertExists` 和 `findOne` 為什麼要分成兩支（各自的呼叫者是誰、為什麼）
+   - `survey.rules.ts` 為什麼**不是** provider、為什麼回 boolean 而不是直接丟例外
+   - `include: { survey: true }` 跟 `include: { questions: { orderBy } }` 差在哪
+2. **`ch03` 第二段的五題作業值得做過一遍** —— 尤其第 1 題（把 `where: { surveyId: id }`
+   改回 `{ id }`，看哪幾條測試會紅）。那是「假綠第六種」的現場。
 
----
+#### Ch4 的範圍：分頁、排序、篩選
 
-#### 第二段·已經做出的決策（換機後不必重問）
+課綱的關鍵收穫是「**query string 轉型驗證**、`skip/take` vs cursor」。
 
-**規則定案 —— 這是兩條規則，不是一條。** 原本課綱寫「`DRAFT` 才能自由增刪題目；
-一旦有人填答就不能再改題目」，但因為只有 `PUBLISHED` 能被填答，`DRAFT` 永遠沒有填答 ——
-兩句只在「已發布但還沒人填答」這一種狀態下會給出不同答案。定案：
+主要落在 `GET /surveys`（目前是 `findMany({ orderBy: { createdAt: 'desc' } })`，
+寫死一種排序、沒有分頁），可能也會擴到 `GET /surveys/:surveyId/questions`。
 
-| 規則 | 判準 | 為什麼 |
-| --- | --- | --- |
-| 能不能**改題目** | `status === 'DRAFT'` | 「已發布」代表**可能有人正在填寫**，那跟「目前有幾筆填答紀錄」不是同一件事 —— 有人開著頁面還沒送出時 `responseCount` 仍是 0，用它當判準會漏掉這種人 |
-| 能不能**撤回發布** | 還沒有任何填答 | 這是「要改已發布的問卷」的正式路徑：先撤回、再改。已經有人填過就不給撤回，否則舊答案會對不上新題目 |
+**Ch3 已經先埋好的三個引子**（Ch4 要正面處理）：
 
-其餘定案：
+- `surveys.service.ts` 的 `findAll` 註解寫著「『最新的在最上面』是這裡自己決定的預設值；
+  讓前端自由指定排序是 Ch4 的事」
+- `surveys.controller.ts` 的 `findOne` 註解提到 **`@Param()` 拿到的永遠是字串**
+  ——「Ch4 才會有感」。`?page=2` 進來也是字串 `'2'`，這就是 query 轉型驗證的起點
+- `findOne` 的 `include` 註解寫著「這一章一律帶題目，由 query 決定要不要帶是 Ch4 的事」
 
-- **錯誤一律回 409 Conflict** —— 請求本身沒錯，是跟資源目前的狀態衝突。
-  不用 403（不是權限問題，換一個人來也一樣不能改）、
-  不用 400（body 完全合法，而且會跟 `ValidationPipe` 的 400 混在一起分不出來）
-- **一併做「發布 / 撤回發布」兩支端點。** 現在 API 上根本沒有辦法把問卷變成 `PUBLISHED`
-  （`UpdateSurveyDto` 只有 `title`，`status` 被 whitelist 擋掉），不做的話規則等於死程式碼
-- **`status` 不進 `UpdateSurveyDto`**，用自己的動作型路由。
-  `create-survey.dto.ts` 的註解早就寫了「發布是一個獨立的動作」，現在兌現
-- **query log 開關已完成**：`PRISMA_LOG_QUERIES=1`，預設關（見 `ch03` 第二段）
+**Ch3 已經備好、Ch4 直接可用的工具：**
 
-#### 下一步（依序做，每一步做完跑驗收）
+- **`PRISMA_LOG_QUERIES=1`** —— 分頁一定要看 `LIMIT` / `OFFSET` 實際長什麼樣，
+  也是 `skip/take` vs cursor 差異最直觀的證據。怎麼讀 log 見 `ch03` 的 ③
+- **`count()`** —— 分頁回應通常要附總筆數，而 `.length` 在分頁之後只會是「這一頁幾筆」
+  （`ch03` ④ 已寫成一節）
+- **`docs/專案速查.md` 的「什麼時候用 API、什麼時候用 Prisma」** —— 寫 e2e 卡住時看這裡
 
-**步驟 1 — ③ 的修正：`SurveysService.assertExists`**
+#### 工作方式（沿用，實際付出代價換來的）
 
-`ch03` 第二段量到三個浪費，最嚴重的是 `GET /surveys/:surveyId/questions`
-**把同一批題目撈了兩次**。修法（完整說明與 `select` 的寫法在 `ch03`）：
-
-1. `SurveysService` 新增 `assertExists(id)` ——
-   `findUnique({ where: { id }, select: { id: true, status: true } })`，找不到丟 404
-2. 四個呼叫點從 `findOne` 改成 `assertExists`：
-   `SurveysService.update` / `remove`、`QuestionsService.findAll` / `create`
-3. `GET /surveys/:id` 那條路徑**維持 `findOne`**（它要完整內容）
-4. 跑 `pnpm test:e2e` —— **30 passed 不該變**（行為沒變，只是少撈東西）
-5. **把 `.env` 的 `PRISMA_LOG_QUERIES` 設成 1 再跑那兩條，親眼確認查詢真的少了。**
-   這一步不能省，否則只是相信文件寫的
-
-**步驟 2 — ④ 規則抽成純函式 + 專案第一支單元測試**
-
-新檔 `src/surveys/survey.rules.ts`，兩個**純述詞**（回 boolean、不丟例外、不碰資料庫、
-**不需要 `@Injectable()` 也不必註冊進 module**，直接 `import` 就好 ——
-這是順帶的觀念：**不是所有東西都要變成可注入的零件**）：
-
-```ts
-export function canEditQuestions(status: SurveyStatus): boolean
-export function canUnpublish(responseCount: number): boolean
-```
-
-回 boolean 而不是直接 `throw`：丟 `ConflictException` 是 HTTP 的事，
-放進規則檔會把「純判斷」這個唯一的好處弄丟。由 service 翻譯成 409。
-
-新檔 `src/surveys/survey.rules.spec.ts` —— **專案第一支單元測試**
-（`pnpm test` 跑的是 `rootDir: src` + `*.spec.ts`，設定在 `package.json`）。四個案例起跳：
-`canEditQuestions('DRAFT')` → true、`('PUBLISHED')` → false、
-`canUnpublish(0)` → true、`canUnpublish(1)` → false。
-
-**這裡是全專案唯一適合單元測試的地方** —— 純判斷，不必啟動 Nest、不必連資料庫、
-不必 mock 任何東西。跟 e2e 的適用時機對比要寫進 `ch03`（Ch5 會再對比一次）。
-
-**步驟 3 — 規則套用 + 兩支新端點**
-
-- **改題目**：`QuestionsService` 的 `create` / `update` / `remove` 三支都要擋
-  - `create` 已經有 `await this.surveysService.assertExists(surveyId)`（步驟 1 改的），
-    把回傳值接起來就有 `status`
-  - `update` / `remove` 只有 `question.id`，拿不到問卷 →
-    **把 `QuestionsService.findOne` 改成 `include: { survey: true }`**，
-    一次查詢同時拿到題目與問卷狀態，不必再多呼叫一次。
-    （`include` 第二次出場，而且這次它是**省查詢**的那一邊，正好跟步驟 1 的觀察對照）
-- **撤回發布**：`SurveysService.unpublish` 要先
-  `prisma.response.count({ where: { surveyId: id } })`
-- **兩支端點**寫在既有的 `src/surveys/surveys.controller.ts`：
-  `PATCH /surveys/:id/publish`、`PATCH /surveys/:id/unpublish`
-  - 路徑段數跟 `@Patch(':id')` 不同，**不會互相吃掉** ——
-    但 controller 裡已經有一段講「路由依宣告順序比對」的註解，這裡值得標一句為什麼這次不衝突
-  - **冪等**：已經是 `PUBLISHED` 再 publish 回 200（不當錯誤），unpublish 同理。PATCH 本該冪等
-
-**步驟 4 — E2E（6 條）**
-
-| 檔案 | 案例 |
-| --- | --- |
-| `test/surveys.e2e-spec.ts` | publish 後 `status` 變 `PUBLISHED` |
-| `test/surveys.e2e-spec.ts` | unpublish 後變回 `DRAFT` |
-| `test/surveys.e2e-spec.ts` | **有填答時 unpublish 回 409** |
-| `test/questions.e2e-spec.ts` | 問卷是 `PUBLISHED` 時 `POST` 題目回 409 |
-| `test/questions.e2e-spec.ts` | 問卷是 `PUBLISHED` 時 `PATCH` 題目回 409 |
-| `test/questions.e2e-spec.ts` | 問卷是 `PUBLISHED` 時 `DELETE` 題目回 409 |
-
-`Response` / `Answer` 到 Ch5 才有端點，所以「有人填答」的前提**只能用 `prisma` 直接建** ——
-這剛好符合專案原則（前提資料一律不透過 API）。
-
-**步驟 5 — 文件與註解（別忘了，Ch3 第一段就是因為累積才變成一大筆債）**
-
-- `[教學]` 檔頭：`survey.rules.ts`、`survey.rules.spec.ts`
-- **接進閱讀動線**：`surveys.service.ts → survey.rules.ts → questions.module.ts`；
-  `survey.rules.spec.ts` 接在 `test/questions.e2e-spec.ts` 之後**成為新終點**
-  （最後看一支單元測試，正好跟前面全部的 e2e 對照）。**`CLAUDE.md` 的終點要同步**
-- `docs/專案速查.md`：檔案地圖 + 動線 + `pnpm test` 的說明
-- `docs/chapters/ch03-*.md`：往「第二段」那一節繼續追加 ④ 的內容、新的坑、新的作業
-- `LEARNING.md`：進度表 Ch3 改 ✅、這一節改寫成 Ch4 的起手式
-
-#### 第二段的驗收
-
-```bash
-pnpm test                # 4 passed（目前是 0 個 spec）
-pnpm test:e2e            # 30 + 6 = 36 passed
-pnpm exec tsc --noEmit   # 0 errors
-pnpm lint                # 0 problems
-```
-
-**Ch3 不做的事：** 分頁/排序/篩選（Ch4）、提交作答（Ch5）、
-統一錯誤處理 Filter（Ch6）、Swagger（Ch7）。
-
-#### 沿用 Ch2 的工作方式（實際付出代價換來的）
-
-- 一次做完一個端點：service → controller → E2E → **跑測試**
+- **教練模式**：實作自己寫，教練 review 並負責 `[教學]` 註解與文件
+- 一次做完一件事：service → controller → E2E → **跑測試**
 - **每寫一條測試就跑一次**，不要一口氣寫完才跑
-- 每個新檔案都要接進閱讀動線（改前一站的「下一站」），別讓鏈斷掉
-- **丟給教練 review 之前先自己跑三項驗收**：
-  `pnpm test:e2e`、`pnpm exec tsc --noEmit`、`pnpm lint`
-
-> **[`ch03`](docs/chapters/ch03-巢狀資源與關聯查詢.md) 的「作業」五題值得做過一遍**
-> —— 解答全部是實跑的輸出。其中第 1、2 題是一組對照：同樣少一行借來的 404，
-> 一個變 500、一個變 200 配空陣列。
-> （[`ch02`](docs/chapters/ch02-第一個CRUD與測試資料庫隔離.md) 的五題同樣值得做。）
+- 貼上測試的當下核對**動詞與路徑**跟 `describe` 一致（這個坑踩過四次）
+- 新檔案要接進閱讀動線（改前一站的「下一站」），別讓鏈斷掉。
+  目前終點是 `src/surveys/survey.rules.spec.ts`
+- **改行為時搜尋一次被改掉的那個名字**，找出過期註解（這個坑踩過五次）
+- **import 路徑一律用相對路徑**，看到開頭是 `src/` 直接改掉（`tsc` 不會抓）
+- 丟給教練 review 之前先自己跑四項驗收：
+  `pnpm test`、`pnpm test:e2e`、`pnpm exec tsc --noEmit`、`pnpm lint`
 
 > **換機器後 `.env.test` 不存在，測試會直接失敗**（防呆刻意如此）。
 > 重建步驟見 [`docs/專案速查.md`](docs/專案速查.md) 的「換機接續」。
+> `src/generated/` 也不進版控，記得 `pnpm exec prisma generate`。
 
 > **加分項（非前提）：** 讀 NestJS 官方文件 Overview 前四篇
 > （First steps / Controllers / Providers / Modules，約一小時）。內容與閱讀動線上的
@@ -300,7 +234,7 @@ pnpm lint                # 0 problems
 | Ch0 | 環境建置與 `/health` | DI、module 邊界、生命週期 | ✅ |
 | Ch1 | Schema 設計、第一次 migration、seed | 資料模型設計、migration 是什麼 | ✅ |
 | Ch2 | 第一個 CRUD（Surveys）+ **測試資料庫隔離** | DTO 驗證、404 處理、`.env.test` 與資料清理 | ✅ |
-| Ch3 | 巢狀資源與關聯查詢（Questions） | `include`/`select`、**看 Prisma 產生的 SQL**、N+1 | ⬜ |
+| Ch3 | 巢狀資源與關聯查詢（Questions） | `include`/`select`、**看 Prisma 產生的 SQL**、商業規則與第一支單元測試 | ✅ |
 | Ch4 | 分頁、排序、篩選 | query string 轉型驗證、`skip/take` vs cursor | ⬜ |
 | Ch5 | 提交與查詢作答（Responses） | 巢狀 write vs `$transaction`、原子性、**商業規則與單元測試** | ⬜ |
 | Ch6 | 統一錯誤處理與回應格式 | Exception Filter 把 Prisma 錯誤碼轉 HTTP | ⬜ |
@@ -366,7 +300,7 @@ pnpm lint                # 0 problems
 | Ch0 — 環境建置 | [`docs/chapters/ch00-環境建置.md`](docs/chapters/ch00-環境建置.md) |
 | Ch1 — Schema 設計與第一次 migration | [`docs/chapters/ch01-schema設計與第一次migration.md`](docs/chapters/ch01-schema設計與第一次migration.md) |
 | Ch2 — 第一個 CRUD 與測試資料庫隔離 | [`docs/chapters/ch02-第一個CRUD與測試資料庫隔離.md`](docs/chapters/ch02-第一個CRUD與測試資料庫隔離.md) |
-| Ch3 — 巢狀資源與關聯查詢（第一段） | [`docs/chapters/ch03-巢狀資源與關聯查詢.md`](docs/chapters/ch03-巢狀資源與關聯查詢.md) |
+| Ch3 — 巢狀資源與關聯查詢 | [`docs/chapters/ch03-巢狀資源與關聯查詢.md`](docs/chapters/ch03-巢狀資源與關聯查詢.md) |
 
 ## 跨章節文件
 

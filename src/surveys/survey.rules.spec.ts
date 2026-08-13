@@ -18,6 +18,8 @@
 // 反過來說也成立：這也是為什麼專案其他地方**刻意不寫**單元測試。
 // service 幾乎都是「收參數 → 交給 Prisma → 回結果」，把 Prisma mock 掉之後
 // 測到的只剩下 mock 自己（見 CLAUDE.md 的「測試策略」）。
+//
+// 動線終點。回到 src/main.ts 再走一次，看看是不是都串起來了。
 // ============================================================
 
 import { SurveyStatus } from '../generated/prisma/enums';
