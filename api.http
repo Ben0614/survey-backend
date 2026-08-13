@@ -26,6 +26,8 @@ Content-Type: application/json
   "title": "員工滿意度調查"
 }
 
+### 把上一個回應的 id 存成變數給後面用。
+### 這行前後**都必須有 `###`** —— 少了上面那條分隔線，它會被當成 JSON body 的一部分送出去（400）
 @surveyId = {{createSurvey.response.body.id}}
 
 ### 列出所有問卷（最新的在前面）
@@ -62,6 +64,7 @@ Content-Type: application/json
   "options": ["非常滿意", "滿意", "普通", "不滿意"]
 }
 
+### 同上，這行前面的 `###` 不能省
 @questionId = {{createQuestion.response.body.id}}
 
 ### 列出這份問卷的題目（依 order 排序）

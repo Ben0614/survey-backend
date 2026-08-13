@@ -24,7 +24,7 @@ import {
 // 值得記的是另一件事：它**同時是值也是型別**。下面 @IsEnum(QuestionType) 用的是「值」
 // （執行期要拿它去比對），type: QuestionType 用的是「型別」（編譯期的事）。
 // 一次 import 兩種用途都拿到。
-import { QuestionType } from '../../generated/prisma/enums.js';
+import { QuestionType } from '../../generated/prisma/enums';
 
 export class CreateQuestionDto {
   @IsString()

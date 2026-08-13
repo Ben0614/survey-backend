@@ -109,4 +109,14 @@ export class SurveysController {
     // 「要刪哪一筆」是它唯一需要知道的事，而那個資訊在網址裡。
     return this.surveysService.remove(id);
   }
+
+  @Patch(':id/publish')
+  publish(@Param('id') id: string) {
+    return this.surveysService.publish(id);
+  }
+
+  @Patch(':id/unpublish')
+  unPublish(@Param('id') id: string) {
+    return this.surveysService.unpublish(id);
+  }
 }

@@ -18,7 +18,8 @@ import { AppModule } from '../src/app.module';
 import { PrismaService } from '../src/prisma/prisma.service';
 import { setupApp } from '../src/setup-app';
 import { resetDb } from './helpers/reset-db';
-import { QuestionType } from '../src/generated/prisma/enums.js';
+import { QuestionType } from '../src/generated/prisma/enums';
+import { SurveyStatus } from '../src/generated/prisma/enums';
 
 // [教學] supertest 的 res.body 是 any，專案的 ESLint 禁止在 any 上直接取欄位，
 // 所以宣告一個形狀轉一次（同 surveys.e2e-spec.ts 的 SurveyBody）。
@@ -187,6 +188,26 @@ describe('Questions (e2e)', () => {
         })
         .expect(400);
     });
+
+    it('問卷已發布時新增題目回 409', async () => {
+      const survey = await prisma.survey.create({
+        data: { title: '已發布問卷', status: SurveyStatus.PUBLISHED },
+      });
+
+      await request(app.getHttpServer())
+        .post(`/surveys/${survey.id}/questions`)
+        .send({
+          title: '題目一',
+          type: 'SINGLE_CHOICE',
+          options: ['選項1', '選項2', '選項3'],
+        })
+        .expect(409);
+
+      const count = await prisma.question.count({
+        where: { surveyId: survey.id },
+      });
+      expect(count).toBe(0);
+    });
   });
 
   // [教學] 這一組是整個 Ch3 第一段最貴的一課，值得停下來看。
@@ -313,6 +334,40 @@ describe('Questions (e2e)', () => {
         options: ['選項1', '選項2', '選項3'],
       });
     });
+
+    it('問卷已發布時修改題目回 409', async () => {
+      const survey = await prisma.survey.create({
+        data: { title: '未發布問卷' },
+      });
+
+      const question = await prisma.question.create({
+        data: {
+          surveyId: survey.id,
+          title: '題目一',
+          type: 'SINGLE_CHOICE',
+          order: 0,
+          options: ['選項1', '選項2', '選項3'],
+        },
+      });
+
+      await prisma.survey.update({
+        where: { id: survey.id },
+        data: { title: '已發布問卷', status: SurveyStatus.PUBLISHED },
+      });
+
+      await request(app.getHttpServer())
+        .patch(`/questions/${question.id}`)
+        .send({
+          title: '修改後的題目一',
+          options: ['修改後的選項1', '修改後的選項2', '修改後的選項3'],
+        })
+        .expect(409);
+
+      const unchanged = await prisma.question.findUnique({
+        where: { id: question.id },
+      });
+      expect(unchanged?.title).toBe('題目一');
+    });
   });
 
   describe('DELETE /questions/:id', () => {
@@ -364,6 +419,36 @@ describe('Questions (e2e)', () => {
       await request(app.getHttpServer())
         .delete('/questions/nonexistent-id')
         .expect(404);
+    });
+
+    it('問卷已發布時刪除題目回 409', async () => {
+      const survey = await prisma.survey.create({
+        data: { title: '未發布問卷' },
+      });
+
+      const question = await prisma.question.create({
+        data: {
+          surveyId: survey.id,
+          title: '題目一',
+          type: 'SINGLE_CHOICE',
+          order: 0,
+          options: ['選項1', '選項2', '選項3'],
+        },
+      });
+
+      await prisma.survey.update({
+        where: { id: survey.id },
+        data: { title: '已發布問卷', status: SurveyStatus.PUBLISHED },
+      });
+
+      await request(app.getHttpServer())
+        .delete(`/questions/${question.id}`)
+        .expect(409);
+
+      const still = await prisma.question.findUnique({
+        where: { id: question.id },
+      });
+      expect(still).not.toBeNull();
     });
   });
 });

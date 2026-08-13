@@ -4,8 +4,8 @@
 // 什麼時候被執行：controller 收到請求後呼叫它。
 // 它**幾乎**不知道 HTTP 的存在 —— 沒有 request、沒有網址。
 //
-// 「幾乎」是因為有一個例外：findOne 找不到資料時直接丟 NotFoundException，
-// 而 404 是不折不扣的 HTTP 概念（update 也借用它做同一件事）。
+// 「幾乎」是因為有一個例外：findOne 與 assertExists 找不到資料時直接丟
+// NotFoundException，而 404 是不折不扣的 HTTP 概念。
 // 這是一道刻意留著的裂縫，取捨寫在 findOne 裡面，
 // Ch6 有了 Exception Filter 之後會回頭重看。
 //
@@ -14,13 +14,19 @@
 // 那種判斷需要一個能被單元測試、且不必假裝發 HTTP 請求的地方。
 // Ch2 的方法確實只是薄薄一層轉發，但位置先擺對，之後才有地方放東西。
 //
-// 下一站：src/questions/questions.module.ts（子資源怎麼借用這裡的 findOne）
+// 下一站：src/questions/questions.module.ts（子資源怎麼借用這裡的 assertExists）
 // ============================================================
 
-import { Injectable, NotFoundException } from '@nestjs/common';
+import {
+  Injectable,
+  NotFoundException,
+  ConflictException,
+} from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { CreateSurveyDto } from './dto/create-survey.dto';
 import { UpdateSurveyDto } from './dto/update-survey.dto';
+import { canUnpublish } from './survey.rules';
+import { SurveyStatus } from '../generated/prisma/enums';
 
 @Injectable()
 export class SurveysService {
@@ -37,6 +43,40 @@ export class SurveysService {
     return this.prisma.survey.findMany({
       orderBy: { createdAt: 'desc' },
     });
+  }
+
+  /** 只確認問卷存在（並取得判斷用的狀態），不撈題目。找不到就丟 404。 */
+  async assertExists(id: string) {
+    // [教學] 這支跟 findOne 查的是同一筆資料，差別只在**撈多少**。
+    //
+    // select 是「只要我列的欄位」——連 title、createdAt 都不會回來，
+    // 更不會去碰 Question 表。對照下面 findOne 的 include（本表全要、額外再帶關聯），
+    // 兩者在同一層互斥。
+    //
+    // 為什麼要多這一支：findOne 有四個呼叫者，其中三個只是想確認「這份問卷在不在」、
+    // 根本不看回傳值，卻被迫連題目一起撈。Ch3 第二段打開 query log 量到的結果是
+    // GET /surveys/:surveyId/questions 跑了三句 SQL，而**最後兩句一模一樣**——
+    // 同一批題目撈了兩次，第一次的結果直接丟掉。詳細的 log 在 ch03。
+    //
+    // 名字用 assertExists 而不是 findOneLite：**它的用途是斷言，不是取值。**
+    // 名字說清楚「呼叫我是為了讓不存在的情況直接中止」，
+    // 才不會有人拿它的回傳值當完整問卷用（它沒有 title，也沒有 questions）。
+    const survey = await this.prisma.survey.findUnique({
+      where: { id },
+
+      // status 不是湊的 —— Ch3 第二段的「DRAFT 才能改題目」剛好需要它。
+      // 一個 select 同時滿足兩個需求，而且它便宜到不值得為此再查一次。
+      select: { id: true, status: true },
+    });
+
+    if (!survey) {
+      throw new NotFoundException('問卷不存在');
+    }
+
+    // [教學] 回傳型別是 `{ id: string; status: SurveyStatus }`，**不是 Survey**。
+    // 加 include 會讓型別自己變寬（見 findOne），用 select 則是自己變窄 ——
+    // 兩邊都不必寫型別註記。把游標移上去看一眼。
+    return survey;
   }
 
   /** 查一份問卷，連同它的題目。找不到就是 404，不會回 200 配一個空的 body。 */
@@ -92,9 +132,9 @@ export class SurveysService {
     // **加了 include，回傳型別自己就跟著變了**，我們沒有寫任何型別註記。
     // 把游標移到 survey 上看一眼，這是 Prisma 型別系統最有感的地方。
     //
-    // 代價：update / remove / QuestionsService 都只是借這支丟 404、不看回傳值，
-    // 但它們現在也會一起把題目撈出來。現階段接受 ——
-    // 「這一次 include 到底跑了幾句 SQL」是 Ch3 第二段打開 query log 要親眼確認的第一件事。
+    // 這支現在**只有一個呼叫者**：GET /surveys/:id，也就是唯一真的要完整內容的那條路徑。
+    // 原本 update / remove / QuestionsService 也借它丟 404、卻被迫連題目一起撈，
+    // Ch3 第二段量出那筆浪費之後改用 assertExists 了（見上面那支）。
     return survey;
   }
 
@@ -113,9 +153,9 @@ export class SurveysService {
   /** 更新一份問卷。只有 dto 裡實際出現的欄位會被改動。 */
   async update(id: string, dto: UpdateSurveyDto) {
     // [教學] 這行沒有接回傳值，看起來像白呼叫一次 ——
-    // 它的作用不是取值，是**借 findOne 丟例外**。
+    // 它的作用不是取值，是**借 assertExists 丟例外**。
     //
-    // 找不到時 findOne 會 throw，一 throw 下面整段就不會執行，
+    // 找不到時 assertExists 會 throw，一 throw 下面整段就不會執行，
     // 例外往上冒到 Nest 變成 404 回應；查得到就安靜通過，程式往下走。
     //
     // 少了這行不是「一樣 404、只是訊息不同」，而是 **500**：
@@ -125,7 +165,7 @@ export class SurveysService {
     //
     // 代價是同一筆資料查了兩次。這一章選直白，remove 也會原封不動再用一次；
     // 另一種做法是 catch P2025，那是 Ch6 Exception Filter 的正題。
-    await this.findOne(id);
+    await this.assertExists(id);
 
     // [教學] dto.title 是 undefined 時（例如空 body），Prisma **完全不碰這個欄位** ——
     // 它把該欄位整個從 SQL 拿掉，而不是寫入空值。所以在 Prisma 眼中：
@@ -143,9 +183,9 @@ export class SurveysService {
   /** 刪除一份問卷，連同它的題目與回覆。回傳被刪掉的那一筆。 */
   async remove(id: string) {
     // 404 的處理跟 update 同一套（理由見上面那段）。
-    // 這正是當初選「先 findOne 再操作」而不是 catch P2025 的好處 ——
+    // 這正是當初選「先 assertExists 再操作」而不是 catch P2025 的好處 ——
     // 第二次要用的時候，一行原封不動搬過來就成立了。
-    await this.findOne(id);
+    await this.assertExists(id);
 
     // [教學] delete 回傳的是**被刪掉的那一筆資料**，不是「刪了幾筆」。
     // 它等於一張刪除前的快照 —— 那筆資料在資料庫裡此刻已經不存在了。
@@ -159,6 +199,36 @@ export class SurveysService {
     // 只有 e2e 的 cascade 那條測試會告訴你它還活著。
     return this.prisma.survey.delete({
       where: { id },
+    });
+  }
+
+  async publish(id: string) {
+    await this.assertExists(id);
+
+    return this.prisma.survey.update({
+      where: { id },
+      data: {
+        status: SurveyStatus.PUBLISHED,
+      },
+    });
+  }
+
+  async unpublish(id: string) {
+    await this.assertExists(id);
+
+    const responseCount = await this.prisma.response.count({
+      where: { surveyId: id },
+    });
+
+    if (!canUnpublish(responseCount)) {
+      throw new ConflictException('問卷已被填寫，無法恢復成未發布狀態');
+    }
+
+    return this.prisma.survey.update({
+      where: { id },
+      data: {
+        status: SurveyStatus.DRAFT,
+      },
     });
   }
 }

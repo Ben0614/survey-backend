@@ -17,6 +17,7 @@ import { AppModule } from '../src/app.module';
 import { PrismaService } from '../src/prisma/prisma.service';
 import { setupApp } from '../src/setup-app';
 import { resetDb } from './helpers/reset-db';
+import { SurveyStatus } from '../src/generated/prisma/enums';
 
 // [教學] supertest 的 res.body 型別是 any（它不可能知道你的 API 回什麼）。
 // 專案的 ESLint 規則禁止在 any 上直接取欄位，所以宣告一個形狀轉一次。
@@ -396,6 +397,53 @@ describe('Surveys (e2e)', () => {
       expect(await prisma.question.count()).toBe(0);
       expect(await prisma.response.count()).toBe(0);
       expect(await prisma.answer.count()).toBe(0);
+    });
+  });
+
+  describe('PATCH /surveys/:id/publish', () => {
+    it('調整問卷成發布狀態', async () => {
+      const survey = await prisma.survey.create({
+        data: { title: '待發布問卷' },
+      });
+
+      const res = await request(app.getHttpServer())
+        .patch(`/surveys/${survey.id}/publish`)
+        .expect(200);
+
+      expect((res.body as SurveyBody).status).toBe(SurveyStatus.PUBLISHED);
+    });
+  });
+
+  describe('PATCH /surveys/:id/unpublish', () => {
+    it('調整問卷成未發布狀態', async () => {
+      const survey = await prisma.survey.create({
+        data: { title: '已發布問卷', status: SurveyStatus.PUBLISHED },
+      });
+
+      const res = await request(app.getHttpServer())
+        .patch(`/surveys/${survey.id}/unpublish`)
+        .expect(200);
+
+      expect((res.body as SurveyBody).status).toBe(SurveyStatus.DRAFT);
+    });
+
+    it('已填寫問卷，調整問卷成未發布狀態會顯示409', async () => {
+      const survey = await prisma.survey.create({
+        data: { title: '已發布問卷', status: SurveyStatus.PUBLISHED },
+      });
+
+      await prisma.response.create({
+        data: { surveyId: survey.id },
+      });
+
+      await request(app.getHttpServer())
+        .patch(`/surveys/${survey.id}/unpublish`)
+        .expect(409);
+
+      const res = await prisma.survey.findUnique({
+        where: { id: survey.id },
+      });
+      expect(res?.status).toBe(SurveyStatus.PUBLISHED);
     });
   });
 });

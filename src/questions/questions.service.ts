@@ -10,11 +10,16 @@
 // 下一站：test/setup-env.ts（上面這些怎麼被自動驗證，而且不弄髒開發資料庫）
 // ============================================================
 
-import { Injectable, NotFoundException } from '@nestjs/common';
+import {
+  Injectable,
+  NotFoundException,
+  ConflictException,
+} from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { SurveysService } from '../surveys/surveys.service';
 import { CreateQuestionDto } from './dto/create-question.dto';
 import { UpdateQuestionDto } from './dto/update-question.dto';
+import { canEditQuestions } from '../surveys/survey.rules';
 
 @Injectable()
 export class QuestionsService {
@@ -30,13 +35,13 @@ export class QuestionsService {
   /** 列出一份問卷的所有題目，依 order 由小到大。父問卷不存在就是 404。 */
   async findAll(surveyId: string) {
     // [教學] 這行沒接回傳值，作用是**借 SurveysService 丟例外**
-    // （同 surveys.service.ts 的 update，只是那裡借的是自己的 findOne）。
+    // （同 surveys.service.ts 的 update，只是那裡借的是自己的 assertExists）。
     //
     // 少了它不會壞掉，但會壞在一個更難察覺的地方：問卷不存在時
     // findMany 找不到符合的列 → 回**空陣列** → 200 []。
     // 於是「這份問卷沒有題目」和「根本沒有這份問卷」變成同一個回應，
     // 前端沒有辦法分辨。子資源的列表**幾乎都要先確認父資源**，理由就是這個。
-    await this.surveysService.findOne(surveyId);
+    await this.surveysService.assertExists(surveyId);
 
     return this.prisma.question.findMany({
       where: { surveyId },
@@ -55,6 +60,7 @@ export class QuestionsService {
     // service 是按**要做的事**切的，不是按路由切的。
     const question = await this.prisma.question.findUnique({
       where: { id },
+      include: { survey: true },
     });
 
     if (!question) {
@@ -66,7 +72,10 @@ export class QuestionsService {
 
   /** 在指定問卷底下新增一題，order 自動接在最後。 */
   async create(surveyId: string, dto: CreateQuestionDto) {
-    await this.surveysService.findOne(surveyId);
+    const survey = await this.surveysService.assertExists(surveyId);
+    if (!canEditQuestions(survey.status)) {
+      throw new ConflictException('問卷已發布，無法新增題目');
+    }
 
     // [教學] order 由伺服器算，不由前端給（理由見 create-question.dto.ts 結尾）。
     // count 回傳現有題數，剛好就是下一個 index：0 題 → 新的是 0，3 題 → 新的是 3。
@@ -93,7 +102,10 @@ export class QuestionsService {
   async update(id: string, dto: UpdateQuestionDto) {
     // 借 findOne 丟 404。沒有這行的話 Prisma 會丟 P2025，Nest 不認識 → 500
     // （完整說明見 surveys.service.ts 的 update）。
-    await this.findOne(id);
+    const question = await this.findOne(id);
+    if (!canEditQuestions(question.survey.status)) {
+      throw new ConflictException('問卷已發布，無法修改題目');
+    }
 
     return this.prisma.question.update({
       where: { id },
@@ -112,7 +124,10 @@ export class QuestionsService {
     //
     // 這裡實際漏寫過一次，結果是 `id 不存在時回 404` 那條測試拿到 500 ——
     // 少了它不是「一樣 404、訊息不同」，是完全不同的狀態碼。
-    await this.findOne(id);
+    const question = await this.findOne(id);
+    if (!canEditQuestions(question.survey.status)) {
+      throw new ConflictException('問卷已發布，無法刪除題目');
+    }
 
     // 這一題底下的 Answer 會一起消失，但這裡沒有任何一行去刪它們 ——
     // 那是 schema.prisma 的 onDelete: Cascade 由 PostgreSQL 執行的（見 ch01 / ch02）。
