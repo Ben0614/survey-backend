@@ -17,9 +17,11 @@ import {
   Patch,
   Delete,
   Param,
+  Query,
 } from '@nestjs/common';
 import { CreateSurveyDto } from './dto/create-survey.dto';
 import { UpdateSurveyDto } from './dto/update-survey.dto';
+import { FindSurveysQueryDto } from './dto/find-surveys-query.dto';
 import { SurveysService } from './surveys.service';
 
 // [教學] @Controller('surveys') 是這個 class 所有路由的共同前綴。
@@ -28,11 +30,32 @@ import { SurveysService } from './surveys.service';
 export class SurveysController {
   constructor(private readonly surveysService: SurveysService) {}
 
+  // [教學] @Query() 是第三個取值來源，補齊了前兩個（Ch4 加的）：
+  //
+  //   @Param('id')  從**網址路徑**取     /surveys/abc123
+  //   @Body()       從 **request body** 取
+  //   @Query()      從 **? 後面**取      /surveys?page=2&pageSize=10
+  //
+  // **括號裡有沒有東西差別非常大**，而且寫錯不會有任何提示：
+  //
+  //   @Query('page') page: number          只取這一個 key，拿到一個 primitive
+  //   @Query() query: FindSurveysQueryDto  整包接成 DTO
+  //
+  // 只有下面那種會被驗證。ValidationPipe 拿到參數時會先看它的型別，
+  // String / Boolean / Number / Array / Object 這五個一律直接放行 ——
+  // 因為**驗證規則是掛在 class 的屬性上的**，沒有 class 就沒有屬性，也就沒有規則可查。
+  //
+  // 所以 @Query('page') 那種寫法等於整份 DTO 沒被用到：驗證沒生效、
+  // whitelist 沒生效、預設值也沒地方放。而 `page: number` 這個型別註記
+  // 執行期並不存在，它擋不住任何東西（同 create-survey.dto.ts：只認裝飾器）。
+  //
+  // 對照下面的 create()：@Body() createSurveyDto: CreateSurveyDto 同樣是整包接、
+  // 靠型別註記對接。兩者是同一套機制（emitDecoratorMetadata）。
   @Get()
-  findAll() {
+  findAll(@Query() query: FindSurveysQueryDto) {
     // [教學] 直接回傳 Promise 就好，Nest 會自己 await 再序列化成 JSON。
     // 這裡不用寫 async/await —— 沒有要對結果做任何事。
-    return this.surveysService.findAll();
+    return this.surveysService.findAll(query);
   }
 
   // [教學] @Get() 括號裡放的是**路徑樣式**，不是一段固定文字。
@@ -54,8 +77,9 @@ export class SurveysController {
     // **關鍵：@Get(':id') 的 :id 和 @Param('id') 的 'id' 是靠這個字串對接的。**
     // 兩邊寫不一樣不會報錯，只會安靜地拿到 undefined，然後查不到東西。
     //
-    // 還有一點 Ch4 才會有感：@Param() 拿到的**永遠是字串**，因為網址本來就是文字。
-    // 這裡沒感覺是因為 id 本來就是 string（cuid）。
+    // 還有一點：@Param() 拿到的**永遠是字串**，因為網址本來就是文字。
+    // 這裡沒感覺是因為 id 本來就是 string（cuid）——
+    // 但 ?page=2 進來也是字串 '2'，那就有感了（見 find-surveys-query.dto.ts 的 @Type）。
     return this.surveysService.findOne(id);
   }
 

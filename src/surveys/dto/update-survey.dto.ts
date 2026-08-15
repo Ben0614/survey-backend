@@ -8,7 +8,7 @@
 // 這個檔案唯一的新東西是 PartialType —— 也就是「為什麼部分更新需要另一份 DTO，
 // 不能直接沿用 CreateSurveyDto」。
 //
-// 下一站：src/surveys/surveys.service.ts（通過檢查之後誰來處理）
+// 下一站：src/surveys/dto/find-surveys-query.dto.ts（第三份 DTO：檢查的不是 body，是網址）
 // ============================================================
 
 import { PartialType } from '@nestjs/mapped-types';

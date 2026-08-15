@@ -12,9 +12,9 @@
 > 換機或開新對話時**先讀這一節**。對話歷史與 AI 記憶都在 `~/.claude/` 底下，不跟 git 走 ——
 > 這裡沒寫的東西，換一台機器就等於沒發生過。
 
-**進度：** Ch0、Ch1、Ch2、**Ch3 全部完成**（兩段皆完成並補完文件）。
-`pnpm test:e2e` **36 passed**、`pnpm test` **4 passed**、`tsc --noEmit` 0 errors、`lint` 0 problems。
-下一步是 Ch4（分頁、排序、篩選），起手式寫在下方「Ch4 接續點」。
+**進度：** Ch0、Ch1、Ch2、Ch3 全部完成。**Ch4 進行中 —— ① 分頁已完成**，②③ 未開始。
+`pnpm test:e2e` **40 passed**、`pnpm test` **4 passed**、`tsc --noEmit` 0 errors、`lint` 0 problems。
+下一步是 Ch4 ②（排序、篩選），起手式寫在下方「Ch4 ② 接續點」。
 
 **重要脈絡：** Ch0 的程式碼是 AI 產生的，因此進度表的 ✅ 起初**只代表環境可用**，
 不代表讀得懂 —— 為此補了一批 `[教學]` 註解當作理解鷹架（見 `docs/專案速查.md` 的「閱讀動線」）。
@@ -152,58 +152,111 @@ commit `d1b7b8b`。加了 `PRISMA_LOG_QUERIES` 開關（預設關），其餘全
 
 原則不變：**確認前一章讀得懂，再進下一章。**
 
+**2026-08-15 —— Ch4 ① 分頁完成。** `40 passed`（+4）。
+`page`/`pageSize` 的 query DTO、`{ data, meta }` 回應、`$transaction` 一次取資料與總數。
+
+這一段最貴的四課：
+
+1. **DTO 寫了但沒被用到 —— 一個決定推倒四件事。** 第一版寫成
+   `@Query('page') page: number`（帶 key 取單一值），`FindSurveysQueryDto` 從頭到尾
+   沒被 import 過。驗證、`whitelist`、預設值**全部沒生效**，七種網址實測有**兩種直接 500**。
+   ValidationPipe 只在參數型別是 class 時才驗證 —— **驗證規則住在 class 的屬性上，
+   沒有 class 就沒東西可查**。這是 Ch3 坑 #3 的第二次現場。
+2. **「既有測試全綠」只證明沒弄壞舊行為。** 上面那個壞掉的版本，`pnpm test:e2e`
+   是 **20 passed 全綠** —— 因為沒有任何一條測試帶過 query 參數。跟前幾章的假綠不同：
+   那些是測試寫錯，這次是測試**還不存在**。
+3. **改共用型別的「意思」，炸掉六個無關的地方。** 把 `SurveyBody` 從「一份問卷」
+   改成「列表回應」，紅的測試從 2 條變成 **8 條** —— `POST` / `PATCH` / `publish`
+   的回應一個字都沒變，卻被機械地加上 `.data[0]`。正解是**新增**型別而不是改寫。
+   而且那六處 **`tsc` 全綠**：`as` 是斷言（「相信我」），關掉的是檢查、不是風險。
+4. **測試存在不等於蓋到。** 補完四條分頁測試、24 passed 之後，`totalPages`
+   只有一條測試斷言，而它的 `total` 是 0 —— **`0/10` 和 `Math.ceil(0/10)` 都是 0**，
+   於是剛修好的 `Math.ceil` bug 放回去照樣全綠。判準：**想知道一條測試有沒有價值，
+   就把它該抓的 bug 放回去跑一次。**
+
+觀念、取捨、7 條坑、SQL 觀察、offset vs cursor 與五題作業都在
+[`ch04`](docs/chapters/ch04-分頁排序與篩選.md)，這裡不重複。
+交易（`$transaction`）寫進了 [`docs/關聯式資料庫基礎.md`](docs/關聯式資料庫基礎.md) 第 7 節
+—— 它是跨章節的資料庫基礎，Ch5 還要再用一次。
+
+**工作方式的一次修正**：review 只講**會影響行為**的事。註解過期、命名、文件同步
+一律不在實作過程中提，那是收尾時統一處理的工作（已寫進 `CLAUDE.md`）。
+
 ---
 
-### Ch4 接續點（2026-08-13）
+### Ch4 ② 接續點（2026-08-15）
 
-**目前狀態**：`pnpm test:e2e` **36 passed**、`pnpm test` **4 passed**、
-`tsc --noEmit` 0 errors、`eslint` 0 problems，working tree 乾淨、已 push。
+**目前狀態**：`pnpm test:e2e` **40 passed**、`pnpm test` **4 passed**、
+`tsc --noEmit` 0 errors、`eslint` 0 problems。Ch4 ① 完成、註解與文件已收尾。
 
-Ch3 兩段全部完成。觀念、取捨、13 條坑與兩批作業在
-[`ch03`](docs/chapters/ch03-巢狀資源與關聯查詢.md)，**這裡不重複**。
+觀念、取捨、7 條坑、SQL 觀察與五題作業在
+[`ch04`](docs/chapters/ch04-分頁排序與篩選.md)，**這裡不重複**。
 
-#### 進 Ch4 之前先確認的兩件事
+#### 進 ② 之前先確認的兩件事
 
-1. **Ch3 的程式碼讀得懂嗎。** 進度表的 ✅ 只代表「跑得起來」。
-   最值得自己講一遍的三處：
-   - `assertExists` 和 `findOne` 為什麼要分成兩支（各自的呼叫者是誰、為什麼）
-   - `survey.rules.ts` 為什麼**不是** provider、為什麼回 boolean 而不是直接丟例外
-   - `include: { survey: true }` 跟 `include: { questions: { orderBy } }` 差在哪
-2. **`ch03` 第二段的五題作業值得做過一遍** —— 尤其第 1 題（把 `where: { surveyId: id }`
-   改回 `{ id }`，看哪幾條測試會紅）。那是「假綠第六種」的現場。
+1. **① 的程式碼讀得懂嗎。** 最值得自己講一遍的三處：
+   - `@Query()` 加不加括號裡的 key 差在哪，以及**為什麼**（提示：驗證規則住在哪裡）
+   - `$transaction` 陣列裡那兩句為什麼**不能**先 `await`
+   - `page` / `pageSize` 為什麼不直接叫 `skip` / `take`
+2. **`ch04` 第一段的五題作業值得做過一遍** —— 尤其第 1 題（拿掉 `Math.ceil` 看哪幾條紅，
+   再刪掉 `totalPages` 的斷言重跑）。那是「測試存在不等於蓋到」的現場。
 
-#### Ch4 的範圍：分頁、排序、篩選
+#### ② 的範圍：排序 + 篩選
 
-課綱的關鍵收穫是「**query string 轉型驗證**、`skip/take` vs cursor」。
+四個新的 query 參數，全部加進既有的 `FindSurveysQueryDto`：
 
-主要落在 `GET /surveys`（目前是 `findMany({ orderBy: { createdAt: 'desc' } })`，
-寫死一種排序、沒有分頁），可能也會擴到 `GET /surveys/:surveyId/questions`。
+| 參數 | 例 | 重點 |
+| --- | --- | --- |
+| `sort` | `?sort=title` | **一定要白名單**（`@IsIn(['createdAt','title'])`） |
+| `order` | `?order=asc` | `@IsIn(['asc','desc'])`，預設 `desc` |
+| `status` | `?status=DRAFT` | `@IsEnum(SurveyStatus)` + `@IsOptional()` |
+| `q` | `?q=滿意度` | `contains` + `mode: 'insensitive'` |
 
-**Ch3 已經先埋好的三個引子**（Ch4 要正面處理）：
+**四個要點：**
 
-- `surveys.service.ts` 的 `findAll` 註解寫著「『最新的在最上面』是這裡自己決定的預設值；
-  讓前端自由指定排序是 Ch4 的事」
-- `surveys.controller.ts` 的 `findOne` 註解提到 **`@Param()` 拿到的永遠是字串**
-  ——「Ch4 才會有感」。`?page=2` 進來也是字串 `'2'`，這就是 query 轉型驗證的起點
-- `findOne` 的 `include` 註解寫著「這一章一律帶題目，由 query 決定要不要帶是 Ch4 的事」
+1. **排序欄位白名單的理由要講準。** Prisma 的 `orderBy` 是型別安全的，非法欄位
+   **不會**變成 SQL injection，但會在執行期丟 `PrismaClientValidationError` → **500**。
+   白名單擋的是「前端一個手誤把伺服器打成 500」與「用試錯把內部欄位名探出來」。
+   **說成 injection 是錯的教學。**
+2. **`undefined` = 不加這個條件。** Ch2 的 `update` 講過「Prisma 眼中 `undefined`
+   是不要動它」，這次是同一個約定用在 `where` 而不是 `data`：`where: { status: dto.status }`
+   在沒給 `status` 時就是「不篩」，不必寫 `if`。
+3. **`q` 會長成 `ILIKE '%...%'`** —— 打開 log 看。順便理解「前綴萬用字元讓一般
+   B-tree 索引失效」，這是全表掃描最常見的來源。這一章不做索引優化，但要知道代價。
+4. **最該埋的坑：`count` 與 `findMany` 的 `where` 必須一模一樣。**
+   只給 `findMany` 加篩選、`count` 忘了加，回應完全合法：`data` 是篩過的、
+   `total` 卻是全表筆數，`totalPages` 算出 5 頁但第 2 頁開始是空的。沒有任何測試會自己紅。
+   **對策是把 `where` 抽成一個變數給兩邊共用**，讓「兩邊不一致」在結構上不可能發生。
+   寫這條的當下就要寫那條 e2e（篩選 + 分頁同時給，斷言 `meta.total`）。
 
-**Ch3 已經備好、Ch4 直接可用的工具：**
+#### ③ 的範圍（② 完成後）
 
-- **`PRISMA_LOG_QUERIES=1`** —— 分頁一定要看 `LIMIT` / `OFFSET` 實際長什麼樣，
-  也是 `skip/take` vs cursor 差異最直觀的證據。怎麼讀 log 見 `ch03` 的 ③
-- **`count()`** —— 分頁回應通常要附總筆數，而 `.length` 在分頁之後只會是「這一頁幾筆」
-  （`ch03` ④ 已寫成一節）
+`GET /surveys/:id?include=questions`，兌現 Ch3 `findOne` 的 `include` 註解那個引子。
+重點是 **boolean 的 query 轉型**（`?include=false` 進來是字串 `'false'`，而
+`Boolean('false')` 是 `true`）以及**回傳形狀隨條件而變**的取捨。
+
+#### 現成可用的工具
+
+- **`PRISMA_LOG_QUERIES=1`** —— ② 一定要看 `WHERE 1=1` 怎麼長出真正的條件。
+  PowerShell 是 `$env:PRISMA_LOG_QUERIES=1; pnpm start:dev`。
+  **注意 log 印的是 `$1` 佔位符不是值**（`ch04` 坑 #7）；② 如果想看到篩選的值，
+  要把 `prisma.service.ts` 的 `log: ['query']` 改成事件形式才有 `e.params`
+- **`api.http`** 已經有一整組分頁請求（含四種 400），② 照著往下加
 - **`docs/專案速查.md` 的「什麼時候用 API、什麼時候用 Prisma」** —— 寫 e2e 卡住時看這裡
 
 #### 工作方式（沿用，實際付出代價換來的）
 
 - **教練模式**：實作自己寫，教練 review 並負責 `[教學]` 註解與文件
+- **review 只講會影響行為的事。** 註解過期、命名、文件同步不在實作過程中提 ——
+  那是收尾時統一處理的工作（2026-08-15 修正，已寫進 `CLAUDE.md`）
 - 一次做完一件事：service → controller → E2E → **跑測試**
 - **每寫一條測試就跑一次**，不要一口氣寫完才跑
-- 貼上測試的當下核對**動詞與路徑**跟 `describe` 一致（這個坑踩過四次）
+- 貼上測試的當下核對**動詞與路徑**跟 `describe` 一致（這個坑踩過五次，
+  第五次錯在**名字**：兩條測試同名，其中一條的名字描述的是別條在做的事）
+- **測試名稱要說「驗什麼」不是「測哪個功能」** —— 失敗時它是唯一的線索
+- **新加的功能要問一次「有測試蓋到嗎」。** 既有測試全綠只證明沒弄壞舊行為
 - 新檔案要接進閱讀動線（改前一站的「下一站」），別讓鏈斷掉。
   目前終點是 `src/surveys/survey.rules.spec.ts`
-- **改行為時搜尋一次被改掉的那個名字**，找出過期註解（這個坑踩過五次）
 - **import 路徑一律用相對路徑**，看到開頭是 `src/` 直接改掉（`tsc` 不會抓）
 - 丟給教練 review 之前先自己跑四項驗收：
   `pnpm test`、`pnpm test:e2e`、`pnpm exec tsc --noEmit`、`pnpm lint`
@@ -235,7 +288,7 @@ Ch3 兩段全部完成。觀念、取捨、13 條坑與兩批作業在
 | Ch1 | Schema 設計、第一次 migration、seed | 資料模型設計、migration 是什麼 | ✅ |
 | Ch2 | 第一個 CRUD（Surveys）+ **測試資料庫隔離** | DTO 驗證、404 處理、`.env.test` 與資料清理 | ✅ |
 | Ch3 | 巢狀資源與關聯查詢（Questions） | `include`/`select`、**看 Prisma 產生的 SQL**、商業規則與第一支單元測試 | ✅ |
-| Ch4 | 分頁、排序、篩選 | query string 轉型驗證、`skip/take` vs cursor | ⬜ |
+| Ch4 | 分頁、排序、篩選 | query string 轉型驗證、`skip/take` vs cursor | 🔨 ①完成 |
 | Ch5 | 提交與查詢作答（Responses） | 巢狀 write vs `$transaction`、原子性、**商業規則與單元測試** | ⬜ |
 | Ch6 | 統一錯誤處理與回應格式 | Exception Filter 把 Prisma 錯誤碼轉 HTTP | ⬜ |
 | Ch7 | Swagger API 文件 | 產出前端能直接照著串的契約 | ⬜ |
@@ -301,12 +354,13 @@ Ch3 兩段全部完成。觀念、取捨、13 條坑與兩批作業在
 | Ch1 — Schema 設計與第一次 migration | [`docs/chapters/ch01-schema設計與第一次migration.md`](docs/chapters/ch01-schema設計與第一次migration.md) |
 | Ch2 — 第一個 CRUD 與測試資料庫隔離 | [`docs/chapters/ch02-第一個CRUD與測試資料庫隔離.md`](docs/chapters/ch02-第一個CRUD與測試資料庫隔離.md) |
 | Ch3 — 巢狀資源與關聯查詢 | [`docs/chapters/ch03-巢狀資源與關聯查詢.md`](docs/chapters/ch03-巢狀資源與關聯查詢.md) |
+| Ch4 — 分頁、排序、篩選（① 完成） | [`docs/chapters/ch04-分頁排序與篩選.md`](docs/chapters/ch04-分頁排序與篩選.md) |
 
 ## 跨章節文件
 
 | 文件 | 內容 |
 | --- | --- |
-| [`docs/關聯式資料庫基礎.md`](docs/關聯式資料庫基礎.md) | 主鍵、外鍵、一對多、唯一約束 —— Ch1 的前置觀念（不含 Prisma 語法） |
+| [`docs/關聯式資料庫基礎.md`](docs/關聯式資料庫基礎.md) | 主鍵、外鍵、一對多、唯一約束、索引、**交易** —— 不含 Prisma 語法 |
 | [`docs/專案速查.md`](docs/專案速查.md) | 指令速查、檔案地圖、換機接續、程式碼閱讀動線 |
 | [`docs/從零建置.md`](docs/從零建置.md) | 空資料夾 → `GET /health` 的完整建置過程 |
 | [`docs/設定檔導讀.md`](docs/設定檔導讀.md) | `package.json` 與 `test/jest-e2e.json` 各欄位的意思 |

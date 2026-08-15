@@ -30,8 +30,37 @@ Content-Type: application/json
 ### 這行前後**都必須有 `###`** —— 少了上面那條分隔線，它會被當成 JSON body 的一部分送出去（400）
 @surveyId = {{createSurvey.response.body.id}}
 
-### 列出所有問卷（最新的在前面）
+### 列出問卷（最新的在前面）。Ch4 之後回的是 { data, meta }，不是裸陣列
 GET {{host}}/surveys
+
+
+### ------------------------------------------------------------
+### 分頁（Ch4 ①）—— 建議先連送幾次上面的 POST 把資料量堆到 5 筆以上再玩
+### ------------------------------------------------------------
+
+### 第 1 頁，每頁 2 筆。看 meta 的 total 與 totalPages
+GET {{host}}/surveys?page=1&pageSize=2
+
+### 第 2 頁。data 換了一批，meta 完全一樣（total 不隨頁碼改變）
+GET {{host}}/surveys?page=2&pageSize=2
+
+### 超出範圍的頁碼 → 200 配空 data，不是 404。「查得到但沒有」不是錯誤
+GET {{host}}/surveys?page=999
+
+### 以下四個都是 400，錯誤訊息會直接說是哪個欄位、哪條規則不過
+GET {{host}}/surveys?page=0
+
+### 非整數（@IsInt 擋）
+GET {{host}}/surveys?page=2.5
+
+### 根本不是數字 → @Type 轉成 NaN，@IsInt 與 @Min 兩條都不過，所以回兩則訊息
+GET {{host}}/surveys?page=abc
+
+### 超過上限（@Max(100) 擋）—— 沒有這條就等於沒做分頁
+GET {{host}}/surveys?pageSize=999999
+
+### DTO 沒宣告的參數會被 whitelist 無聲丟掉（不是 400），跟 POST body 同一套機制
+GET {{host}}/surveys?evil=1
 
 ### 查一份問卷。Ch3 之後它會**連題目一起帶回來**（include），先建幾題再回來送這個最有感
 GET {{host}}/surveys/{{surveyId}}

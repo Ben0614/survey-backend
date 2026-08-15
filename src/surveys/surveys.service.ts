@@ -25,6 +25,7 @@ import {
 import { PrismaService } from '../prisma/prisma.service';
 import { CreateSurveyDto } from './dto/create-survey.dto';
 import { UpdateSurveyDto } from './dto/update-survey.dto';
+import { FindSurveysQueryDto } from './dto/find-surveys-query.dto';
 import { canUnpublish } from './survey.rules';
 import { SurveyStatus } from '../generated/prisma/enums';
 
@@ -33,16 +34,81 @@ export class SurveysService {
   // PrismaModule 是 @Global()，所以這裡不必 import 它就能注入（見 prisma.module.ts）。
   constructor(private readonly prisma: PrismaService) {}
 
-  /** 列出所有問卷。Ch4 才會加上分頁與篩選。 */
-  findAll() {
+  /** 列出問卷，一次一頁。回的是 { data, meta }，不是裸的陣列。 */
+  async findAll(query: FindSurveysQueryDto) {
+    // [教學] 把 API 的概念換算成 ORM 的概念（Ch4 加的）：
+    //
+    //   skip → SQL 的 OFFSET，「前面幾筆不要」
+    //   take → SQL 的 LIMIT， 「最多給我幾筆」
+    //
+    // 第 1 頁 skip 0、第 2 頁 skip pageSize、第 3 頁 skip 2×pageSize，
+    // 也就是 (page - 1) * pageSize。寫成 skip: page 是很自然的誤解，
+    // 而且它**第 1 頁看不出來**（兩種寫法都是 0），要翻到第 2 頁才會現形。
+    //
+    // 這一層換算是刻意的，不是多餘的工：`page` 是我們對前端的契約，
+    // `skip` 是 Prisma 的參數，中間隔一層，哪天換掉 ORM 也不必叫前端改網址。
+    const skip = (query.page - 1) * query.pageSize;
+    const take = query.pageSize;
+
     // [教學] orderBy 不是可有可無的裝飾 —— **資料表沒有固有順序**
     // （見 docs/關聯式資料庫基礎.md 第 5 節）。不寫的話資料庫可以用任何順序回你，
     // 而且今天的順序不保證等於明天的順序。
     //
-    // 「最新的在最上面」是這裡自己決定的預設值；讓前端自由指定排序是 Ch4 的事。
-    return this.prisma.survey.findMany({
-      orderBy: { createdAt: 'desc' },
-    });
+    // 加了分頁之後它從「好習慣」升級成**必要條件**：順序不固定的話，
+    // 第 1 頁和第 2 頁可能是用兩種不同順序排出來的，同一筆資料會在兩頁都出現、
+    // 另一筆一頁都不出現。**沒有穩定排序的分頁是壞的。**
+    //
+    // 「最新的在最上面」是這裡自己決定的預設值；讓前端自由指定排序是 Ch4 ② 的事。
+    //
+    // [教學] $transaction 把兩句 SQL 綁成一件事。`$` 開頭代表這是 client 自己的方法，
+    // 沒有 `$` 的（prisma.survey）才是你在 schema.prisma 定義的 model。
+    //
+    // **注意陣列裡那兩句都沒有 await。** Prisma 的查詢方法回傳的不是一個已經在跑的
+    // Promise，而是一個「還沒送出的查詢」——你 await 它才送出；交給 $transaction
+    // 就換成由它決定何時送。先各自 await 再丟進來的話，它收到的是「結果」不是「查詢」。
+    //
+    // 為什麼要包起來：這兩句都是 SELECT、不可能「做一半」，所以用的不是交易的
+    // 原子性，而是它的另一個能力 ——**一致的讀取視角**。分開跑的話兩句是兩個時間點，
+    // 中間有人新增一筆問卷，回應就會自相矛盾：data 來自 47 筆的世界、total 說 48。
+    // 這種 bug 只在有人同時操作時出現，本機測不到、e2e 也測不到。
+    //
+    // （原子性那一面 Ch5 會用到：一筆 Response + N 筆 Answer 要嘛全寫、要嘛全不寫。）
+    const [data, total] = await this.prisma.$transaction([
+      this.prisma.survey.findMany({
+        orderBy: { createdAt: 'desc' },
+        skip,
+        take,
+      }),
+
+      // [教學] count 沒有帶 skip / take —— 它要數的是**符合條件的全部**，不是這一頁。
+      // 跟著分頁一起切的話 total 會永遠等於 pageSize，分頁就變成自己證明自己了。
+      this.prisma.survey.count(),
+    ]);
+
+    // 回應包成 { data, meta } 而不是裸陣列：分頁之後光有資料不夠用，
+    // 前端要畫頁碼就得知道總共幾筆、幾頁。對照組（陣列 + X-Total-Count 標頭）
+    // 與取捨寫在 ch04 的「決策取捨」。
+    return {
+      data,
+      meta: {
+        page: query.page,
+        pageSize: query.pageSize,
+        total,
+
+        // [教學] Math.ceil 是無條件進位，不是四捨五入。
+        // 47 筆、每頁 10 筆 → 4.7 → 需要 **5** 頁（第 5 頁只裝 7 筆）。
+        // 四捨五入的話 41 筆會算出 4 頁，最後那 1 筆沒有任何頁面裝得到它。
+        //
+        // 少了 Math.ceil 沒有任何工具會抗議：number 除以 number 就是 number，
+        // 3.5 是完全合法的值，tsc 與 lint 都會是綠的。只有把實際數字看一眼才抓得到。
+        //
+        // total 是 0 時這裡算出 0（「沒有任何一頁裝得到資料」）而不是 1。
+        // 「page: 1, totalPages: 0」乍看很怪，但那兩個欄位回答的是不同問題：
+        // page 是「你要求第幾頁」的回音，totalPages 是「資料有幾頁」。
+        // 完整理由見 ch04 的「決策取捨」。
+        totalPages: Math.ceil(total / query.pageSize),
+      },
+    };
   }
 
   /** 只確認問卷存在（並取得判斷用的狀態），不撈題目。找不到就丟 404。 */
@@ -103,7 +169,7 @@ export class SurveysService {
       // 前端要顯示一份完整問卷得再打一次 /surveys/:id/questions。
       //
       // 對照 select：include 是「加東西」，select 是「只要我列的」（連純量欄位也是）。
-      // 同一層只能擇一。這一章一律帶題目，由 query 決定要不要帶是 Ch4 的事。
+      // 同一層只能擇一。目前一律帶題目，由 query 決定要不要帶是 Ch4 ③ 的事（還沒做）。
       //
       // orderBy 一樣不能省，理由同 findAll。
       include: {
@@ -234,8 +300,8 @@ export class SurveysService {
     // 500 筆完整資料搬過網路，只為了看它有幾筆 —— 那正是 assertExists
     // 當初要消滅的那種浪費，只是換了個位置。
     //
-    // 另一個理由等 Ch4 才會踩到：分頁之後 .length 只會是「這一頁幾筆」，
-    // count 則完全不受 take / skip 影響，因為它根本沒有在取資料。
+    // 另一個理由 Ch4 已經兌現了（見 findAll 的 meta.total）：分頁之後 .length
+    // 只會是「這一頁幾筆」，count 則完全不受 take / skip 影響 —— 它根本沒在取資料。
     //
     // where 是 { surveyId: id } 不是 { id }。後者會變成「回覆的 id 等於這個字串」，
     // 拿問卷 id 去比對回覆 id，永遠是 0 —— 而它型別完全正確，

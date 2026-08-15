@@ -32,6 +32,29 @@ interface SurveyWithQuestionsBody extends SurveyBody {
   questions: { id: string; title: string; order: number }[];
 }
 
+// [教學] 這兩個是 Ch4 加的，而且**是新增、不是改寫 SurveyBody**。
+//
+// 加分頁時把 SurveyBody 本身改成 { data, meta } 是很自然的直覺，但它有七個使用者，
+// 其中六個跟列表無關（POST / PATCH / publish / unpublish 回的都是**一份問卷**，
+// 形狀一個字都沒變）。改掉共用型別的意思之後，那六處全部炸成 TypeError。
+//
+// 判準跟 Ch3 的 assertExists 同一條：**改了一個東西的形狀，先問「誰在用它」。**
+// 這裡只有 GET /surveys 的回應變了，所以只該多一個型別。
+//
+// 順帶一提那六處當時 tsc **全是綠的** —— res.body 是 any，`as SurveyBody`
+// 是型別斷言，意思是「相信我」而不是「檢查一下」。as 關掉的是檢查，不是風險。
+interface SurveyMeta {
+  page: number;
+  pageSize: number;
+  total: number;
+  totalPages: number;
+}
+
+interface SurveyBodyList {
+  data: SurveyBody[];
+  meta: SurveyMeta;
+}
+
 describe('Surveys (e2e)', () => {
   let app: INestApplication<App>;
   let prisma: PrismaService;
@@ -105,12 +128,20 @@ describe('Surveys (e2e)', () => {
   });
 
   describe('GET /surveys', () => {
-    it('沒有任何問卷時回空陣列', async () => {
+    it('沒有問卷時 data 為空，total 與 totalPages 都是 0', async () => {
       const res = await request(app.getHttpServer())
         .get('/surveys')
         .expect(200);
 
-      expect(res.body).toEqual([]);
+      expect(res.body).toEqual({
+        data: [],
+        meta: {
+          page: 1,
+          pageSize: 10,
+          total: 0,
+          totalPages: 0,
+        },
+      });
     });
 
     it('回傳所有問卷，最新的在前面', async () => {
@@ -132,9 +163,78 @@ describe('Surveys (e2e)', () => {
         .get('/surveys')
         .expect(200);
 
-      const surveys = res.body as SurveyBody[];
-      expect(surveys).toHaveLength(2);
-      expect(surveys[0].title).toBe('第二份');
+      const surveys = res.body as SurveyBodyList;
+      expect(surveys.data).toHaveLength(2);
+      expect(surveys.data[0].title).toBe('第二份');
+    });
+
+    // [教學] 這條與下一條是這一章唯二能抓到分頁寫錯的測試，而且分工不同：
+    //   這條驗 take（回幾筆）與 meta 算得對不對
+    //   下一條驗 skip（回的是哪幾筆）—— 換算寫成 skip: page 只有下一條會紅
+    //
+    // meta 四個欄位全部釘死是刻意的。只斷言 data.length 的話，把 Math.ceil
+    // 拿掉（totalPages 變成 1.5）不會有任何一條測試喊 —— 那正是實作時真的寫錯過的地方。
+    it('pageSize=2 只回 2 筆，meta 顯示共 3 筆 2 頁', async () => {
+      await prisma.survey.create({
+        data: { title: '第一份', createdAt: new Date('2026-01-01') },
+      });
+      await prisma.survey.create({
+        data: { title: '第二份', createdAt: new Date('2026-01-02') },
+      });
+      await prisma.survey.create({
+        data: { title: '第三份', createdAt: new Date('2026-01-03') },
+      });
+
+      const res = await request(app.getHttpServer())
+        .get('/surveys?page=1&pageSize=2')
+        .expect(200);
+
+      const surveys = res.body as SurveyBodyList;
+      expect(surveys.data).toHaveLength(2);
+      expect(surveys.meta.page).toBe(1);
+      expect(surveys.meta.pageSize).toBe(2);
+      expect(surveys.meta.total).toBe(3);
+      expect(surveys.meta.totalPages).toBe(2);
+    });
+
+    it('page=2 回最後 1 筆，也就是最舊的那筆', async () => {
+      await prisma.survey.create({
+        data: { title: '第一份', createdAt: new Date('2026-01-01') },
+      });
+      await prisma.survey.create({
+        data: { title: '第二份', createdAt: new Date('2026-01-02') },
+      });
+      await prisma.survey.create({
+        data: { title: '第三份', createdAt: new Date('2026-01-03') },
+      });
+
+      const res = await request(app.getHttpServer())
+        .get('/surveys?page=2&pageSize=2')
+        .expect(200);
+
+      const surveys = res.body as SurveyBodyList;
+      expect(surveys.data).toHaveLength(1);
+      expect(surveys.data[0].title).toBe('第一份');
+      expect(surveys.meta.page).toBe(2);
+      expect(surveys.meta.pageSize).toBe(2);
+      expect(surveys.meta.total).toBe(3);
+      expect(surveys.meta.totalPages).toBe(2);
+    });
+
+    it('不給參數時預設第 1 頁、每頁 10 筆', async () => {
+      const res = await request(app.getHttpServer())
+        .get('/surveys')
+        .expect(200);
+
+      const surveys = res.body as SurveyBodyList;
+      expect(surveys.meta.page).toBe(1);
+      expect(surveys.meta.pageSize).toBe(10);
+      expect(surveys.meta.total).toBe(0);
+      expect(surveys.meta.totalPages).toBe(0);
+    });
+
+    it('page 小於 1 時回 400', async () => {
+      await request(app.getHttpServer()).get('/surveys?page=0').expect(400);
     });
   });
 
