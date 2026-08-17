@@ -68,9 +68,15 @@ pnpm test:e2e -- test/health.e2e-spec.ts
 ### Prisma 7 的關鍵差異（網路上多數教學是 v5/v6，不適用）
 
 - **必須用 driver adapter 連線**：`new PrismaClient({ adapter: new PrismaPg({ connectionString }) })`；`schema.prisma` 的 `datasource` **不寫 url**，連線字串由 `prisma.config.ts`（CLI）與 `PrismaService`（執行期，經 `ConfigService.getOrThrow('DATABASE_URL')`）各自提供。
-- **Client 產生到 `src/generated/prisma/`**（不進版控），import 路徑為 `../generated/prisma/client.js`（帶 `.js`）。
+- **Client 產生到 `src/generated/prisma/`**（不進版控），import 路徑為 `../generated/prisma/client`。
 - **`moduleFormat = "cjs"`** 必須保留，否則 NestJS 的 CJS 輸出會遇到 `exports is not defined`。
-- Jest 兩份設定都有 `moduleNameMapper: {"^(\\.{1,2}/.*)\\.js$": "$1"}`，用來把上述 `.js` import 解析回 `.ts`。
+- Jest 兩份設定都有 `moduleNameMapper: {"^(\\.{1,2}/.*)\\.js$": "$1"}`，用來把 `.js` import 解析回 `.ts`。**這個設定仍然必要**：`src/generated/` 底下 Prisma 產的程式碼**內部互相 import 時帶著 `.js`**（例如 `client.ts` 裡的 `from "./enums.js"`），Jest 得靠它才找得到。
+
+### import 路徑的寫法
+
+**相對路徑一律不帶副檔名**（`.js` / `.ts` 都不寫），也**一律不用 `src/` 開頭的絕對路徑**（`baseUrl` 只管編譯期，執行期的 Node 不吃 —— `tsc --noEmit` 會是綠的，`pnpm test:e2e` 卻 `Cannot find module`）。
+
+專案是 CJS（`package.json` 沒有 `"type": "module"`），CJS 解析規則允許省略副檔名，這也是 NestJS 的預設寫法。只有 ESM 專案才**規定**要帶 `.js`（而且要寫編譯後的 `.js` 指向 `.ts` 檔）—— Prisma 產物帶 `.js` 是為了同時支援 ESM 使用者，不是這個專案的寫法，**不要跟著抄**。
 
 ### 在專案根目錄新增任何 `.ts` 檔時
 

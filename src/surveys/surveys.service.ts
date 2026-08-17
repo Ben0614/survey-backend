@@ -28,7 +28,7 @@ import { UpdateSurveyDto } from './dto/update-survey.dto';
 import { FindSurveysQueryDto } from './dto/find-surveys-query.dto';
 import { canUnpublish } from './survey.rules';
 import { SurveyStatus } from '../generated/prisma/enums';
-import { Prisma } from '../generated/prisma/client.js';
+import { Prisma } from '../generated/prisma/client';
 
 @Injectable()
 export class SurveysService {

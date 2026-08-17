@@ -18,8 +18,11 @@ import {
   IsEnum,
 } from 'class-validator';
 // [教學] QuestionType 是 schema.prisma 的 enum，由 prisma generate 產生。
-// 路徑帶 .js 是 Prisma 7 的產物格式，Jest 靠 moduleNameMapper 解析回 .ts——
-// 這現階段可以跳過，知道「路徑要帶 .js」就夠了。
+//
+// 相對路徑一律**不帶副檔名**（`.js` / `.ts` 都不寫）。這是 CJS 專案的慣例，
+// 也是 NestJS 的預設 —— 只有 ESM 專案（package.json 有 "type": "module"）
+// 才**規定**要帶 `.js`。src/generated 底下 Prisma 產的程式碼帶著 `.js`，
+// 那是為了讓 ESM 專案也能用它，不是這個專案的寫法。
 //
 // 值得記的是另一件事：它**同時是值也是型別**。下面 @IsEnum(QuestionType) 用的是「值」
 // （執行期要拿它去比對），type: QuestionType 用的是「型別」（編譯期的事）。

@@ -10,7 +10,7 @@
 // 下一站：test/health.e2e-spec.ts（最小的一個 E2E 測試）
 // ============================================================
 
-import { PrismaClient } from '../../src/generated/prisma/client.js';
+import { PrismaClient } from '../../src/generated/prisma/client';
 
 /**
  * 清空四張業務資料表。

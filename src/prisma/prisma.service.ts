@@ -13,10 +13,10 @@
 import { Injectable, OnModuleDestroy, OnModuleInit } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { PrismaPg } from '@prisma/adapter-pg';
-// [教學] 這個 import 路徑很奇怪（帶 .js、指向 src/generated），
+// [教學] 這個 import 指向 src/generated 而不是 node_modules，
 // 是因為 PrismaClient 不是套件、是 `prisma generate` 產生出來的程式碼。
 // 換一台電腦後這個資料夾不存在是正常的，跑一次 generate 就會回來。
-import { PrismaClient } from '../generated/prisma/client.js';
+import { PrismaClient } from '../generated/prisma/client';
 
 /**
  * 把 PrismaClient 包成 NestJS 的 provider，讓其他 service 可以用建構子注入取得。
