@@ -12,9 +12,9 @@
 > 換機或開新對話時**先讀這一節**。對話歷史與 AI 記憶都在 `~/.claude/` 底下，不跟 git 走 ——
 > 這裡沒寫的東西，換一台機器就等於沒發生過。
 
-**進度：** Ch0、Ch1、Ch2、Ch3 全部完成。**Ch4 進行中 —— ① 分頁已完成**，②③ 未開始。
-`pnpm test:e2e` **40 passed**、`pnpm test` **4 passed**、`tsc --noEmit` 0 errors、`lint` 0 problems。
-下一步是 Ch4 ②（排序、篩選），起手式寫在下方「Ch4 ② 接續點」。
+**進度：** Ch0、Ch1、Ch2、Ch3 全部完成。**Ch4 進行中 —— ① 分頁、② 排序與篩選已完成**，③ 未開始。
+`pnpm test:e2e` **49 passed**、`pnpm test` **4 passed**、`tsc --noEmit` 0 errors、`lint` 0 problems。
+下一步是 Ch4 ③（`?include=questions`），起手式寫在下方「Ch4 ③ 接續點」。
 
 **重要脈絡：** Ch0 的程式碼是 AI 產生的，因此進度表的 ✅ 起初**只代表環境可用**，
 不代表讀得懂 —— 為此補了一批 `[教學]` 註解當作理解鷹架（見 `docs/專案速查.md` 的「閱讀動線」）。
@@ -182,66 +182,93 @@ commit `d1b7b8b`。加了 `PRISMA_LOG_QUERIES` 開關（預設關），其餘全
 **工作方式的一次修正**：review 只講**會影響行為**的事。註解過期、命名、文件同步
 一律不在實作過程中提，那是收尾時統一處理的工作（已寫進 `CLAUDE.md`）。
 
+**2026-08-17 —— Ch4 ② 排序與篩選完成。** `49 passed`（+9）。
+`sort` / `order` 走白名單，`status` / `q` 走 `where`，兩輪分開做。
+
+進 ② 之前先驗收 ①，三題答對兩題半 —— 答錯的那半題是「`$transaction` 包住兩句
+`SELECT` 是為了什麼」：答成**原子性**（怕一個成功一個失敗），但兩句 `SELECT` 不會做一半。
+真正用到的是**一致的讀取視角**。判準是「這幾句查詢的結果會不會被拿來互相比較」，
+**跟有沒有寫入無關** —— 照「怕失敗才用交易」的理解去推，這種場合永遠不會想到。
+
+這一段最貴的五課：
+
+1. **動態 key 讓 `tsc` 完全失去檢查能力。** `orderBy: { [query.sort]: query.order }` ——
+   實測三個情境：欄位名寫死的錯誤會紅（TS2353），動態 key **一律綠**，
+   連宣告成 `string` 都綠、加了型別註記也還是綠。而現場的 bug 是 DTO 三處一致地把
+   `createdAt` 寫成 `createAt`：`tsc` 綠、`@IsIn` 綠（白名單裡就是那個錯字）、
+   **`GET /surveys` 每一次都 500**。**那一行唯一的防線是 `@IsIn`。**
+2. **但隔壁的 `where` 剛好相反。** 欄位名是寫死的，加了 `Prisma.SurveyWhereInput`
+   註記之後 `tsc` 就抓得到拼錯。**同一支方法裡兩個相鄰的地方，型別的保護力天差地遠** ——
+   判準是「欄位名是寫死的還是動態的」。
+3. **字串排序不照中文的語義。** `一 U+4E00 < 三 U+4E09 < 二 U+4E8C`，
+   所以「第一/第二/第三份」排出來是 一、三、二。大小由 **PostgreSQL 的 collation** 決定，
+   資料庫不知道 `三` 是 3。而這一課是從一條紅燈學到的 —— **錯的是測試的預期，不是實作**。
+4. **測試存在不等於蓋到，第二次現場。** `sort=title` 那條的前提資料讓
+   `title` asc 和 `createdAt` asc 算出**同一個答案**，於是把 service 改成完全忽略
+   `query.sort`，28 條測試全綠。（上一次是 `0/10` 和 `Math.ceil(0/10)` 都等於 0。）
+5. **教練講錯兩次，兩次都被實測推翻**（「動態 key 型別會撞」、「`contains: undefined`
+   不能寫」）。兩次都是先給結論、沒有先量，而且結論方向對、機制錯 ——
+   跟 Ch3 那次「`.env` 是被誰讀進去的」同一種錯。**可以在三分鐘內實測的事，不要用推論代替。**
+
+SQL 觀察三件：`undefined` 的條件**整條不存在**（`WHERE 1=1` 是佔位符，不是「跳過」）；
+`count` 子查詢那個 `OFFSET` 從 ① 的**推論**升級成**觀測確認**（用既有測試當證據，比再看一次 log 便宜）；
+enum 在 PostgreSQL 裡是真的型別（`CAST($1::text AS "SurveyStatus")`），
+所以 `status` 有兩道防線、而 `sort` 只有一道。
+
+觀念、取捨、6 條坑（#8–#13）、SQL 觀察與五題作業都在
+[`ch04`](docs/chapters/ch04-分頁排序與篩選.md)，這裡不重複。
+
 ---
 
-### Ch4 ② 接續點（2026-08-15）
+### Ch4 ③ 接續點（2026-08-17）
 
-**目前狀態**：`pnpm test:e2e` **40 passed**、`pnpm test` **4 passed**、
-`tsc --noEmit` 0 errors、`eslint` 0 problems。Ch4 ① 完成、註解與文件已收尾。
+**目前狀態**：`pnpm test:e2e` **49 passed**、`pnpm test` **4 passed**、
+`tsc --noEmit` 0 errors、`eslint` 0 problems。Ch4 ①② 完成、註解與文件已收尾。
 
-觀念、取捨、7 條坑、SQL 觀察與五題作業在
+觀念、取捨、13 條坑、SQL 觀察與兩批作業在
 [`ch04`](docs/chapters/ch04-分頁排序與篩選.md)，**這裡不重複**。
 
-#### 進 ② 之前先確認的兩件事
+#### 進 ③ 之前先確認的兩件事
 
-1. **① 的程式碼讀得懂嗎。** 最值得自己講一遍的三處：
-   - `@Query()` 加不加括號裡的 key 差在哪，以及**為什麼**（提示：驗證規則住在哪裡）
-   - `$transaction` 陣列裡那兩句為什麼**不能**先 `await`
-   - `page` / `pageSize` 為什麼不直接叫 `skip` / `take`
-2. **`ch04` 第一段的五題作業值得做過一遍** —— 尤其第 1 題（拿掉 `Math.ceil` 看哪幾條紅，
-   再刪掉 `totalPages` 的斷言重跑）。那是「測試存在不等於蓋到」的現場。
+1. **② 的程式碼讀得懂嗎。** 最值得自己講一遍的三處：
+   - `orderBy: { [query.sort]: query.order }` 的方括號在做什麼，以及**為什麼這一行
+     `tsc` 檢查不到、但正上方的 `where` 檢查得到**
+   - `where` 為什麼要抽成變數（提示：答案跟「少打字」無關）
+   - `status` / `q` 為什麼要 `@IsOptional()`，`sort` / `order` 為什麼不用
+2. **`ch04` 第二段的五題作業值得做過一遍** —— 尤其第 3 題（把 `sort` 預設值改成
+   `createAt`，看 `tsc`、測試、實際請求三者各是什麼反應）。那是坑 #8 的現場。
 
-#### ② 的範圍：排序 + 篩選
+#### ③ 的範圍：`GET /surveys/:id?include=questions`
 
-四個新的 query 參數，全部加進既有的 `FindSurveysQueryDto`：
-
-| 參數 | 例 | 重點 |
-| --- | --- | --- |
-| `sort` | `?sort=title` | **一定要白名單**（`@IsIn(['createdAt','title'])`） |
-| `order` | `?order=asc` | `@IsIn(['asc','desc'])`，預設 `desc` |
-| `status` | `?status=DRAFT` | `@IsEnum(SurveyStatus)` + `@IsOptional()` |
-| `q` | `?q=滿意度` | `contains` + `mode: 'insensitive'` |
+兌現 Ch3 `findOne` 那句「由 query 決定要不要帶題目是 Ch4 的事」。範圍很小，
+但它是這一章唯一**改到既有端點回應形狀**的一段。
 
 **四個要點：**
 
-1. **排序欄位白名單的理由要講準。** Prisma 的 `orderBy` 是型別安全的，非法欄位
-   **不會**變成 SQL injection，但會在執行期丟 `PrismaClientValidationError` → **500**。
-   白名單擋的是「前端一個手誤把伺服器打成 500」與「用試錯把內部欄位名探出來」。
-   **說成 injection 是錯的教學。**
-2. **`undefined` = 不加這個條件。** Ch2 的 `update` 講過「Prisma 眼中 `undefined`
-   是不要動它」，這次是同一個約定用在 `where` 而不是 `data`：`where: { status: dto.status }`
-   在沒給 `status` 時就是「不篩」，不必寫 `if`。
-3. **`q` 會長成 `ILIKE '%...%'`** —— 打開 log 看。順便理解「前綴萬用字元讓一般
-   B-tree 索引失效」，這是全表掃描最常見的來源。這一章不做索引優化，但要知道代價。
-4. **最該埋的坑：`count` 與 `findMany` 的 `where` 必須一模一樣。**
-   只給 `findMany` 加篩選、`count` 忘了加，回應完全合法：`data` 是篩過的、
-   `total` 卻是全表筆數，`totalPages` 算出 5 頁但第 2 頁開始是空的。沒有任何測試會自己紅。
-   **對策是把 `where` 抽成一個變數給兩邊共用**，讓「兩邊不一致」在結構上不可能發生。
-   寫這條的當下就要寫那條 e2e（篩選 + 分頁同時給，斷言 `meta.total`）。
-
-#### ③ 的範圍（② 完成後）
-
-`GET /surveys/:id?include=questions`，兌現 Ch3 `findOne` 的 `include` 註解那個引子。
-重點是 **boolean 的 query 轉型**（`?include=false` 進來是字串 `'false'`，而
-`Boolean('false')` 是 `true`）以及**回傳形狀隨條件而變**的取捨。
+1. **boolean 的 query 轉型是這一段的主題。** `?include=false` 進來是**字串** `'false'`，
+   而 `Boolean('false')` 是 **`true`** —— 非空字串一律是 truthy。所以
+   「加個 `@Type(() => Boolean)` 就好」是錯的，那正是 ① 沒有開全域
+   `enableImplicitConversion` 的理由（見 `ch04` 決策取捨）。
+   要嘛用 `@Transform` 明確比對 `'true'`，要嘛把它設計成**列舉**（`?include=questions`）
+   —— 後者順帶留下擴充空間（之後可能有 `?include=responses`）。**先決定這個。**
+2. **回傳形狀隨條件而變的取捨。** 帶了 `include` 才有 `questions` 欄位，
+   前端就得判斷自己拿到的是哪一種。這跟 Ch3 `publish` 那條「冪等連回應的形狀都算」
+   是同一個問題的兩面 —— 那裡選了「一種形狀」，這裡刻意選「兩種」，理由要寫下來。
+   另一個選項是永遠回 `questions`（空陣列也回），把成本換成一致性。
+3. **這是 breaking change 的第二次。** 目前 `GET /surveys/:id` **一律**帶題目，
+   改成「預設不帶」的話既有前端會直接壞掉（`ch04` 坑 #2 是第一次）。
+   **決定預設值是什麼**，並寫進取捨：預設帶（不破壞、但浪費）還是預設不帶（省、但破壞）。
+4. **測試要蓋到「不帶時真的沒有那個欄位」。** 只斷言「帶了有題目」是不夠的 ——
+   `toMatchObject` 不管多出來的欄位，所以「永遠都帶」也會綠。
+   這是坑 #5 / #13 的同一個形狀，第三次。
 
 #### 現成可用的工具
 
-- **`PRISMA_LOG_QUERIES=1`** —— ② 一定要看 `WHERE 1=1` 怎麼長出真正的條件。
-  PowerShell 是 `$env:PRISMA_LOG_QUERIES=1; pnpm start:dev`。
-  **注意 log 印的是 `$1` 佔位符不是值**（`ch04` 坑 #7）；② 如果想看到篩選的值，
-  要把 `prisma.service.ts` 的 `log: ['query']` 改成事件形式才有 `e.params`
-- **`api.http`** 已經有一整組分頁請求（含四種 400），② 照著往下加
+- **`PRISMA_LOG_QUERIES=1`** —— ③ 要看的是「不帶 `include` 時，那第二句撈題目的 SQL
+  有沒有真的消失」。PowerShell 是 `$env:PRISMA_LOG_QUERIES=1; pnpm start:dev`。
+  **注意 log 印的是 `$1` 佔位符不是值**（`ch04` 坑 #7）；想看到值要把
+  `prisma.service.ts` 的 `log: ['query']` 改成事件形式才有 `e.params`（一直還沒做）
+- **`api.http`** 已經有分頁、排序、篩選三整組請求（含七種 400），③ 照著往下加
 - **`docs/專案速查.md` 的「什麼時候用 API、什麼時候用 Prisma」** —— 寫 e2e 卡住時看這裡
 
 #### 工作方式（沿用，實際付出代價換來的）
@@ -290,7 +317,7 @@ commit `d1b7b8b`。加了 `PRISMA_LOG_QUERIES` 開關（預設關），其餘全
 | Ch1 | Schema 設計、第一次 migration、seed | 資料模型設計、migration 是什麼 | ✅ |
 | Ch2 | 第一個 CRUD（Surveys）+ **測試資料庫隔離** | DTO 驗證、404 處理、`.env.test` 與資料清理 | ✅ |
 | Ch3 | 巢狀資源與關聯查詢（Questions） | `include`/`select`、**看 Prisma 產生的 SQL**、商業規則與第一支單元測試 | ✅ |
-| Ch4 | 分頁、排序、篩選 | query string 轉型驗證、`skip/take` vs cursor | 🔨 ①完成 |
+| Ch4 | 分頁、排序、篩選 | query string 轉型驗證、`skip/take` vs cursor | 🔨 ①②完成 |
 | Ch5 | 提交與查詢作答（Responses） | 巢狀 write vs `$transaction`、原子性、**商業規則與單元測試** | ⬜ |
 | Ch6 | 統一錯誤處理與回應格式 | Exception Filter 把 Prisma 錯誤碼轉 HTTP | ⬜ |
 | Ch7 | Swagger API 文件 | 產出前端能直接照著串的契約 | ⬜ |
@@ -356,7 +383,7 @@ commit `d1b7b8b`。加了 `PRISMA_LOG_QUERIES` 開關（預設關），其餘全
 | Ch1 — Schema 設計與第一次 migration | [`docs/chapters/ch01-schema設計與第一次migration.md`](docs/chapters/ch01-schema設計與第一次migration.md) |
 | Ch2 — 第一個 CRUD 與測試資料庫隔離 | [`docs/chapters/ch02-第一個CRUD與測試資料庫隔離.md`](docs/chapters/ch02-第一個CRUD與測試資料庫隔離.md) |
 | Ch3 — 巢狀資源與關聯查詢 | [`docs/chapters/ch03-巢狀資源與關聯查詢.md`](docs/chapters/ch03-巢狀資源與關聯查詢.md) |
-| Ch4 — 分頁、排序、篩選（① 完成） | [`docs/chapters/ch04-分頁排序與篩選.md`](docs/chapters/ch04-分頁排序與篩選.md) |
+| Ch4 — 分頁、排序、篩選（①② 完成） | [`docs/chapters/ch04-分頁排序與篩選.md`](docs/chapters/ch04-分頁排序與篩選.md) |
 
 ## 跨章節文件
 

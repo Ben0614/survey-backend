@@ -28,6 +28,7 @@ import { UpdateSurveyDto } from './dto/update-survey.dto';
 import { FindSurveysQueryDto } from './dto/find-surveys-query.dto';
 import { canUnpublish } from './survey.rules';
 import { SurveyStatus } from '../generated/prisma/enums';
+import { Prisma } from '../generated/prisma/client.js';
 
 @Injectable()
 export class SurveysService {
@@ -50,6 +51,42 @@ export class SurveysService {
     const skip = (query.page - 1) * query.pageSize;
     const take = query.pageSize;
 
+    // [教學] where 抽成一個變數，不是為了少打幾個字（Ch4 ② 加的）。
+    //
+    // 下面的 findMany 與 count **必須用完全一樣的條件**。只給 findMany 加篩選、
+    // count 忘了加的話，回應是完全合法的 JSON：data 是篩過的、total 卻是全表筆數，
+    // totalPages 算出 5 頁但第 2 頁開始全是空的。沒有任何錯誤訊息、沒有任何測試會自己紅。
+    //
+    // 對策不是「記得兩邊都加」（人一定會忘），是**抽成同一個變數，
+    // 讓「兩邊不一致」在結構上不可能發生**。
+    //
+    // [教學] 這裡沒有任何 if —— **undefined 在 Prisma 眼中就是「不加這個條件」**。
+    // 這是 Ch2 update 那個約定（見下面的 update：undefined = 不要動它）
+    // 用在 where 而不是 data。連巢狀的 contains: undefined 也一樣被忽略，
+    // 整個 title 條件會消失，而不是變成「比對空字串」。
+    //
+    // 打開 query log 看得到證據：什麼參數都不給時 SQL 是 `WHERE 1=1`
+    // （1=1 是「一個條件都沒有」的佔位符），帶了 q 才長出 title ILIKE。
+    // **那些條件不是被跳過，是從來沒被產生。**
+    //
+    // [教學] 型別註記 `Prisma.SurveyWhereInput` 有兩個作用，第二個才是重點：
+    //   1. 讓 mode: 'insensitive' 被認成 QueryMode 而不是 string。抽成變數之後，
+    //      TypeScript 失去了「這個物件要餵給誰」的線索（內嵌在 findMany 裡時它有），
+    //      只好把字面值猜成 string，於是型別對不上
+    //   2. **它讓 tsc 真的幫你檢查欄位名** —— 打錯 titel 會紅
+    //
+    // 第 2 點值得跟正下方的 orderBy 對照：那裡是動態 key，tsc 什麼都檢查不到，
+    // 只能靠 DTO 的 @IsIn 白名單擋。**同一支方法裡，一個地方型別有用、一個地方沒用；
+    // 有用的地方就別放過。**
+    //
+    // mode: 'insensitive' 會翻成 PostgreSQL 的 ILIKE ('%' || $1 || '%')。
+    // 前面那個 % 讓一般的 B-tree 索引完全失效（索引是照開頭排序的）→ 全表掃描。
+    // 這一章不做索引優化，但要知道「加一個搜尋框」在資料庫端不是免費的。
+    const where: Prisma.SurveyWhereInput = {
+      status: query.status,
+      title: { contains: query.q, mode: 'insensitive' },
+    };
+
     // [教學] orderBy 不是可有可無的裝飾 —— **資料表沒有固有順序**
     // （見 docs/關聯式資料庫基礎.md 第 5 節）。不寫的話資料庫可以用任何順序回你，
     // 而且今天的順序不保證等於明天的順序。
@@ -58,7 +95,18 @@ export class SurveysService {
     // 第 1 頁和第 2 頁可能是用兩種不同順序排出來的，同一筆資料會在兩頁都出現、
     // 另一筆一頁都不出現。**沒有穩定排序的分頁是壞的。**
     //
-    // 「最新的在最上面」是這裡自己決定的預設值；讓前端自由指定排序是 Ch4 ② 的事。
+    // 「最新的在最上面」現在是 DTO 的預設值（sort='createdAt' / order='desc'），
+    // 前端可以覆蓋 —— 但**覆蓋的範圍被白名單框死**，理由見 find-surveys-query.dto.ts。
+    //
+    // [教學] `{ [query.sort]: query.order }` 的方括號是 computed property name：
+    // 物件字面值的 key 預設是「字面上那串文字」，方括號才代表「先求值，結果當 key」。
+    //   { query.sort: ... }   語法錯誤
+    //   { sort: ... }         合法，但意思是「照一個叫 sort 的欄位排」——沒這欄位
+    //   { [query.sort]: ... } query.sort 是 'title' → { title: 'desc' }
+    // 值那一側本來就是運算式，不需要方括號（對照下面 where 的 `{ id }` 簡寫：
+    // 左邊是欄位名、右邊是變數，只是剛好同名）。
+    //
+    // **這一行 tsc 完全檢查不到**（動態 key 會關掉檢查），欄位名寫錯是執行期 500。
     //
     // [教學] $transaction 把兩句 SQL 綁成一件事。`$` 開頭代表這是 client 自己的方法，
     // 沒有 `$` 的（prisma.survey）才是你在 schema.prisma 定義的 model。
@@ -75,14 +123,18 @@ export class SurveysService {
     // （原子性那一面 Ch5 會用到：一筆 Response + N 筆 Answer 要嘛全寫、要嘛全不寫。）
     const [data, total] = await this.prisma.$transaction([
       this.prisma.survey.findMany({
-        orderBy: { createdAt: 'desc' },
+        where,
+        orderBy: { [query.sort]: query.order },
         skip,
         take,
       }),
 
       // [教學] count 沒有帶 skip / take —— 它要數的是**符合條件的全部**，不是這一頁。
       // 跟著分頁一起切的話 total 會永遠等於 pageSize，分頁就變成自己證明自己了。
-      this.prisma.survey.count(),
+      //
+      // 但 where **一定要帶**，而且必須跟上面那句一模一樣（理由見 where 的宣告處）。
+      // 這裡把 where 拿掉，49 條測試只有一條會紅 —— 「meta.total 是篩選後的筆數」那條。
+      this.prisma.survey.count({ where }),
     ]);
 
     // 回應包成 { data, meta } 而不是裸陣列：分頁之後光有資料不夠用，

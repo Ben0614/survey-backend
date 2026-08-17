@@ -12,8 +12,17 @@
 // 下一站：src/surveys/surveys.service.ts（通過檢查之後誰來處理）
 // ============================================================
 
-import { IsInt, Min, Max } from 'class-validator';
+import {
+  IsInt,
+  Min,
+  Max,
+  IsIn,
+  IsEnum,
+  IsOptional,
+  IsString,
+} from 'class-validator';
 import { Type } from 'class-transformer';
+import { SurveyStatus } from '../../generated/prisma/enums';
 
 export class FindSurveysQueryDto {
   // [教學] @Type(() => Number) 是 class-transformer 的裝飾器（前兩份 DTO 沒有用到）。
@@ -68,4 +77,46 @@ export class FindSurveysQueryDto {
   // 100 本身是慣例、可以調，重點是有一個。
   @Max(100)
   pageSize: number = 10;
+
+  // [教學] 這個白名單擋的**不是 SQL injection**（Ch4 ② 加的）。
+  //
+  // Prisma 的 orderBy 是型別安全的，前端傳什麼進來都不會變成一段 SQL 被執行。
+  // 但欄位名不存在時 Prisma 會在執行期丟 PrismaClientValidationError，
+  // 那是沒被預期的例外 → **500**。所以白名單擋的是兩件事：
+  //   1. 前端一個手誤（?sort=name）就把伺服器打成 500
+  //   2. 有人用試錯把資料表的內部欄位名一個一個探出來
+  //
+  // 這一條特別重要，因為 service 那邊的 orderBy 用的是動態 key
+  // （`{ [query.sort]: query.order }`），而 **TypeScript 對動態 key 完全檢查不到** ——
+  // 連把欄位名拼錯成 createAt 都是綠的（實測見 ch04 坑 #8）。
+  // 也就是說：**這個白名單是那一行唯一的防線。**
+  @IsIn(['createdAt', 'title'])
+  sort: 'createdAt' | 'title' = 'createdAt';
+
+  @IsIn(['asc', 'desc'])
+  order: 'asc' | 'desc' = 'desc';
+
+  // [教學] 從這裡開始的兩個屬性**需要 @IsOptional()，而上面兩個不需要** ——
+  // 差別只有一個：**有沒有預設值**。
+  //
+  //   sort / order   有預設值 → 第一階段建實例時就已經是 'createdAt' / 'desc'，
+  //                  跑到第二階段時它們永遠不是 undefined，沒東西需要短路
+  //   status / q     沒有預設值 → 沒帶就真的是 undefined，而驗證裝飾器碰到
+  //                  undefined 會直接判失敗。@IsOptional() 就是那個短路開關
+  //                  （同 update-survey.dto.ts 的 PartialType 那段）
+  //
+  // 型別的 `?` 也不是可有可無的裝飾：少了它，型別會宣稱「這個值一定存在」，
+  // 於是 query.q.toLowerCase() 這種寫法 tsc 全綠、執行期直接炸成 500。
+  // **@IsOptional() 和 `?` 要成對出現**，一個管執行期、一個管編譯期。
+  //
+  // 為什麼沒有給它們預設值：預設值的意思是「沒指定就用這個」，
+  // 但「沒指定篩選條件」要的是**不要篩**，不是「篩某個特定值」——
+  // 而 undefined 在 Prisma 眼中正好就是「不加這個條件」（見 surveys.service.ts 的 where）。
+  @IsEnum(SurveyStatus)
+  @IsOptional()
+  status?: SurveyStatus;
+
+  @IsString()
+  @IsOptional()
+  q?: string;
 }

@@ -236,6 +236,155 @@ describe('Surveys (e2e)', () => {
     it('page 小於 1 時回 400', async () => {
       await request(app.getHttpServer()).get('/surveys?page=0').expect(400);
     });
+
+    it('sort=title&order=asc 依標題由小到大排序', async () => {
+      await prisma.survey.create({
+        data: { title: 'B問卷', createdAt: new Date('2026-01-01') },
+      });
+      await prisma.survey.create({
+        data: { title: 'A問卷', createdAt: new Date('2026-01-02') },
+      });
+      await prisma.survey.create({
+        data: { title: 'C問卷', createdAt: new Date('2026-01-03') },
+      });
+
+      const res = await request(app.getHttpServer())
+        .get(`/surveys?sort=title&order=asc`)
+        .expect(200);
+
+      const surveys = res.body as SurveyBodyList;
+      expect(surveys.data[0].title).toBe('A問卷');
+      expect(surveys.data[1].title).toBe('B問卷');
+      expect(surveys.data[2].title).toBe('C問卷');
+    });
+
+    it('不給 sort 與 order 時，預設依 createdAt 由新到舊排序', async () => {
+      await prisma.survey.create({
+        data: { title: '第二份', createdAt: new Date('2026-01-02') },
+      });
+      await prisma.survey.create({
+        data: { title: '第一份', createdAt: new Date('2026-01-01') },
+      });
+      await prisma.survey.create({
+        data: { title: '第三份', createdAt: new Date('2026-01-03') },
+      });
+
+      const res = await request(app.getHttpServer())
+        .get(`/surveys`)
+        .expect(200);
+
+      const surveys = res.body as SurveyBodyList;
+      expect(surveys.data[0].title).toBe('第三份');
+      expect(surveys.data[1].title).toBe('第二份');
+      expect(surveys.data[2].title).toBe('第一份');
+    });
+
+    it('sort 不在白名單內時回 400，不是 500', async () => {
+      await request(app.getHttpServer()).get(`/surveys?sort=name`).expect(400);
+    });
+
+    it('order 不是 asc 或 desc 時回 400', async () => {
+      await request(app.getHttpServer()).get(`/surveys?order=cac`).expect(400);
+    });
+
+    it('status=DRAFT 只回草稿問卷', async () => {
+      await prisma.survey.create({
+        data: {
+          title: '第一份',
+          createdAt: new Date('2026-01-01'),
+          status: SurveyStatus.PUBLISHED,
+        },
+      });
+      await prisma.survey.create({
+        data: { title: '第二份', createdAt: new Date('2026-01-02') },
+      });
+
+      const res = await request(app.getHttpServer())
+        .get('/surveys?status=DRAFT')
+        .expect(200);
+
+      const surveys = res.body as SurveyBodyList;
+      expect(surveys.data).toHaveLength(1);
+      expect(surveys.data[0].title).toBe('第二份');
+    });
+
+    it('q=滿意度 只回標題含「滿意度」的問卷', async () => {
+      await prisma.survey.create({
+        data: {
+          title: '飲食滿意度問卷',
+          createdAt: new Date('2026-01-01'),
+        },
+      });
+      await prisma.survey.create({
+        data: { title: '交易滿意度問卷', createdAt: new Date('2026-01-02') },
+      });
+      await prisma.survey.create({
+        data: { title: '測試問卷', createdAt: new Date('2026-01-03') },
+      });
+
+      const res = await request(app.getHttpServer())
+        .get('/surveys?q=滿意度')
+        .expect(200);
+
+      const surveys = res.body as SurveyBodyList;
+      expect(surveys.data).toHaveLength(2);
+      expect(surveys.data[0].title).toBe('交易滿意度問卷');
+      expect(surveys.data[1].title).toBe('飲食滿意度問卷');
+    });
+
+    it('q 大小寫不敏感，q=api 找得到標題含 API 的問卷', async () => {
+      await prisma.survey.create({
+        data: {
+          title: '測試API',
+          createdAt: new Date('2026-01-01'),
+        },
+      });
+      await prisma.survey.create({
+        data: { title: '再次測試api', createdAt: new Date('2026-01-02') },
+      });
+      await prisma.survey.create({
+        data: { title: '不相干問卷', createdAt: new Date('2026-01-03') },
+      });
+
+      const res = await request(app.getHttpServer())
+        .get('/surveys?q=api')
+        .expect(200);
+
+      const surveys = res.body as SurveyBodyList;
+      expect(surveys.data).toHaveLength(2);
+      expect(surveys.data[0].title).toBe('再次測試api');
+      expect(surveys.data[1].title).toBe('測試API');
+    });
+
+    it('status 不是合法的 SurveyStatus 時回 400', async () => {
+      await request(app.getHttpServer())
+        .get('/surveys?status=PPAP')
+        .expect(400);
+    });
+
+    it('篩選加分頁時，meta.total 是篩選後的筆數而不是全表筆數', async () => {
+      await prisma.survey.create({
+        data: {
+          title: '測試API',
+          createdAt: new Date('2026-01-01'),
+        },
+      });
+      await prisma.survey.create({
+        data: { title: '再次測試api', createdAt: new Date('2026-01-02') },
+      });
+      await prisma.survey.create({
+        data: { title: '不相干問卷', createdAt: new Date('2026-01-03') },
+      });
+
+      const res = await request(app.getHttpServer())
+        .get('/surveys?q=api&page=1&pageSize=1')
+        .expect(200);
+
+      const surveys = res.body as SurveyBodyList;
+      expect(surveys.data).toHaveLength(1);
+      expect(surveys.data[0].title).toBe('再次測試api');
+      expect(surveys.meta.total).toBe(2);
+    });
   });
 
   describe('GET /surveys/:id', () => {

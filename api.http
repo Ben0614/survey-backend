@@ -62,6 +62,49 @@ GET {{host}}/surveys?pageSize=999999
 ### DTO 沒宣告的參數會被 whitelist 無聲丟掉（不是 400），跟 POST body 同一套機制
 GET {{host}}/surveys?evil=1
 
+
+### ------------------------------------------------------------
+### 排序與篩選（Ch4 ②）—— 建議先建幾筆標題不同的問卷，並把其中一兩筆 publish 掉
+### 想看 SQL 就開 query log：$env:PRISMA_LOG_QUERIES=1; pnpm start:dev
+### ------------------------------------------------------------
+
+### 依標題由小到大。字串的大小由資料庫的 collation 決定，不是中文的語義 ——
+### 「第一份 / 第二份 / 第三份」排出來是 一、三、二（照 Unicode 碼位）
+GET {{host}}/surveys?sort=title&order=asc
+
+### 只給 sort，order 吃 DTO 的預設值 desc。跟上一個請求的結果應該完全顛倒
+GET {{host}}/surveys?sort=title
+
+### 只看草稿。log 裡會看到 status = CAST($1::text AS "SurveyStatus") —— enum 在資料庫裡是真的型別
+GET {{host}}/surveys?status=DRAFT
+
+### 標題模糊搜尋。log 裡是 title ILIKE ('%' || $1 || '%')
+GET {{host}}/surveys?q=滿意度
+
+### 大小寫不敏感（mode: 'insensitive'）。標題含 API 或 api 都找得到
+GET {{host}}/surveys?q=api
+
+### 篩選 + 排序 + 分頁一起給。重點看 meta.total 是**篩選後**的筆數，不是全表筆數 ——
+### count 與 findMany 共用同一個 where 變數，這件事在結構上就不可能寫錯
+GET {{host}}/surveys?status=DRAFT&q=滿意度&sort=title&order=asc&page=1&pageSize=2
+
+### 什麼參數都不給。log 裡的 WHERE 是 1=1 —— undefined 的條件不是「跳過」，是整條沒被產生
+GET {{host}}/surveys
+
+### 以下三個都是 400。
+
+### 排序欄位不在白名單內。沒有 @IsIn 的話這裡會是 500（Prisma 執行期丟
+### PrismaClientValidationError），不是 SQL injection —— 白名單擋的是「手誤打爆伺服器」
+GET {{host}}/surveys?sort=name
+
+### order 只吃 asc / desc
+GET {{host}}/surveys?order=cac
+
+### status 不是合法的 SurveyStatus（@IsEnum 擋）。
+### 這個有兩道防線：擋不住的話 PostgreSQL 的 enum 型別還會再擋一次
+GET {{host}}/surveys?status=PPAP
+
+
 ### 查一份問卷。Ch3 之後它會**連題目一起帶回來**（include），先建幾題再回來送這個最有感
 GET {{host}}/surveys/{{surveyId}}
 
