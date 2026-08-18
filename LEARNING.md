@@ -12,9 +12,9 @@
 > 換機或開新對話時**先讀這一節**。對話歷史與 AI 記憶都在 `~/.claude/` 底下，不跟 git 走 ——
 > 這裡沒寫的東西，換一台機器就等於沒發生過。
 
-**進度：** Ch0、Ch1、Ch2、Ch3 全部完成。**Ch4 進行中 —— ① 分頁、② 排序與篩選已完成**，③ 未開始。
-`pnpm test:e2e` **49 passed**、`pnpm test` **4 passed**、`tsc --noEmit` 0 errors、`lint` 0 problems。
-下一步是 Ch4 ③（`?include=questions`），起手式寫在下方「Ch4 ③ 接續點」。
+**進度：** Ch0 ~ Ch4 全部完成。
+`pnpm test:e2e` **52 passed**、`pnpm test` **4 passed**、`tsc --noEmit` 0 errors、`lint` 0 problems。
+下一步是 **Ch5（提交與查詢作答）**，起手式寫在下方「Ch5 接續點」。
 
 **重要脈絡：** Ch0 的程式碼是 AI 產生的，因此進度表的 ✅ 起初**只代表環境可用**，
 不代表讀得懂 —— 為此補了一批 `[教學]` 註解當作理解鷹架（見 `docs/專案速查.md` 的「閱讀動線」）。
@@ -218,57 +218,97 @@ enum 在 PostgreSQL 裡是真的型別（`CAST($1::text AS "SurveyStatus")`）�
 觀念、取捨、6 條坑（#8–#13）、SQL 觀察與五題作業都在
 [`ch04`](docs/chapters/ch04-分頁排序與篩選.md)，這裡不重複。
 
+**2026-08-18 —— Ch4 ③ 完成，Ch4 收工。** `52 passed`（+3）。
+`GET /surveys/:id?includeQuestions=true`，**預設不帶題目**（這一章第二次 breaking change）。
+
+這一段最貴的四課：
+
+1. **boolean 是 query string 轉型唯一「壞掉看不出來」的型別。** `Boolean('false')` 是
+   **`true`**（非空字串一律 truthy），所以 `@Type(() => Boolean)` 會讓「明說不要」變成「要」。
+   對照 `Number`：它有 `NaN` 這個代表失敗的值，`@IsInt()` 抓得到 → 400；
+   **`Boolean` 沒有 `NaB`**，任何字串都變成一個完全合法的布林值，驗證那層分不出真假。
+2. **`@Transform` 的 fallback 決定了「非法值回 400 還是被吞掉」。** 寫成
+   `value === 'true'` 一種比對，`?includeQuestions=ture`（手誤）→ `false` → **200 配沒有題目**。
+   認不得就原封不動回傳，屬性還是 `string`，`@IsBoolean()` 才擋得下來。
+3. **假綠的第七種，形狀是新的。** DTO 屬性叫 `includesQuestion`，測試打的是
+   `?includeQuestions=false` —— 舊名字被 **whitelist 無聲丟掉**，屬性維持預設 `false`，
+   於是測試通過。前六種都是**測試本身寫錯**，這次是**測試沒錯，但參數被伺服器合法地忽略**。
+   **判準：query 參數改名時 `whitelist` 會讓舊名字安靜失效，改名當下要全域搜一次。**
+4. **在 API 上多給一個選項，型別系統就少知道一件事。** `include: 條件 ? {...} : undefined`
+   讓 Prisma 的型別推導退回保守側，回傳型別塌成「沒有 questions」那種
+   （`s.questions` 是 TS2339）—— **執行期正確、編譯期不知道**。要型別精確就得寫兩個分支，
+   代價是 `where` 與 404 判斷重複一次。這個專案選了重複比較少的那邊。
+
+另外統一了 import 路徑（commit `9022cae`）：相對路徑一律不帶副檔名。
+順帶抓到第五次註解過期，以及兩份文件寫錯的機制（「`nodenext` 要求寫編譯後的副檔名」——
+它只在 ESM 檔案裡才要求）。**判準與 CJS/ESM 的分水嶺已寫進 `CLAUDE.md` 的「import 路徑的寫法」。**
+
+觀念、取捨、15 條坑、三批 SQL 觀察與三批作業都在
+[`ch04`](docs/chapters/ch04-分頁排序與篩選.md)，這裡不重複。
+
 ---
 
-### Ch4 ③ 接續點（2026-08-17）
+### Ch5 接續點（2026-08-18）
 
-**目前狀態**：`pnpm test:e2e` **49 passed**、`pnpm test` **4 passed**、
-`tsc --noEmit` 0 errors、`eslint` 0 problems。Ch4 ①② 完成、註解與文件已收尾。
+**目前狀態**：`pnpm test:e2e` **52 passed**、`pnpm test` **4 passed**、
+`tsc --noEmit` 0 errors、`eslint` 0 problems。**Ch4 三段全部完成**、註解與文件已收尾。
 
-觀念、取捨、13 條坑、SQL 觀察與兩批作業在
+Ch4 的觀念、取捨、15 條坑、三批 SQL 觀察與三批作業在
 [`ch04`](docs/chapters/ch04-分頁排序與篩選.md)，**這裡不重複**。
 
-#### 進 ③ 之前先確認的兩件事
+#### 進 Ch5 之前先確認的兩件事
 
-1. **② 的程式碼讀得懂嗎。** 最值得自己講一遍的三處：
-   - `orderBy: { [query.sort]: query.order }` 的方括號在做什麼，以及**為什麼這一行
-     `tsc` 檢查不到、但正上方的 `where` 檢查得到**
-   - `where` 為什麼要抽成變數（提示：答案跟「少打字」無關）
-   - `status` / `q` 為什麼要 `@IsOptional()`，`sort` / `order` 為什麼不用
-2. **`ch04` 第二段的五題作業值得做過一遍** —— 尤其第 3 題（把 `sort` 預設值改成
-   `createAt`，看 `tsc`、測試、實際請求三者各是什麼反應）。那是坑 #8 的現場。
+1. **Ch4 的程式碼讀得懂嗎。** 最值得自己講一遍的三處：
+   - `@Type(() => Number)` 用在 `page` 沒問題、`@Type(() => Boolean)` 用在
+     `includeQuestions` 卻會壞，**為什麼**（提示：哪一個有「失敗」的值）
+   - `where` 為什麼抽成變數，而 `include` 為什麼不用（一個是「兩處必須一致」，
+     一個是「有沒有這個參數」）
+   - `orderBy` 的動態 key 為什麼 `tsc` 檢查不到，而同一支方法裡的 `where` 檢查得到
+2. **`ch04` 三批作業各挑一題實跑** —— 第一段第 1 題、第二段第 3 題、第三段第 5 題。
+   三題分別是「測試存在不等於蓋到」「`tsc` 綠不代表對」「whitelist 讓舊參數安靜失效」
+   的現場，都是**推論不出來、要跑才知道**的那種。
 
-#### ③ 的範圍：`GET /surveys/:id?include=questions`
+#### Ch5 的範圍：提交與查詢作答（Responses）
 
-兌現 Ch3 `findOne` 那句「由 query 決定要不要帶題目是 Ch4 的事」。範圍很小，
-但它是這一章唯一**改到既有端點回應形狀**的一段。
+這是整個專案**第一次寫入多張表**，也是 `Survey.status` 那條規則真正生效的地方。
 
-**四個要點：**
+| 端點 | 做什麼 |
+| --- | --- |
+| `POST /surveys/:surveyId/responses` | 提交一份作答（一筆 `Response` + N 筆 `Answer`）|
+| `GET /surveys/:surveyId/responses` | 看這份問卷的所有作答 |
+| `GET /responses/:id` | 看單一份作答 |
 
-1. **boolean 的 query 轉型是這一段的主題。** `?include=false` 進來是**字串** `'false'`，
-   而 `Boolean('false')` 是 **`true`** —— 非空字串一律是 truthy。所以
-   「加個 `@Type(() => Boolean)` 就好」是錯的，那正是 ① 沒有開全域
-   `enableImplicitConversion` 的理由（見 `ch04` 決策取捨）。
-   要嘛用 `@Transform` 明確比對 `'true'`，要嘛把它設計成**列舉**（`?include=questions`）
-   —— 後者順帶留下擴充空間（之後可能有 `?include=responses`）。**先決定這個。**
-2. **回傳形狀隨條件而變的取捨。** 帶了 `include` 才有 `questions` 欄位，
-   前端就得判斷自己拿到的是哪一種。這跟 Ch3 `publish` 那條「冪等連回應的形狀都算」
-   是同一個問題的兩面 —— 那裡選了「一種形狀」，這裡刻意選「兩種」，理由要寫下來。
-   另一個選項是永遠回 `questions`（空陣列也回），把成本換成一致性。
-3. **這是 breaking change 的第二次。** 目前 `GET /surveys/:id` **一律**帶題目，
-   改成「預設不帶」的話既有前端會直接壞掉（`ch04` 坑 #2 是第一次）。
-   **決定預設值是什麼**，並寫進取捨：預設帶（不破壞、但浪費）還是預設不帶（省、但破壞）。
-4. **測試要蓋到「不帶時真的沒有那個欄位」。** 只斷言「帶了有題目」是不夠的 ——
-   `toMatchObject` 不管多出來的欄位，所以「永遠都帶」也會綠。
-   這是坑 #5 / #13 的同一個形狀，第三次。
+**五個要點：**
+
+1. **第三條商業規則進 `survey.rules.ts`：只有 `PUBLISHED` 的問卷能被填答。**
+   純判斷、不碰資料庫，所以是專案第三支單元測試（前兩支是 `canEditQuestions`
+   與 `canUnpublish`）。**寫規則的當下就要寫那條 e2e** —— Ch3 坑「查錯欄位」
+   就是規則寫了卻從來不生效，而唯一的偵測器是那條沒寫的測試。
+2. **原子性第一次真的用到。** 一筆 `Response` + N 筆 `Answer` 要嘛全寫、要嘛全不寫 ——
+   寫到一半失敗會留下一份沒有答案的作答紀錄。這是 `$transaction` 的**另一面**：
+   Ch4 用的是「一致的讀取視角」（兩句 SELECT），Ch5 用的是「全有或全無」。
+   （交易本身寫在 [`docs/關聯式資料庫基礎.md`](docs/關聯式資料庫基礎.md) 第 7 節。）
+3. **巢狀 write vs `$transaction` 要做一次對比。** Prisma 的巢狀 create
+   （`data: { surveyId, answers: { create: [...] } }`）本身就是一個交易，
+   不必自己包 —— 那什麼時候才需要 `$transaction`？判準是「**中間有沒有需要程式判斷的步驟**」。
+4. **驗證會比前幾章難一級。** body 是一個陣列（`answers`），要驗
+   `@ValidateNested({ each: true })` + `@Type(() => AnswerDto)` ——
+   **`@Type` 在這裡是「建成哪個 class 的實例」的原意**，不是 Ch4 那種 primitive 轉型。
+   另外「送來的 `questionId` 真的屬於這份問卷嗎」是**驗證裝飾器管不到的**，
+   那是 service 的事（跨表檢查）。
+5. **`Answer` 是專案裡唯一沒有直接掛在 `Survey` 上的表**（見 Ch2 的 cascade 測試）。
+   查詢作答時要想清楚 `include` 要帶幾層、會變成幾句 SQL —— **打開 query log 看**。
 
 #### 現成可用的工具
 
-- **`PRISMA_LOG_QUERIES=1`** —— ③ 要看的是「不帶 `include` 時，那第二句撈題目的 SQL
-  有沒有真的消失」。PowerShell 是 `$env:PRISMA_LOG_QUERIES=1; pnpm start:dev`。
+- **`PRISMA_LOG_QUERIES=1`** —— Ch5 要看的是「巢狀 create 產生幾句 SQL、有沒有 `BEGIN`/`COMMIT`」，
+  以及查詢作答時多層 `include` 的成本。PowerShell 是 `$env:PRISMA_LOG_QUERIES=1; pnpm start:dev`。
   **注意 log 印的是 `$1` 佔位符不是值**（`ch04` 坑 #7）；想看到值要把
   `prisma.service.ts` 的 `log: ['query']` 改成事件形式才有 `e.params`（一直還沒做）
-- **`api.http`** 已經有分頁、排序、篩選三整組請求（含七種 400），③ 照著往下加
+- **`api.http`** 已經有 Surveys / 分頁 / 排序篩選 / include / Questions 五整組請求，往下加
+- **`src/questions/`** 是最接近的參考：巢狀路由（`survey-questions.controller.ts`）
+  與扁平路由（`questions.controller.ts`）拆兩個 controller 的理由、
+  以及 `assertExists` 怎麼處理「父資源存不存在」
 - **`docs/專案速查.md` 的「什麼時候用 API、什麼時候用 Prisma」** —— 寫 e2e 卡住時看這裡
 
 #### 工作方式（沿用，實際付出代價換來的）
@@ -286,7 +326,10 @@ enum 在 PostgreSQL 裡是真的型別（`CAST($1::text AS "SurveyStatus")`）�
 - **新加的功能要問一次「有測試蓋到嗎」。** 既有測試全綠只證明沒弄壞舊行為
 - 新檔案要接進閱讀動線（改前一站的「下一站」），別讓鏈斷掉。
   目前終點是 `src/surveys/survey.rules.spec.ts`
-- **import 路徑一律用相對路徑**，看到開頭是 `src/` 直接改掉（`tsc` 不會抓）
+- **import 路徑一律用相對路徑、不帶副檔名**，看到開頭是 `src/` 或結尾是 `.js` 直接改掉
+  （`tsc` 不會抓絕對路徑那種；判準見 `CLAUDE.md` 的「import 路徑的寫法」）
+- **query 參數改名時要全域搜一次那個字串** —— `whitelist` 會讓舊名字**安靜失效**
+  而不是報錯，測試照樣綠（Ch4 ③ 坑 #14）
 - 丟給教練 review 之前先自己跑四項驗收：
   `pnpm test`、`pnpm test:e2e`、`pnpm exec tsc --noEmit`、`pnpm lint`
 
@@ -317,7 +360,7 @@ enum 在 PostgreSQL 裡是真的型別（`CAST($1::text AS "SurveyStatus")`）�
 | Ch1 | Schema 設計、第一次 migration、seed | 資料模型設計、migration 是什麼 | ✅ |
 | Ch2 | 第一個 CRUD（Surveys）+ **測試資料庫隔離** | DTO 驗證、404 處理、`.env.test` 與資料清理 | ✅ |
 | Ch3 | 巢狀資源與關聯查詢（Questions） | `include`/`select`、**看 Prisma 產生的 SQL**、商業規則與第一支單元測試 | ✅ |
-| Ch4 | 分頁、排序、篩選 | query string 轉型驗證、`skip/take` vs cursor | 🔨 ①②完成 |
+| Ch4 | 分頁、排序、篩選 | query string 轉型驗證、`skip/take` vs cursor | ✅ |
 | Ch5 | 提交與查詢作答（Responses） | 巢狀 write vs `$transaction`、原子性、**商業規則與單元測試** | ⬜ |
 | Ch6 | 統一錯誤處理與回應格式 | Exception Filter 把 Prisma 錯誤碼轉 HTTP | ⬜ |
 | Ch7 | Swagger API 文件 | 產出前端能直接照著串的契約 | ⬜ |
@@ -383,7 +426,7 @@ enum 在 PostgreSQL 裡是真的型別（`CAST($1::text AS "SurveyStatus")`）�
 | Ch1 — Schema 設計與第一次 migration | [`docs/chapters/ch01-schema設計與第一次migration.md`](docs/chapters/ch01-schema設計與第一次migration.md) |
 | Ch2 — 第一個 CRUD 與測試資料庫隔離 | [`docs/chapters/ch02-第一個CRUD與測試資料庫隔離.md`](docs/chapters/ch02-第一個CRUD與測試資料庫隔離.md) |
 | Ch3 — 巢狀資源與關聯查詢 | [`docs/chapters/ch03-巢狀資源與關聯查詢.md`](docs/chapters/ch03-巢狀資源與關聯查詢.md) |
-| Ch4 — 分頁、排序、篩選（①② 完成） | [`docs/chapters/ch04-分頁排序與篩選.md`](docs/chapters/ch04-分頁排序與篩選.md) |
+| Ch4 — 分頁、排序、篩選 | [`docs/chapters/ch04-分頁排序與篩選.md`](docs/chapters/ch04-分頁排序與篩選.md) |
 
 ## 跨章節文件
 

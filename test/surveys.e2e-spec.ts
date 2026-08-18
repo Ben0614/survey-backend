@@ -422,7 +422,43 @@ describe('Surveys (e2e)', () => {
         .expect(404);
     });
 
-    it('帶出題目且依 order 排序', async () => {
+    it('includeQuestions=true 時帶出題目，且依 order 排序', async () => {
+      const survey = await prisma.survey.create({
+        data: { title: '指定問卷' },
+      });
+
+      await prisma.question.create({
+        data: {
+          surveyId: survey.id,
+          title: '題目二',
+          type: 'SINGLE_CHOICE',
+          order: 1,
+          options: ['選項4', '選項5', '選項6'],
+        },
+      });
+      await prisma.question.create({
+        data: {
+          surveyId: survey.id,
+          title: '題目一',
+          type: 'SINGLE_CHOICE',
+          order: 0,
+          options: ['選項1', '選項2', '選項3'],
+        },
+      });
+
+      const res = await request(app.getHttpServer())
+        .get(`/surveys/${survey.id}?includeQuestions=true`)
+        .expect(200);
+
+      const body = res.body as SurveyWithQuestionsBody;
+
+      expect(body).toHaveProperty('questions');
+      expect(body.questions).toHaveLength(2);
+      expect(body.questions[0].order).toBe(0);
+      expect(body.questions[1].order).toBe(1);
+    });
+
+    it('不帶 includeQuestions 時，回應沒有 questions 欄位', async () => {
       const survey = await prisma.survey.create({
         data: { title: '指定問卷' },
       });
@@ -450,11 +486,52 @@ describe('Surveys (e2e)', () => {
         .get(`/surveys/${survey.id}`)
         .expect(200);
 
-      const body = res.body as SurveyWithQuestionsBody;
+      const body = res.body as SurveyBody;
 
-      expect(body.questions).toHaveLength(2);
-      expect(body.questions[0].order).toBe(0);
-      expect(body.questions[1].order).toBe(1);
+      expect(body).not.toHaveProperty('questions');
+    });
+
+    it('includeQuestions=false 時，回應沒有 questions 欄位', async () => {
+      const survey = await prisma.survey.create({
+        data: { title: '指定問卷' },
+      });
+
+      await prisma.question.create({
+        data: {
+          surveyId: survey.id,
+          title: '題目二',
+          type: 'SINGLE_CHOICE',
+          order: 1,
+          options: ['選項4', '選項5', '選項6'],
+        },
+      });
+      await prisma.question.create({
+        data: {
+          surveyId: survey.id,
+          title: '題目一',
+          type: 'SINGLE_CHOICE',
+          order: 0,
+          options: ['選項1', '選項2', '選項3'],
+        },
+      });
+
+      const res = await request(app.getHttpServer())
+        .get(`/surveys/${survey.id}?includeQuestions=false`)
+        .expect(200);
+
+      const body = res.body as SurveyBody;
+
+      expect(body).not.toHaveProperty('questions');
+    });
+
+    it('includeQuestions 不是 true 或 false 時回 400', async () => {
+      const survey = await prisma.survey.create({
+        data: { title: '指定問卷' },
+      });
+
+      await request(app.getHttpServer())
+        .get(`/surveys/${survey.id}?includeQuestions=psads`)
+        .expect(400);
     });
   });
 

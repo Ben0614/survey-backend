@@ -22,6 +22,7 @@ import {
 import { CreateSurveyDto } from './dto/create-survey.dto';
 import { UpdateSurveyDto } from './dto/update-survey.dto';
 import { FindSurveysQueryDto } from './dto/find-surveys-query.dto';
+import { FindOneSurveyQueryDto } from './dto/find-one-survey-query.dto';
 import { SurveysService } from './surveys.service';
 
 // [教學] @Controller('surveys') 是這個 class 所有路由的共同前綴。
@@ -69,7 +70,7 @@ export class SurveysController {
   // 必須放在 @Get(':id') **上面** —— 否則 /surveys/published 會先被 :id 吃掉，
   // 變成「查一份 id 是 published 的問卷」，然後回 404。
   @Get(':id')
-  findOne(@Param('id') id: string) {
+  findOne(@Param('id') id: string, @Query() query: FindOneSurveyQueryDto) {
     // [教學] @Param('id') 從**網址**取值，對照 @Body() 從 request body 取值。
     // GET 依規範不帶 body，所以 id 只能放在網址裡 —— 這不是二選一的問題。
     // （另外兩個同類：@Query() 取 ?a=1 的部分，@Headers() 取標頭。）
@@ -80,7 +81,17 @@ export class SurveysController {
     // 還有一點：@Param() 拿到的**永遠是字串**，因為網址本來就是文字。
     // 這裡沒感覺是因為 id 本來就是 string（cuid）——
     // 但 ?page=2 進來也是字串 '2'，那就有感了（見 find-surveys-query.dto.ts 的 @Type）。
-    return this.surveysService.findOne(id);
+    //
+    // [教學] 這是第一支**同時吃 @Param 和 @Query** 的方法（Ch4 ③ 加的）：
+    //   id               來自路徑 —— 「哪一份問卷」
+    //   includeQuestions 來自 ?   —— 「要不要連題目」
+    // 對照 update()：那支是 @Param + @Body（「哪一筆」+「改成什麼」）。
+    //
+    // 判準是**那個資訊在描述什麼**：識別資源用路徑，調整回應內容用 query，
+    // 要寫進去的資料用 body。
+    //
+    // 傳進 service 的是 query.includeQuestions 而不是整包 query，理由見 service 那邊。
+    return this.surveysService.findOne(id, query.includeQuestions);
   }
 
   // [教學] @Post() 的預設回應狀態碼是 **201 Created**，

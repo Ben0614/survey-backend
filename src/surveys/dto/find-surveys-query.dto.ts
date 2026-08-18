@@ -9,7 +9,7 @@
 // **query string 的值永遠是字串**。`?page=2` 進來是 '2' 不是 2，
 // 因為網址本身就是一段文字，裡面沒有「數字」這種東西。
 //
-// 下一站：src/surveys/surveys.service.ts（通過檢查之後誰來處理）
+// 下一站：src/surveys/dto/find-one-survey-query.dto.ts（查一份問卷的網址參數）
 // ============================================================
 
 import {

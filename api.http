@@ -105,8 +105,20 @@ GET {{host}}/surveys?order=cac
 GET {{host}}/surveys?status=PPAP
 
 
-### 查一份問卷。Ch3 之後它會**連題目一起帶回來**（include），先建幾題再回來送這個最有感
+### 查一份問卷。**Ch4 ③ 之後預設不帶題目**，回應裡沒有 questions 這個欄位
 GET {{host}}/surveys/{{surveyId}}
+
+### 要題目就明說（先建幾題再回來送這兩個最有感）
+GET {{host}}/surveys/{{surveyId}}?includeQuestions=true
+
+### 明說不要。**這個請求是 Ch4 ③ 的主題** ——
+### 用 @Type(() => Boolean) 的話字串 'false' 會被轉成 true（非空字串一律 truthy），
+### 於是這個請求會帶回題目。要親眼看到那個陷阱，就是送這一個
+GET {{host}}/surveys/{{surveyId}}?includeQuestions=false
+
+### 非法值 → 400。@Transform 認不得就原封不動回傳，屬性還是 string，@IsBoolean() 擋下來。
+### 少了那個 fallback（只比對 'true'），這裡會變成 200 配沒有題目 —— 手誤被安靜吞掉
+GET {{host}}/surveys/{{surveyId}}?includeQuestions=ture
 
 ### 更新標題。空 body（{}）什麼都不改，也可以試試 {"title": ""} 會被擋成 400
 PATCH {{host}}/surveys/{{surveyId}}

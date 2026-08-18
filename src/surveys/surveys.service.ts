@@ -197,8 +197,22 @@ export class SurveysService {
     return survey;
   }
 
-  /** 查一份問卷，連同它的題目。找不到就是 404，不會回 200 配一個空的 body。 */
-  async findOne(id: string) {
+  /** 查一份問卷。帶 includeQuestions 才連題目一起回。找不到就是 404，不會回 200 配一個空的 body。 */
+  async findOne(id: string, includeQuestions: boolean = false) {
+    // [教學] 第二個參數收的是 boolean，**不是整包 DTO**（對照上面 findAll 收 DTO）。
+    //
+    // 判準是「這支方法需要幾個值」，不是「service 能不能碰 DTO」這種鐵律：
+    //   findAll 需要六個（page/pageSize/sort/order/status/q）→ 包成一個物件本來就合理
+    //   findOne 需要一個 → 為了一個 boolean 而依賴一份由 HTTP 形狀決定的 class，
+    //                      換不到任何東西
+    //
+    // 檢驗方式：如果哪天不是 HTTP 在呼叫它（單元測試、排程、其他 service），
+    // 它得先準備什麼？這裡的答案是 true / false，不是「先 new 一個 DTO」。
+    // 之後若長出第二個參數，再改成傳 DTO 是很自然的一步。
+    //
+    // `= false` 讓「不指定就是不帶題目」變成這支方法自己的規則，
+    // 而不是靠每個呼叫端各自記得。DTO 那邊也有一份預設值，兩者不衝突：
+    // 一份是對前端的契約，一份是對程式內部呼叫者的契約。
     // [教學] 這是第一個必須寫 async / await 的方法。
     //
     // findAll 和 create 可以直接 return promise，是因為拿到結果之後什麼都不做；
@@ -221,14 +235,37 @@ export class SurveysService {
       // 前端要顯示一份完整問卷得再打一次 /surveys/:id/questions。
       //
       // 對照 select：include 是「加東西」，select 是「只要我列的」（連純量欄位也是）。
-      // 同一層只能擇一。目前一律帶題目，由 query 決定要不要帶是 Ch4 ③ 的事（還沒做）。
+      // 同一層只能擇一。orderBy 一樣不能省，理由同 findAll。
       //
-      // orderBy 一樣不能省，理由同 findAll。
-      include: {
-        questions: {
-          orderBy: { order: 'asc' },
-        },
-      },
+      // [教學] Ch4 ③ 把它改成由 query 決定，而且**預設不帶**。
+      //
+      // 三元運算式的 `: undefined` 才是關鍵：**undefined 在 Prisma 眼中就是
+      // 「這個參數不存在」**，所以不必寫兩個 findUnique 分支。這是同一條約定的第三次
+      //   Ch2 update  —— 用在 data  的欄位上（undefined = 不要動它）
+      //   Ch4 ②       —— 用在 where 的欄位上（undefined = 不加這個條件）
+      //   這裡        —— 用在**最外層的參數**上（undefined = 不加 include）
+      //
+      // 代價在型別上，而且看不到：三元運算式讓 Prisma 的型別推導**退回保守的那一邊**，
+      // 回傳型別會塌成「沒有 questions」那一種。實測：
+      //
+      //   const s = await this.findOne(id, true);
+      //   s.questions;   // TS2339: Property 'questions' does not exist
+      //
+      // **執行期是對的**（真的有題目、JSON 也有），只是編譯期不知道 ——
+      // 因為 Prisma 的型別魔法靠「include 字面上長什麼樣」推導，
+      // 而編譯期它只看得到 `X | undefined`。
+      //
+      // 這個專案接受這個代價：沒有任何 TypeScript 程式碼會去讀 .questions
+      // （controller 直接回傳、Nest 序列化、e2e 用 as 斷言）。想要型別精確就得寫成
+      // 兩個分支各自一句 findUnique，代價是 where 與 404 判斷重複一次。
+      // **在 API 上多給一個選項，型別系統就少知道一件事** —— 取捨見 ch04 第三段。
+      include: includeQuestions
+        ? {
+            questions: {
+              orderBy: { order: 'asc' },
+            },
+          }
+        : undefined,
     });
 
     // [教學] findUnique 找不到時回 null、不丟錯 —— 在 Prisma 眼中「沒找到」是正常結果。
