@@ -14,7 +14,8 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 - **註解採兩種並行的寫法**（使用者目前是 NestJS / Prisma 初學者）：
   - `// [教學] ...` —— 解釋「這行在做什麼」的鷹架註解。密度是**逐段不逐行**：每個「做一件事」的段落配一個註解區塊，`import` 這種一看就懂的不寫。**同一個概念只解釋一次**，後續檔案改寫「（見 `xxx.ts` 檔頭）」指回去。這批註解是暫時的，使用者熟悉後會搜尋 `[教學]` 整批清除。
   - 無標記的一般註解 —— 解釋「為什麼這樣選」，永久保留（見 `src/prisma/prisma.module.ts` 的 `@Global()` 說明）。**不要把既有的無標記註解改寫或加上標記。**
-  - 每個檔案開頭有一段 `[教學]` 檔頭：一句話說明角色、2-4 行說明何時被執行，最後一行是「下一站：<檔案>」。這串「下一站」把所有檔案接成一條閱讀動線，起點是 `src/main.ts`，終點是 `src/surveys/survey.rules.spec.ts`（完整順序見 `docs/專案速查.md` 的「閱讀動線」）。**新增檔案時要把它插進這條動線，別讓鏈斷掉。**
+  - 每個檔案開頭有一段 `[教學]` 檔頭：一句話說明角色、2-4 行說明何時被執行，最後一行是「下一站：<檔案>」。這串「下一站」把所有檔案接成一條閱讀動線，起點是 `src/main.ts`，終點是 `src/surveys/survey.rules.spec.ts`（完整順序見 `docs/專案速查.md` 的「閱讀動線」）。**新增檔案時要把它插進這條動線，別讓鏈斷掉 —— 而且同一份文件的「檔案地圖」也要一起加。** 只寫了動線那條規則的結果是檔案地圖漏了兩份 DTO、漏了兩章才被發現（Ch4 ③ 坑 #16）。
+  - **實測推翻既有說法時，要立刻全域搜一次那個說法。** 只在新寫的地方記錄正確版本不夠 —— 舊的那句還躺在原地，而且常常更容易被先讀到。註解過期已經六次，第六次錯的那句就在同一支方法的結尾，正確版本則在同一輪剛寫進去的上方註解裡。
   - Prisma 7 因版本太新而衍生的相容性設定（`moduleFormat = "cjs"`、`--experimental-vm-modules`、`moduleNameMapper`），註解要明確標示「這現階段可以跳過」，避免使用者把力氣花在與學習目標無關的地方。
   - `package.json` 與 `test/jest-e2e.json` 是純 JSON **不能加註解**，它們的說明寫在 `docs/設定檔導讀.md`。
 - 教練模式：使用者要自己寫程式碼再 review。除非明確要求「幫我寫」，否則優先解釋概念與取捨，而非直接產生整段實作。
@@ -77,6 +78,14 @@ pnpm test:e2e -- test/health.e2e-spec.ts
 **相對路徑一律不帶副檔名**（`.js` / `.ts` 都不寫），也**一律不用 `src/` 開頭的絕對路徑**（`baseUrl` 只管編譯期，執行期的 Node 不吃 —— `tsc --noEmit` 會是綠的，`pnpm test:e2e` 卻 `Cannot find module`）。
 
 專案是 CJS（`package.json` 沒有 `"type": "module"`），CJS 解析規則允許省略副檔名，這也是 NestJS 的預設寫法。只有 ESM 專案才**規定**要帶 `.js`（而且要寫編譯後的 `.js` 指向 `.ts` 檔）—— Prisma 產物帶 `.js` 是為了同時支援 ESM 使用者，不是這個專案的寫法，**不要跟著抄**。
+
+### 換行一律 LF
+
+repo 裡的檔案是 LF。**用腳本改檔案時要特別注意**——在 Windows 上 Python 的 `open(..., 'w')`、PowerShell 的 `Out-File` 這類工具預設寫出 **CRLF**，於是 git 認為整個檔案每一行都變了：內容只改了 500 行，diff 卻是 2600 行（實際發生過，commit `a1b5e45`，已 amend 修掉）。
+
+`core.autocrlf` 是 `false`，所以 git 不會幫你正規化。用腳本批次改過檔案之後，commit 前跑一次 `file <檔案>` 確認沒有 `CRLF line terminators`；已經跑掉的話用 `sed -i 's/\r$//' <檔案>` 轉回來。
+
+（`tsconfig.json` 與 `eslint.config.mjs` 本來就是 CRLF，不用動它們。）
 
 ### 在專案根目錄新增任何 `.ts` 檔時
 

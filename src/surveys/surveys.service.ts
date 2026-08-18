@@ -168,8 +168,8 @@ export class SurveysService {
     // [教學] 這支跟 findOne 查的是同一筆資料，差別只在**撈多少**。
     //
     // select 是「只要我列的欄位」——連 title、createdAt 都不會回來，
-    // 更不會去碰 Question 表。對照下面 findOne 的 include（本表全要、額外再帶關聯），
-    // 兩者在同一層互斥。
+    // 更不會去碰 Question 表。對照下面 findOne 的 include（本表全要，
+    // 額外再帶關聯 —— Ch4 ③ 之後改成由 query 決定要不要帶），兩者在同一層互斥。
     //
     // 為什麼要多這一支：findOne 有四個呼叫者，其中三個只是想確認「這份問卷在不在」、
     // 根本不看回傳值，卻被迫連題目一起撈。Ch3 第二段打開 query log 量到的結果是
@@ -192,8 +192,12 @@ export class SurveysService {
     }
 
     // [教學] 回傳型別是 `{ id: string; status: SurveyStatus }`，**不是 Survey**。
-    // 加 include 會讓型別自己變寬（見 findOne），用 select 則是自己變窄 ——
-    // 兩邊都不必寫型別註記。把游標移上去看一眼。
+    // 我們沒有寫任何型別註記，是 select 讓它自己變窄的。把游標移上去看一眼。
+    //
+    // 反方向（include 讓型別自己變寬）本來可以看下面的 findOne，
+    // 但 Ch4 ③ 把它的 include 改成有條件的之後，那個示範已經不成立了 ——
+    // 理由見 findOne 裡 include 那一段。**這種「型別自己跟著參數變」的能力
+    // 只在參數寫死時才有。**
     return survey;
   }
 
@@ -283,9 +287,16 @@ export class SurveysService {
     // [教學] 這裡的型別不是 Survey | null。TypeScript 知道 throw 之後的程式碼走不到，
     // 所以型別自動收窄了 —— 上面那個 if 不只是執行期的保護，也是在對型別系統交代。
     //
-    // 而且它現在也不只是 Survey，是 `Survey & { questions: Question[] }` ——
-    // **加了 include，回傳型別自己就跟著變了**，我們沒有寫任何型別註記。
-    // 把游標移到 survey 上看一眼，這是 Prisma 型別系統最有感的地方。
+    // [教學] 這裡本來有一句「回傳型別是 `Survey & { questions: Question[] }` ——
+    // 加了 include，型別自己就跟著變了」。**Ch4 ③ 之後那句話是錯的**，所以改掉。
+    //
+    // 現在的型別是**沒有 questions** 的那一種（把游標移上去看一眼，就是這樣）。
+    // 原因是 include 改成了三元運算式，Prisma 的型別推導只好退回保守側 ——
+    // 完整說明在上面 include 那一段。
+    //
+    // Ch3 當時那句話是對的（include 寫死，型別確實自己變寬），
+    // 而 Ch4 ③ 用「多一個 query 參數」換掉了那個好處。
+    // 想看「型別自己變窄」的版本，看上面的 assertExists（select）。
     //
     // 這支現在**只有一個呼叫者**：GET /surveys/:id，也就是唯一真的要完整內容的那條路徑。
     // 原本 update / remove / QuestionsService 也借它丟 404、卻被迫連題目一起撈，
