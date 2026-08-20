@@ -447,6 +447,7 @@ Ch4 的觀念、取捨、15 條坑、三批 SQL 觀察與三批作業在
 | 文件 | 內容 |
 | --- | --- |
 | [`docs/關聯式資料庫基礎.md`](docs/關聯式資料庫基礎.md) | 主鍵、外鍵、一對多、唯一約束、索引、**交易** —— 不含 Prisma 語法 |
+| [`docs/Prisma速查.md`](docs/Prisma速查.md) | 每支方法收哪些參數、`data` / `where` / `include` 能帶什麼、參數對應到什麼 SQL |
 | [`docs/專案速查.md`](docs/專案速查.md) | 指令速查、檔案地圖、換機接續、程式碼閱讀動線 |
 | [`docs/從零建置.md`](docs/從零建置.md) | 空資料夾 → `GET /health` 的完整建置過程 |
 | [`docs/設定檔導讀.md`](docs/設定檔導讀.md) | `package.json` 與 `test/jest-e2e.json` 各欄位的意思 |
