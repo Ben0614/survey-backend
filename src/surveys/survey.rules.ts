@@ -46,3 +46,7 @@ export function canEditQuestions(status: SurveyStatus): boolean {
 export function canUnpublish(responseCount: number): boolean {
   return responseCount === 0;
 }
+
+export function canSubmitResponse(status: SurveyStatus): boolean {
+  return status === SurveyStatus.PUBLISHED;
+}

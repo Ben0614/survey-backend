@@ -23,7 +23,11 @@
 // ============================================================
 
 import { SurveyStatus } from '../generated/prisma/enums';
-import { canEditQuestions, canUnpublish } from './survey.rules';
+import {
+  canEditQuestions,
+  canUnpublish,
+  canSubmitResponse,
+} from './survey.rules';
 
 describe('canEditQuestions', () => {
   // [教學] 用 SurveyStatus.DRAFT 而不是字串 'DRAFT'，理由跟 survey.rules.ts 裡一樣：
@@ -49,5 +53,14 @@ describe('canUnpublish', () => {
   // 而舊的答案是綁在舊題目上的，改完會對不起來。
   it('已經有人填答就不能撤回發布', () => {
     expect(canUnpublish(1)).toBe(false);
+  });
+});
+
+describe('canSubmitResponse', () => {
+  it('PUBLISHED 的問卷可以被填答', () => {
+    expect(canSubmitResponse(SurveyStatus.PUBLISHED)).toBe(true);
+  });
+  it('DRAFT 的問卷不能被填答', () => {
+    expect(canSubmitResponse(SurveyStatus.DRAFT)).toBe(false);
   });
 });

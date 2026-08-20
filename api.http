@@ -166,7 +166,87 @@ Content-Type: application/json
 }
 
 ### 刪除題目。回應 body 是**刪除前的快照**，不代表資料還在
+### （要玩下面的 Responses 就先**跳過這一個**，題目刪掉就沒得填了）
 DELETE {{host}}/questions/{{questionId}}
+
+
+### ------------------------------------------------------------
+### Responses（Ch5）
+###
+### **順序有前後關係，不能跳著送：**
+###   1. 上面的 POST /surveys 建問卷（此時是 DRAFT）
+###   2. 上面的 POST .../questions 建題目 —— 只有 DRAFT 能加題目
+###   3. 下面的 publish 把它發布 —— 只有 PUBLISHED 能被填答
+###   4. 才輪到提交作答
+###
+### 這個順序本身就是兩條商業規則的體現：canEditQuestions 只准 DRAFT、
+### canSubmitResponse 只准 PUBLISHED，兩者剛好互斥。
+### ------------------------------------------------------------
+
+### 再建第二題，讓提交時有兩筆 Answer（看 SQL 比較有感）
+# @name createQuestion2
+POST {{host}}/surveys/{{surveyId}}/questions
+Content-Type: application/json
+
+{
+  "title": "還有什麼想告訴我們的？",
+  "type": "TEXT"
+}
+
+### 同上，這行前面的 `###` 不能省
+@questionId2 = {{createQuestion2.response.body.id}}
+
+### 發布問卷。**沒有這一步，下面的提交會是 409**
+PATCH {{host}}/surveys/{{surveyId}}/publish
+
+### 提交作答 → 201。
+###
+### **這個請求是 Ch5 最值得開 query log 看的一個**（$env:PRISMA_LOG_QUERIES=1; pnpm start:dev）：
+### 一次呼叫寫兩張表，看它送出幾句 SQL、BEGIN / COMMIT 在不在。
+### 那個結果會直接回答「巢狀 write 需不需要自己包 $transaction」。
+POST {{host}}/surveys/{{surveyId}}/responses
+Content-Type: application/json
+
+{
+  "answers": [
+    { "questionId": "{{questionId}}", "content": "滿意" },
+    { "questionId": "{{questionId2}}", "content": "希望有更多教育訓練" }
+  ]
+}
+
+### 問卷不存在 → 404（借 assertExists 丟的，跟 questions 那邊同一套）
+POST {{host}}/surveys/nonexistent-id/responses
+Content-Type: application/json
+
+{
+  "answers": [
+    { "questionId": "{{questionId}}", "content": "滿意" }
+  ]
+}
+
+### 空陣列 → 400（@ArrayNotEmpty）。交一份什麼都沒答的問卷不該是 201
+POST {{host}}/surveys/{{surveyId}}/responses
+Content-Type: application/json
+
+{
+  "answers": []
+}
+
+### 缺 content → 400。**這一個在驗巢狀驗證有沒有生效** ——
+### 少了 @ValidateNested({ each: true })，陣列裡的物件一個都不會被檢查，
+### 這個請求會一路送到 prisma 然後 500（而不是 400）
+POST {{host}}/surveys/{{surveyId}}/responses
+Content-Type: application/json
+
+{
+  "answers": [
+    { "questionId": "{{questionId}}" }
+  ]
+}
+
+### 撤回發布 → 409，因為上面已經有人填過了（canUnpublish）。
+### 這是 Ch3 那條規則第一次真的被觸發 —— 在 Ch5 之前沒有辦法製造出「有填答」的狀態
+PATCH {{host}}/surveys/{{surveyId}}/unpublish
 
 ### 刪除問卷。它的題目、回覆、答案會一起消失（schema 的 onDelete: Cascade）
 DELETE {{host}}/surveys/{{surveyId}}
