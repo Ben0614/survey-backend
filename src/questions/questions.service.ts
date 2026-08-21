@@ -7,7 +7,7 @@
 // **題目是「子資源」，所以多了一層「父資源存不存在」要處理。**
 // 那件事不歸這個 service 判斷 —— 它借 SurveysService 去問（見 findAll）。
 //
-// 下一站：test/setup-env.ts（上面這些怎麼被自動驗證，而且不弄髒開發資料庫）
+// 下一站：src/responses/responses.module.ts（第三個 feature：作答，第一次寫入兩張表）
 // ============================================================
 
 import {
@@ -106,21 +106,49 @@ export class QuestionsService {
     // [教學] order 由伺服器算，不由前端給（理由見 create-question.dto.ts 結尾）。
     // count 回傳現有題數，剛好就是下一個 index：0 題 → 新的是 0，3 題 → 新的是 3。
     //
-    // 已知的洞：count 和 create 是**兩次獨立的查詢**，兩個請求同時進來時
-    // 可能都讀到 2、於是都寫 order: 2。現階段接受 ——
-    // 要根治得把兩件事包成一個交易，那是 Ch5 的主題。
-    const order = await this.prisma.question.count({ where: { surveyId } });
+    // [教學] Ch5 把這兩句包進了 $transaction，但**這個洞沒有被補起來**，
+    // 而且 Ch3 當時寫的「要根治得包成一個交易」那句話**是錯的**（Ch5 實測推翻）。
+    //
+    // 為什麼包了還是有洞：PostgreSQL 預設的隔離級別是 Read Committed，
+    // 它保證的是「不會讀到別人還沒 commit 的資料」，
+    // **不保證「我讀完之後沒人插隊」**：
+    //
+    //   請求 A：  BEGIN ── count 讀到 2 ──────────── INSERT order:2 ── COMMIT
+    //   請求 B：       BEGIN ── count 讀到 2 ── INSERT order:2 ── COMMIT
+    //
+    // 兩題都拿到 order: 2，而且**整個過程沒有任何錯誤**。
+    // 交易保證的是「這幾句要嘛全成功要嘛全失敗」，不是「我讀到的值不會過期」。
+    //
+    // **「讀一個值 → 用它算出要寫什麼 → 寫入」這個形狀，交易本身擋不住 race。**
+    // 三條可行的路，這個專案三條都沒選：
+    //   1. { isolationLevel: 'Serializable' } —— 資料庫偵測衝突，失敗方拿 P2034，
+    //      但**必須配重試**，否則使用者拿到 500
+    //   2. @@unique([surveyId, order]) —— 資料庫直接拒絕，同樣要配重試
+    //   3. 把「讀 + 算」交給資料庫在同一句 SQL 裡做完
+    //
+    // **延後的理由（不是「沒問題」，是「代價還不值得」）**：題目只有在 DRAFT 時能加，
+    // 那個階段通常只有作者一個人在編輯；而三條路都需要「重試」這個獨立主題。
+    // 撞到時的症狀：兩題 order 相同 → 列表順序不確定 → **沒有任何錯誤日誌**。
+    //
+    // 那 $transaction 還留著做什麼？它讓這兩句跑在同一條連線上、中間不回到 Node，
+    // 把窗口縮到最小 —— 縮小不等於消滅。完整說明見 docs/關聯式資料庫基礎.md 第 7 節。
+    //
+    // e2e 有一條「同時新增兩題時 order 不會重複」，本機是綠的 ——
+    // **那只代表重現不出來，不代表修好了**（見 ch05 坑 #5）。
 
-    return this.prisma.question.create({
-      data: {
-        // data 明確列欄位、不寫 data: dto，理由見 surveys.service.ts 的 create。
-        title: dto.title,
-        type: dto.type,
-        options: dto.options,
-        order,
-        // surveyId 來自網址、不來自 body —— 外面不能決定題目要長在誰身上。
-        surveyId,
-      },
+    return this.prisma.$transaction(async (tx) => {
+      const order = await tx.question.count({ where: { surveyId } });
+      return tx.question.create({
+        data: {
+          // data 明確列欄位、不寫 data: dto，理由見 surveys.service.ts 的 create。
+          title: dto.title,
+          type: dto.type,
+          options: dto.options,
+          order,
+          // surveyId 來自網址、不來自 body —— 外面不能決定題目要長在誰身上。
+          surveyId,
+        },
+      });
     });
   }
 

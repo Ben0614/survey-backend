@@ -249,6 +249,51 @@ include: {
 | `data`（`update`）| `UPDATE ... SET` |
 | `$transaction([...])` | `BEGIN` ... `COMMIT` |
 
+---
+
+## 5b. `$transaction` 的兩種形式，以及它保證什麼
+
+```ts
+// 陣列形式 —— 兩句都是獨立的查詢，中間不能有 JS 邏輯
+prisma.$transaction([queryA, queryB]);
+
+// 互動形式 —— 中間可以寫程式，但**每一句都必須走 tx**
+prisma.$transaction(async (tx) => {
+  const n = await tx.question.count({ ... });   // 用 this.prisma 就跑到交易外面了
+  return tx.question.create({ ... });
+});
+```
+
+**`tx` 是「這個交易的那一條連線」。** 交易是綁在單一連線上的東西（`BEGIN` 與 `COMMIT`
+下在同一條線上），而 `prisma.xxx` 每次是從連線池隨便拿一條 —— 用它就等於開了另一個 session。
+**`tsc` 檢查不到這件事**，兩者型別幾乎一樣。
+
+### ⚠️ 交易保證的沒有你以為的多
+
+| | 交易管得到嗎 |
+| --- | :---: |
+| 多句寫入「做一半」 | ✅ 本業 |
+| 多句查詢看到同一份快照 | 🔸 **`Read Committed` 下不保證**（見下） |
+| 「我讀到的值在我寫入之前變舊了」 | ❌ 完全不管 |
+
+**PostgreSQL 的預設隔離級別是 `Read Committed`，Prisma 不會自己改它。**
+
+| 隔離級別 | 快照什麼時候取 |
+| --- | --- |
+| **`Read Committed`**（預設）| **每一句 SQL 各取一次** |
+| `Repeatable Read` | 第一句取一次，整個交易共用 |
+| `Serializable` | 同上，再加偵測寫入衝突（衝突方拿到 `P2034`）|
+
+要改就明講：
+
+```ts
+prisma.$transaction(async (tx) => { ... }, { isolationLevel: 'RepeatableRead' });
+```
+
+**所以「讀一個值 → 算 → 寫入」這種形狀，包了交易也擋不住 race**
+（兩個交易可以同時讀到同一個舊值）。這個專案的
+`questions.service.ts` 算 `order` 就是這個形狀，取捨寫在 `ch05`。
+
 ### 幾個 Prisma 自己加上去、你沒寫的東西
 
 看 log 時會遇到，**先問「它會不會改變結果」**：

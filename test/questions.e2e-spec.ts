@@ -7,7 +7,7 @@
 // 差別在每個案例都要先建一份**父問卷** —— 題目不能單獨存在。
 // 這件小事帶出這一段最貴的一課，寫在下面 PATCH 那組的註解裡。
 //
-// 下一站：src/surveys/survey.rules.spec.ts（同樣是測試，但什麼都不必準備 —— 動線終點）
+// 下一站：test/responses.e2e-spec.ts（前提資料疊到三層時長什麼樣）
 // ============================================================
 
 import { INestApplication } from '@nestjs/common';
@@ -207,6 +207,78 @@ describe('Questions (e2e)', () => {
         where: { surveyId: survey.id },
       });
       expect(count).toBe(0);
+    });
+
+    it('連續新增三題時 order 依序是 0、1、2', async () => {
+      const survey = await prisma.survey.create({
+        data: { title: '普通問卷' },
+      });
+
+      await request(app.getHttpServer())
+        .post(`/surveys/${survey.id}/questions`)
+        .send({
+          title: '題目一',
+          type: 'SINGLE_CHOICE',
+          options: ['選項1', '選項2', '選項3'],
+        })
+        .expect(201);
+
+      await request(app.getHttpServer())
+        .post(`/surveys/${survey.id}/questions`)
+        .send({
+          title: '題目二',
+          type: 'SINGLE_CHOICE',
+          options: ['選項1', '選項2', '選項3'],
+        })
+        .expect(201);
+
+      await request(app.getHttpServer())
+        .post(`/surveys/${survey.id}/questions`)
+        .send({
+          title: '題目三',
+          type: 'SINGLE_CHOICE',
+          options: ['選項1', '選項2', '選項3'],
+        })
+        .expect(201);
+
+      const questions = await prisma.question.findMany({
+        where: { surveyId: survey.id },
+        orderBy: { order: 'asc' },
+      });
+
+      expect(questions.map((q) => q.order)).toEqual([0, 1, 2]);
+    });
+
+    it('同時新增兩題時 order 不會重複', async () => {
+      const survey = await prisma.survey.create({
+        data: { title: '普通問卷' },
+      });
+
+      await Promise.all([
+        request(app.getHttpServer())
+          .post(`/surveys/${survey.id}/questions`)
+          .send({
+            title: '題目一',
+            type: 'SINGLE_CHOICE',
+            options: ['選項1', '選項2', '選項3'],
+          })
+          .expect(201),
+        request(app.getHttpServer())
+          .post(`/surveys/${survey.id}/questions`)
+          .send({
+            title: '題目二',
+            type: 'SINGLE_CHOICE',
+            options: ['選項1', '選項2', '選項3'],
+          })
+          .expect(201),
+      ]);
+
+      const questions = await prisma.question.findMany({
+        where: { surveyId: survey.id },
+        orderBy: { order: 'asc' },
+      });
+
+      expect(questions.map((q) => q.order)).toEqual([0, 1]);
     });
   });
 

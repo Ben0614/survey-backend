@@ -55,11 +55,30 @@ export class PrismaService
     // 網路上常見的 `PRISMA_LOG_QUERIES=1 pnpm start:dev` 是 bash 語法，PowerShell 不吃。
     const logQueries = config.get<string>('PRISMA_LOG_QUERIES') === '1';
 
+    // [教學] 連線池的上限（Ch5 收尾加的）。沒設就用 pg 的預設值 10。
+    //
+    // 為什麼要能調：e2e 是**單執行緒**跑的（test/jest-e2e.json 的 maxWorkers: 1），
+    // 一次只會有一個請求在飛，開 10 條連線有 9 條從頭到尾閒著。
+    // `.env.test` 因此設成 1。
+    //
+    // **這不是為了修 `read ECONNRESET`** —— 那個問題實測過修不了
+    // （七個假設的排除表見 docs/專案速查.md 的「e2e 測試連線問題怎麼查」），
+    // 單純是「不要開用不到的連線」。
+    //
+    // 正式環境維持預設：那裡會有多個請求同時進來，池子太小反而讓請求排隊。
+    //
+    // `|| undefined` 是刻意的 —— 沒設或設成 0 時要讓 pg 用它自己的預設值，
+    // 而不是傳一個 NaN 或 0 進去（`max: 0` 會讓所有查詢卡死）。
+    const poolMax =
+      Number(config.get<string>('DATABASE_POOL_MAX')) || undefined;
+
     // [教學] super() 是「呼叫父類別的建構子」，也就是把設定交給 PrismaClient。
     // 這裡交出去的是一個 driver adapter：Prisma 7 自己不連資料庫了，
     // 改由 Node 生態的 pg 套件負責，PrismaPg 就是兩者之間的轉接頭。
+    //
+    // PrismaPg 的第一個參數就是 pg 的 Pool 設定，所以 max 直接放在這裡。
     super({
-      adapter: new PrismaPg({ connectionString }),
+      adapter: new PrismaPg({ connectionString, max: poolMax }),
       log: logQueries ? ['query'] : [],
     });
   }

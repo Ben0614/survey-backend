@@ -12,9 +12,9 @@
 > 換機或開新對話時**先讀這一節**。對話歷史與 AI 記憶都在 `~/.claude/` 底下，不跟 git 走 ——
 > 這裡沒寫的東西，換一台機器就等於沒發生過。
 
-**進度：** Ch0 ~ Ch4 全部完成。
-`pnpm test:e2e` **52 passed**、`pnpm test` **4 passed**、`tsc --noEmit` 0 errors、`lint` 0 problems。
-下一步是 **Ch5（提交與查詢作答）**，起手式寫在下方「Ch5 接續點」。
+**進度：** Ch0 ~ Ch5 全部完成。**階段一剩 Ch6、Ch7、Ch8。**
+`pnpm test:e2e` **69 passed**、`pnpm test` **6 passed**、`tsc --noEmit` 0 errors、`lint` 0 problems。
+下一步是 **Ch6（統一錯誤處理與回應格式）**，起手式寫在下方「Ch6 接續點」。
 
 **重要脈絡：** Ch0 的程式碼是 AI 產生的，因此進度表的 ✅ 起初**只代表環境可用**，
 不代表讀得懂 —— 為此補了一批 `[教學]` 註解當作理解鷹架（見 `docs/專案速查.md` 的「閱讀動線」）。
@@ -255,70 +255,119 @@ enum 在 PostgreSQL 裡是真的型別（`CAST($1::text AS "SurveyStatus")`）�
 觀念、取捨、15 條坑、三批 SQL 觀察與三批作業都在
 [`ch04`](docs/chapters/ch04-分頁排序與篩選.md)，這裡不重複。
 
+**2026-08-21 —— Ch5 完成。** `69 passed`（+17）、`pnpm test` `6 passed`（+2）。
+三支端點分四輪：提交、歸屬檢查、查詢（分頁 + 單筆）、補 Ch3 的 `order` race。
+
+這一章最貴的五課：
+
+1. **交易保證的沒有你以為的多 —— 而且這件事推翻了 Ch4 寫錯的一句話。**
+   PostgreSQL 預設是 `Read Committed`，**每一句 SQL 各自取一次快照**，
+   不是整個交易共用一個。所以「`count` 讀到 2 → 回到 Node → 寫 `order: 2`」這種形狀，
+   **包了 `$transaction` 也擋不住 race**（兩個請求可以同時讀到同一個舊值）。
+   而 Ch4 說的「`$transaction` 讓 `data` 與 `total` 來自同一個瞬間」同樣不成立 ——
+   包起來買到的是「空檔變小」，不是「空檔消失」。
+   **四處說法已全部更正**（`surveys.service.ts`、`關聯式資料庫基礎.md`、`ch04`、`Prisma速查.md`）。
+   **這是註解寫錯的第七次，也是最貴的一次**：前六次是「改了程式忘了改註解」，
+   這次是一開始就講錯了機制，而後面每一步都建立在那個錯的理解上。
+2. **外鍵保證「存在」，不保證「屬於這份問卷」。** 可以把 A 問卷的題目掛到 B 問卷的作答上，
+   外鍵、`@@unique` 全都沒被違反、沒有任何錯誤。而**這件事 DTO 永遠做不到** ——
+   它只看得到請求本身，看不到資料庫。**跨表檢查一律是 service 的工作。**
+3. **三層防線的保護範圍完全不同。** 驗證住在 ValidationPipe（繞過 HTTP 就沒了）、
+   商業規則住在 service（所有呼叫者都受保護）、完整性住在 PostgreSQL（一直都在）。
+   所以直接呼叫 service 時「空 answers 會成功、`DRAFT` 仍然 409」。
+4. **假綠的第八、九種。** 第八種是**空的 `it`**（數字漲了三、保護是零）；
+   第九種是**測試繞過了被測的程式碼** —— 前提資料用 `prisma.create` 自己寫死 `order: 0/1/2`，
+   驗的是自己剛寫的數字，把 service 的 `order` 改成 `999` 照樣綠。
+5. **併發測試綠了不代表修好了。** `Promise.all` 只保證「一起送出」，不保證「同時到達資料庫」。
+   判準：**測試綠的時候，問自己「我有沒有辦法說明為什麼它不會發生？」** 說不出來就是還在。
+
+另外量到：**巢狀 write 本身就是一個交易**（log 有 `COMMIT`），所以不必自己包；
+N 筆答案**批次成一句 `INSERT`**，查詢數不隨答案數成長。
+
+收尾時還踩到一個環境問題（坑 #6）：`read ECONNRESET`、**每次失敗的測試都不一樣**。
+七個假設逐一實測排除（孤兒行程、資料庫、閒置連線、冷啟動、埠耗盡、supertest、Jest 逾時），
+**關鍵的一支探針是「把 HTTP 拿掉，直接用 Prisma 跑 70 圈完整工作量」—— 70/70 成功**，
+於是確定不是程式碼也不是資料庫，而是這台機器的 HTTP socket 層。沒有繼續往下挖。
+
+**判準：「失敗的測試每次不同」+「錯誤不是斷言」= 先懷疑環境，不要改程式碼。**
+而這一輪最貴的是**順序反了** —— 第一個假設（孤兒行程）合理、清掉之後症狀也真的減輕，
+於是又重試了好幾輪。**「症狀減輕」不等於「找到原因」。**
+排除表與探針腳本已收進 `docs/專案速查.md` 與 `scripts/`，下次是十分鐘的事。
+
+順帶量到：**每次往返 Neon（新加坡）約 500ms**，e2e 的時間幾乎全花在網路上。
+
+觀念、取捨、6 條坑、SQL 觀察與六題作業都在
+[`ch05`](docs/chapters/ch05-提交與查詢作答.md)，這裡不重複。
+中途另外把 [`docs/Prisma速查.md`](docs/Prisma速查.md) 補了出來（commit `aafd9c4`）——
+起因是實作時卡在「`create` 的 `data` 到底可以帶什麼」，那是跨章節的問題。
+
 ---
 
-### Ch5 接續點（2026-08-18）
+### Ch6 接續點（2026-08-21）
 
-**目前狀態**：`pnpm test:e2e` **52 passed**、`pnpm test` **4 passed**、
-`tsc --noEmit` 0 errors、`eslint` 0 problems。**Ch4 三段全部完成**、註解與文件已收尾。
+**目前狀態**：`pnpm test:e2e` **69 passed**、`pnpm test` **6 passed**、
+`tsc --noEmit` 0 errors、`eslint` 0 problems。**Ch0 ~ Ch5 全部完成**、註解與文件已收尾。
 
-Ch4 的觀念、取捨、15 條坑、三批 SQL 觀察與三批作業在
-[`ch04`](docs/chapters/ch04-分頁排序與篩選.md)，**這裡不重複**。
+Ch5 的觀念、取捨、6 條坑、SQL 觀察與六題作業在
+[`ch05`](docs/chapters/ch05-提交與查詢作答.md)，**這裡不重複**。
 
-#### 進 Ch5 之前先確認的兩件事
+#### 進 Ch6 之前先確認的兩件事
 
-1. **Ch4 的程式碼讀得懂嗎。** 最值得自己講一遍的三處：
-   - `@Type(() => Number)` 用在 `page` 沒問題、`@Type(() => Boolean)` 用在
-     `includeQuestions` 卻會壞，**為什麼**（提示：哪一個有「失敗」的值）
-   - `where` 為什麼抽成變數，而 `include` 為什麼不用（一個是「兩處必須一致」，
-     一個是「有沒有這個參數」）
-   - `orderBy` 的動態 key 為什麼 `tsc` 檢查不到，而同一支方法裡的 `where` 檢查得到
-2. **`ch04` 三批作業各挑一題實跑** —— 第一段第 1 題、第二段第 3 題、第三段第 5 題。
-   三題分別是「測試存在不等於蓋到」「`tsc` 綠不代表對」「whitelist 讓舊參數安靜失效」
-   的現場，都是**推論不出來、要跑才知道**的那種。
+1. **Ch5 的程式碼讀得懂嗎。** 最值得自己講一遍的三處：
+   - `answers: { create: [...] }` 裡的 `create` 是什麼（提示：它跟 `where` 裡的
+     `contains` 站在同一個位置，但回答的是不同的問題）
+   - 為什麼「歸屬檢查」不能寫成 DTO 的裝飾器
+   - `$transaction` 包住 `count` 與 `create` 之後，`order` 的 race **為什麼還在**
+2. **`ch05` 的作業第 3 題一定要實跑** —— 直接呼叫 `ResponsesService.create`（不透過 HTTP），
+   看「空 `answers` 會成功、`DRAFT` 仍然 409」。那是「三層防線各自管什麼」的現場，
+   而那件事 Ch6 會整個重來一次。
 
-#### Ch5 的範圍：提交與查詢作答（Responses）
+#### Ch6 的範圍：統一錯誤處理與回應格式
 
-這是整個專案**第一次寫入多張表**，也是 `Survey.status` 那條規則真正生效的地方。
+課綱寫的是「Exception Filter 把 Prisma 錯誤碼轉 HTTP」。這一章的價值在於
+**它要收拾前面五章刻意留下的債**，而那些債都已經寫在註解裡了：
 
-| 端點 | 做什麼 |
+| 留在哪 | 欠的是什麼 |
 | --- | --- |
-| `POST /surveys/:surveyId/responses` | 提交一份作答（一筆 `Response` + N 筆 `Answer`）|
-| `GET /surveys/:surveyId/responses` | 看這份問卷的所有作答 |
-| `GET /responses/:id` | 看單一份作答 |
+| `surveys.service.ts` 檔頭 | 「service 丟 `NotFoundException` 嚴格說是破了分層，**Ch6 有了 Exception Filter 之後會回頭重看**」 |
+| Ch2 的取捨 | 選了「先 `assertExists` 再操作」而不是 catch `P2025`，代價是**同一筆資料查兩次** |
+| Ch5 的歸屬檢查 | 為了避開 `P2002` / `P2003` 變成 500，在 service 先擋掉 |
+| `docs/Prisma速查.md` 第 7 節 | 三個錯誤碼的對照表已經整理好了 |
 
 **五個要點：**
 
-1. **第三條商業規則進 `survey.rules.ts`：只有 `PUBLISHED` 的問卷能被填答。**
-   純判斷、不碰資料庫，所以是專案第三支單元測試（前兩支是 `canEditQuestions`
-   與 `canUnpublish`）。**寫規則的當下就要寫那條 e2e** —— Ch3 坑「查錯欄位」
-   就是規則寫了卻從來不生效，而唯一的偵測器是那條沒寫的測試。
-2. **原子性第一次真的用到。** 一筆 `Response` + N 筆 `Answer` 要嘛全寫、要嘛全不寫 ——
-   寫到一半失敗會留下一份沒有答案的作答紀錄。這是 `$transaction` 的**另一面**：
-   Ch4 用的是「一致的讀取視角」（兩句 SELECT），Ch5 用的是「全有或全無」。
-   （交易本身寫在 [`docs/關聯式資料庫基礎.md`](docs/關聯式資料庫基礎.md) 第 7 節。）
-3. **巢狀 write vs `$transaction` 要做一次對比。** Prisma 的巢狀 create
-   （`data: { surveyId, answers: { create: [...] } }`）本身就是一個交易，
-   不必自己包 —— 那什麼時候才需要 `$transaction`？判準是「**中間有沒有需要程式判斷的步驟**」。
-4. **驗證會比前幾章難一級。** body 是一個陣列（`answers`），要驗
-   `@ValidateNested({ each: true })` + `@Type(() => AnswerDto)` ——
-   **`@Type` 在這裡是「建成哪個 class 的實例」的原意**，不是 Ch4 那種 primitive 轉型。
-   另外「送來的 `questionId` 真的屬於這份問卷嗎」是**驗證裝飾器管不到的**，
-   那是 service 的事（跨表檢查）。
-5. **`Answer` 是專案裡唯一沒有直接掛在 `Survey` 上的表**（見 Ch2 的 cascade 測試）。
-   查詢作答時要想清楚 `include` 要帶幾層、會變成幾句 SQL —— **打開 query log 看**。
+1. **先決定「要不要真的改掉 service 丟 HTTP 例外」。** 那句註解說「會回頭重看」，
+   不是「一定會改」。改的話 service 就得改丟自訂錯誤（例如 `SurveyNotFoundError`），
+   由 filter 翻譯成 404 —— **好處是 service 徹底不認識 HTTP，代價是多一層錯誤類別**。
+   **這是這一章最大的取捨，先想清楚再動手。**
+2. **Exception Filter 攔得到什麼、攔不到什麼。** 它是 Nest 的全域攔截點，
+   但 **ValidationPipe 的 400 是它自己丟的** —— 想統一格式就得連那個一起處理。
+   （Ch5 的「三層防線」在這裡會第三次出現：filter 站在最外面，但**它只看得到丟出來的東西**。）
+3. **回應格式要不要統一成 `{ error: { code, message } }`。** 這又是一次 breaking change
+   （這一章第三次，前兩次都在 Ch4）。而且**測試會全面受影響** ——
+   69 條裡有一大半在斷言狀態碼，改格式不影響狀態碼，但改了 body 就影響。
+   **先數一下有幾條在斷言 body。**
+4. **P2025 / P2002 / P2003 三個碼要對到什麼狀態碼。** 判準不是「錯誤碼長什麼樣」，
+   而是「**前端拿到之後能做什麼**」—— 404 可以顯示「查無此問卷」，
+   409 可以顯示「已經有人填過了」，500 只能顯示「伺服器壞了」。
+5. **不要把「防禦性 catch」寫成一個吞掉所有錯誤的黑洞。** filter 要**只翻譯認得的錯誤**，
+   認不得的原樣往上丟（並且留 log）。吞掉之後最貴的代價是**你再也看不到堆疊**。
 
 #### 現成可用的工具
 
-- **`PRISMA_LOG_QUERIES=1`** —— Ch5 要看的是「巢狀 create 產生幾句 SQL、有沒有 `BEGIN`/`COMMIT`」，
-  以及查詢作答時多層 `include` 的成本。PowerShell 是 `$env:PRISMA_LOG_QUERIES=1; pnpm start:dev`。
-  **注意 log 印的是 `$1` 佔位符不是值**（`ch04` 坑 #7）；想看到值要把
-  `prisma.service.ts` 的 `log: ['query']` 改成事件形式才有 `e.params`（一直還沒做）
-- **`api.http`** 已經有 Surveys / 分頁 / 排序篩選 / include / Questions 五整組請求，往下加
-- **`src/questions/`** 是最接近的參考：巢狀路由（`survey-questions.controller.ts`）
-  與扁平路由（`questions.controller.ts`）拆兩個 controller 的理由、
-  以及 `assertExists` 怎麼處理「父資源存不存在」
+- **`docs/Prisma速查.md` 第 7 節** —— 三個錯誤碼與這個專案目前的處理方式，直接對照著改
+- **`PRISMA_LOG_QUERIES=1`** —— Ch6 要看的是「改成 catch 之後少了幾句 SQL」
+  （Ch2 那筆「同一筆資料查兩次」的債，這一章可以量出來）
+- **`api.http`** 已經有五整組請求（含十幾種錯誤情境），改完格式一輪送過去對照最快
 - **`docs/專案速查.md` 的「什麼時候用 API、什麼時候用 Prisma」** —— 寫 e2e 卡住時看這裡
+
+#### 這一章的特別提醒
+
+**Ch6 動到的是「所有端點的共同行為」**，所以它跟前面五章有一個結構性的差別：
+前面的改動壞掉只影響一支端點，這一章壞掉**會同時影響 69 條測試**。
+
+判準沿用 `CLAUDE.md` 那條「一輪只做一個能獨立驗收的主題」——
+建議至少拆成「先接上 filter、不改格式」與「再改回應格式」兩輪。
 
 #### 工作方式（沿用，實際付出代價換來的）
 
@@ -344,6 +393,10 @@ Ch4 的觀念、取捨、15 條坑、三批 SQL 觀察與三批作業在
   （`tsc` 不會抓絕對路徑那種；判準見 `CLAUDE.md` 的「import 路徑的寫法」）
 - **query 參數改名時要全域搜一次那個字串** —— `whitelist` 會讓舊名字**安靜失效**
   而不是報錯，測試照樣綠（Ch4 ③ 坑 #14）
+- **不要並行跑 `pnpm test:e2e`**，中斷測試後也要確認沒有孤兒 jest 行程 ——
+  `maxWorkers: 1` 只擋得住同一個 jest 行程內的並行
+- **「失敗的測試每次不同」+「錯誤不是斷言」= 先懷疑環境**，不要回去改程式碼。
+  查法與實測排除表見 `docs/專案速查.md` 的「e2e 測試連線問題怎麼查」（Ch5 坑 #6）
 - 丟給教練 review 之前先自己跑四項驗收：
   `pnpm test`、`pnpm test:e2e`、`pnpm exec tsc --noEmit`、`pnpm lint`
 
@@ -375,7 +428,7 @@ Ch4 的觀念、取捨、15 條坑、三批 SQL 觀察與三批作業在
 | Ch2 | 第一個 CRUD（Surveys）+ **測試資料庫隔離** | DTO 驗證、404 處理、`.env.test` 與資料清理 | ✅ |
 | Ch3 | 巢狀資源與關聯查詢（Questions） | `include`/`select`、**看 Prisma 產生的 SQL**、商業規則與第一支單元測試 | ✅ |
 | Ch4 | 分頁、排序、篩選 | query string 轉型驗證、`skip/take` vs cursor | ✅ |
-| Ch5 | 提交與查詢作答（Responses） | 巢狀 write vs `$transaction`、原子性、**商業規則與單元測試** | ⬜ |
+| Ch5 | 提交與查詢作答（Responses） | 巢狀 write vs `$transaction`、原子性、**商業規則與單元測試** | ✅ |
 | Ch6 | 統一錯誤處理與回應格式 | Exception Filter 把 Prisma 錯誤碼轉 HTTP | ⬜ |
 | Ch7 | Swagger API 文件 | 產出前端能直接照著串的契約 | ⬜ |
 | Ch8 | **第一次部署（後端先上線）** | `migrate deploy`、正式環境變數、連線數上限 | ⬜ |
@@ -441,6 +494,7 @@ Ch4 的觀念、取捨、15 條坑、三批 SQL 觀察與三批作業在
 | Ch2 — 第一個 CRUD 與測試資料庫隔離 | [`docs/chapters/ch02-第一個CRUD與測試資料庫隔離.md`](docs/chapters/ch02-第一個CRUD與測試資料庫隔離.md) |
 | Ch3 — 巢狀資源與關聯查詢 | [`docs/chapters/ch03-巢狀資源與關聯查詢.md`](docs/chapters/ch03-巢狀資源與關聯查詢.md) |
 | Ch4 — 分頁、排序、篩選 | [`docs/chapters/ch04-分頁排序與篩選.md`](docs/chapters/ch04-分頁排序與篩選.md) |
+| Ch5 — 提交與查詢作答 | [`docs/chapters/ch05-提交與查詢作答.md`](docs/chapters/ch05-提交與查詢作答.md) |
 
 ## 跨章節文件
 

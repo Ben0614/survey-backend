@@ -1,3 +1,23 @@
+// ============================================================
+// [教學] responses.e2e-spec.ts —— 前提資料疊到三層時長什麼樣
+//
+// 跑法：pnpm test:e2e -- test/responses.e2e-spec.ts
+//
+// 跟前面幾個 e2e 檔的差別有兩個：
+//
+// 1. **前提資料有三層**：問卷 → 題目 → 作答。而且問卷要先是 DRAFT 才能加題目、
+//    再改成 PUBLISHED 才能被填答 —— 這裡直接用 prisma 建成 PUBLISHED，
+//    繞過那條規則（測試可以，API 不行，見 ch05 的「決策取捨」）。
+//
+// 2. **Response 沒有任何可讀的欄位**（沒有 title），所以認人要靠**建立時拿回的 id**。
+//    前面幾個檔案都能用 title 分辨「哪一筆是哪一筆」，這裡不行。
+//
+// 還有一條是專案第一次的併發測試（在 questions.e2e-spec.ts），
+// 那條的結論寫在 ch05 坑 #5：**綠不代表修好了。**
+//
+// 下一站：src/surveys/survey.rules.spec.ts（同樣是測試，但什麼都不必準備 —— 動線終點）
+// ============================================================
+
 import { INestApplication } from '@nestjs/common';
 import { Test, TestingModule } from '@nestjs/testing';
 import request from 'supertest';
