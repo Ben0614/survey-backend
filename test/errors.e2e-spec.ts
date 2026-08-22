@@ -10,7 +10,7 @@
 //
 // 跑法：pnpm test:e2e -- test/errors.e2e-spec.ts
 //
-// 下一站：src/surveys/survey.rules.spec.ts（同樣是測試，但什麼都不必準備）
+// 下一站：src/surveys/survey.rules.spec.ts（同樣是測試，但什麼都不必準備 —— 動線終點）
 // ============================================================
 
 import { INestApplication } from '@nestjs/common';

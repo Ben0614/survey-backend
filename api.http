@@ -6,6 +6,26 @@
 ### 底下用了 REST Client 的「具名請求」：`# @name xxx` 之後就能用
 ### {{xxx.response.body.id}} 取出上一個回應的欄位。所以請**由上往下依序送出**，
 ### 先建問卷、再建題目，後面的請求才有 id 可用。
+###
+### ------------------------------------------------------------
+### Ch6 之後，**所有**錯誤回應都是同一個形狀（不再是 Nest 預設的
+### { statusCode, message, error }）：
+###
+###   { "error": { "code": "NOT_FOUND", "message": "問卷不存在" } }
+###
+### code 是狀態碼的鏡像：NOT_FOUND / CONFLICT / BAD_REQUEST /
+###                       VALIDATION_FAILED / INTERNAL_ERROR
+###
+### 只有 ValidationPipe 的 400 多一個 details，裡面是逐條的驗證訊息：
+###
+###   { "error": { "code": "VALIDATION_FAILED",
+###                "message": "請求內容不合法",
+###                "details": ["page must not be less than 1"] } }
+###
+### **message 永遠是一句字串**（改格式的動機就是這個 —— 以前驗證失敗給的是
+### 字串陣列、其他錯誤給的是字串，同一個欄位兩種型別）。
+### 送下面任何一個錯誤情境都可以直接看到差別。
+### ------------------------------------------------------------
 
 @host = http://localhost:3100
 
@@ -47,13 +67,14 @@ GET {{host}}/surveys?page=2&pageSize=2
 ### 超出範圍的頁碼 → 200 配空 data，不是 404。「查得到但沒有」不是錯誤
 GET {{host}}/surveys?page=999
 
-### 以下四個都是 400，錯誤訊息會直接說是哪個欄位、哪條規則不過
+### 以下四個都是 400 VALIDATION_FAILED，逐條規則寫在 error.details 裡
 GET {{host}}/surveys?page=0
 
 ### 非整數（@IsInt 擋）
 GET {{host}}/surveys?page=2.5
 
-### 根本不是數字 → @Type 轉成 NaN，@IsInt 與 @Min 兩條都不過，所以回兩則訊息
+### 根本不是數字 → @Type 轉成 NaN，@IsInt 與 @Min 兩條都不過，
+### 所以 error.details 會有**兩個**元素（message 仍然只有一句）
 GET {{host}}/surveys?page=abc
 
 ### 超過上限（@Max(100) 擋）—— 沒有這條就等於沒做分頁

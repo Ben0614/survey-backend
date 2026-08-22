@@ -6,8 +6,27 @@
 //
 // 「幾乎」是因為有一個例外：findOne 與 assertExists 找不到資料時直接丟
 // NotFoundException，而 404 是不折不扣的 HTTP 概念。
-// 這是一道刻意留著的裂縫，取捨寫在 findOne 裡面，
-// Ch6 有了 Exception Filter 之後會回頭重看。
+//
+// **Ch6 回頭重看過了，結論是維持現狀**（Ch2 的註解說「會回頭重看」，
+// 不是「一定會改」—— 決定不改也是一個決定，所以理由寫在這裡）。
+//
+// 另一條路是 service 改丟自訂的 domain error（例如 SurveyNotFoundError），
+// 由 Exception Filter 翻譯成 404，service 就徹底不認識 HTTP。
+//
+// 判準是**「這支 service 除了 HTTP 之外，還有沒有第二個呼叫者」**：
+//   有  —— 同一個 SurveyNotFoundError 在 gRPC 要變 NOT_FOUND(5)、
+//          在排程只要寫一行 log、在訊息佇列要決定重不重試。一個錯誤四種翻譯，
+//          那時候把翻譯抽出來才划算
+//   沒有 —— 多一層錯誤類別，換到的好處是假想的
+//
+// 這個專案是後者：唯一的入口就是 controller，而課綱到 Ch17（認證、Swagger、
+// 前端）全部還是走 HTTP。NestJS 官方文件的範例也是直接在 service 丟
+// NotFoundException —— 這不是反模式，是框架刻意把 HTTP 例外設計成通用的錯誤語彙。
+//
+// **會後悔的情境很具體**：哪天出現排程（每天寄提醒信）、CLI（匯出報表）、
+// 或訊息佇列的消費者去呼叫這支 service，NotFoundException 會冒到一個
+// 根本沒有 HTTP 回應可寫的地方。到時候再改也來得及，而且那時你會確切知道
+// 第二個入口長什麼樣 —— 現在猜是猜不準的。
 //
 // 為什麼要有這一層，不讓 controller 直接用 Prisma：
 // 從 Ch3 開始這裡會長出商業規則（「有人填答就不能改題目」），
@@ -290,8 +309,14 @@ export class SurveysService {
     // 不能直接 return null 讓它變成 200 配一個空 body：「查得到但內容是空的」
     // 和「這東西不存在」是兩件事，混在一起會逼前端寫出分不清「壞掉」和「沒有」的判斷。
     //
-    // service 丟 HTTP 例外嚴格說是破了分層（見檔頭）。維持這樣是因為另外兩種做法
-    // ——controller 接住轉換、或自訂錯誤配 Exception Filter——在 Ch2 都太重。
+    // service 丟 HTTP 例外嚴格說是破了分層。Ch2 當時的理由是「另外兩種做法
+    // ——controller 接住轉換、或自訂錯誤配 Exception Filter——在 Ch2 都太重」；
+    // Ch6 真的有了 Exception Filter 之後重新評估，結論仍是維持（判準見檔頭）。
+    //
+    // 順帶一個 Ch6 才看得見的後果：filter 收到這個例外時，**它只看得到
+    // 狀態碼 404 和這句訊息** —— 沒有「這是問卷還是作答不存在」的資訊。
+    // 所以回應裡的 code 只能是狀態碼的鏡像（NOT_FOUND），要更細的 code
+    // 就得讓 service 送上來。這是「決定不改 service」的直接代價。
     if (!survey) {
       throw new NotFoundException('問卷不存在');
     }
@@ -342,7 +367,15 @@ export class SurveysService {
     // 404 是「這東西不存在」（可以顯示「查無此問卷」），500 是「伺服器壞了」。
     //
     // 代價是同一筆資料查了兩次。這一章選直白，remove 也會原封不動再用一次；
-    // 另一種做法是 catch P2025，那是 Ch6 Exception Filter 的正題。
+    // 另一種做法是 catch P2025。
+    //
+    // **Ch6 重新評估後仍然選「先擋」**：先擋才給得出「問卷不存在」這種具體訊息，
+    // catch P2025 只知道「某一筆不見了」。Ch6 輪 2 會讓 filter 也認得 P2025，
+    // 但那是**縱深防禦**（漏寫一處 assertExists 時不會變成 500），不是主要防線。
+    //
+    // 它防的不是假想的情境，是 TOCTOU：assertExists 通過之後、update 執行之前，
+    // 另一個請求把那筆刪掉了 → P2025 → 500。這跟 questions.service.ts 的
+    // order race 是同一族的形狀（「讀 → 回到 Node 判斷 → 寫」中間那段空檔）。
     await this.assertExists(id);
 
     // [教學] dto.title 是 undefined 時（例如空 body），Prisma **完全不碰這個欄位** ——

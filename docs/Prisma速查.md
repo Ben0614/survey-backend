@@ -339,4 +339,23 @@ $env:PRISMA_LOG_QUERIES=1; pnpm start:dev
 | `P2003` | 違反外鍵約束 | 同上（歸屬檢查順便擋掉）|
 
 **判準：能在自己這一層先擋掉的，就不要讓資料庫的錯誤碼冒上來。**
-Nest 不認識這些碼，一律變成 **500**。（統一 catch 是 Ch6 Exception Filter 的正題。）
+
+**Ch6 重新評估過，這個判準不變。** 先擋才給得出「問卷不存在」這種具體訊息 ——
+`catch P2025` 只知道「某一筆不見了」，說不出是哪一種資源。
+
+### 現在（Ch6 輪 1 之後）冒上來會怎樣
+
+`src/common/filters/all-exceptions-filters.ts` 認不得 Prisma 的錯誤碼，
+所以仍然是 **500** —— 但跟 Ch5 之前有兩個差別：
+
+1. 回應是統一格式 `{ error: { code: "INTERNAL_ERROR", message: "伺服器發生未預期的錯誤" } }`，
+   **不會把 Prisma 的原始訊息送到瀏覽器**（那裡面有完整檔案路徑、表名、約束名）
+2. 完整的堆疊會進 `logger.error` —— 看得到，只是使用者看不到
+
+### 之後（Ch6 輪 2，尚未實作）
+
+filter 會認得這三個碼並翻成 404 / 409 / 400。但它的定位是**縱深防禦，不是主要防線**：
+漏寫一處 `assertExists` 時，前端拿到的是 404 而不是 500。
+
+它防的不是假想的情境，是 **TOCTOU** —— `assertExists` 通過之後、`update` 執行之前，
+另一個請求把那筆刪掉了。跟 `questions.service.ts` 的 `order` race 是同一族的形狀。

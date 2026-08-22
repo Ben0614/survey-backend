@@ -92,9 +92,23 @@ pnpm test:e2e -- test/health.e2e-spec.ts
 
 ### 換行一律 LF
 
-repo 裡的檔案是 LF。**用腳本改檔案時要特別注意**——在 Windows 上 Python 的 `open(..., 'w')`、PowerShell 的 `Out-File` 這類工具預設寫出 **CRLF**，於是 git 認為整個檔案每一行都變了：內容只改了 500 行，diff 卻是 2600 行（實際發生過，commit `a1b5e45`，已 amend 修掉）。
+**repo 裡（也就是 git 索引裡）存的一律是 LF**，工作區是什麼則要看這台機器的 `core.autocrlf`。
 
-`core.autocrlf` 是 `false`，所以 git 不會幫你正規化。用腳本批次改過檔案之後，commit 前跑一次 `file <檔案>` 確認沒有 `CRLF line terminators`；已經跑掉的話用 `sed -i 's/\r$//' <檔案>` 轉回來。
+```bash
+git config --get core.autocrlf     # 這台機器是什麼
+git ls-files --eol <檔案>          # 權威答案：i/ 是索引、w/ 是工作區
+```
+
+`git ls-files --eol` 印出 `i/lf w/crlf` 代表**索引是 LF、工作區被轉成 CRLF** —— 那是 `core.autocrlf=true` 的正常結果，**不是問題**。要盯的只有 `i/` 那一欄。
+
+> **2026-08-22 更正兩件事**（原本這裡寫錯了）：
+>
+> 1. 這台機器的 `core.autocrlf` 實際是 **`true`**（原本寫 `false`）。它是**每台機器各自的本機設定、不跟著 git 走**，所以另一台可能不一樣 —— 用上面那行指令確認，不要假設。
+> 2. **原本教的檢查法會誤判。** 用 `file <檔案>` 看工作區、或把 `git show HEAD:<檔案>` 的輸出拿去數 CR，都會受簽出轉換影響，在 `autocrlf=true` 的機器上一律報 CRLF，看起來像是 commit 錯了。今天實際被這個假警報騙過一次。**唯一可信的是 `git ls-files --eol` 的 `i/` 欄。**
+
+用腳本批次改檔案時仍然要注意：Windows 上 Python 的 `open(..., 'w')`、PowerShell 的 `Out-File` 預設寫出 CRLF。`autocrlf=true` 會在 commit 時幫你轉回 LF，但**不要依賴它** —— 另一台機器若是 `false` 就不會轉，於是 git 認為整個檔案每一行都變了：內容只改 500 行、diff 卻是 2600 行（實際發生過，commit `a1b5e45`，已 amend 修掉）。
+
+安全的寫法：讀檔用 `newline=''` 保留原樣、寫回也用 `newline=''`，不要讓工具自作主張。真的跑掉了用 `sed -i` 把行尾的 CR 去掉。
 
 （`tsconfig.json` 與 `eslint.config.mjs` 本來就是 CRLF，不用動它們。）
 

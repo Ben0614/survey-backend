@@ -12,9 +12,10 @@
 > 換機或開新對話時**先讀這一節**。對話歷史與 AI 記憶都在 `~/.claude/` 底下，不跟 git 走 ——
 > 這裡沒寫的東西，換一台機器就等於沒發生過。
 
-**進度：** Ch0 ~ Ch5 全部完成。**階段一剩 Ch6、Ch7、Ch8。**
-`pnpm test:e2e` **69 passed**、`pnpm test` **6 passed**、`tsc --noEmit` 0 errors、`lint` 0 problems。
-下一步是 **Ch6（統一錯誤處理與回應格式）**，起手式寫在下方「Ch6 接續點」。
+**進度：** Ch0 ~ Ch5 完成，**Ch6 輪 1 完成**（全域 Exception Filter + 統一錯誤格式）。
+**階段一剩 Ch6 輪 2 / 輪 3、Ch7、Ch8。**
+`pnpm test:e2e` **74 passed**、`pnpm test` **6 passed**、`tsc --noEmit` 0 errors、`lint` 0 problems。
+下一步是 **Ch6 輪 2（filter 認得 Prisma 錯誤碼）**，起手式寫在下方「Ch6 輪 2 接續點」。
 
 **重要脈絡：** Ch0 的程式碼是 AI 產生的，因此進度表的 ✅ 起初**只代表環境可用**，
 不代表讀得懂 —— 為此補了一批 `[教學]` 註解當作理解鷹架（見 `docs/專案速查.md` 的「閱讀動線」）。
@@ -301,73 +302,201 @@ N 筆答案**批次成一句 `INSERT`**，查詢數不隨答案數成長。
 中途另外把 [`docs/Prisma速查.md`](docs/Prisma速查.md) 補了出來（commit `aafd9c4`）——
 起因是實作時卡在「`create` 的 `data` 到底可以帶什麼」，那是跨章節的問題。
 
+**2026-08-22 —— Ch6 輪 1 完成，並把纏了兩章的環境問題連根修掉。**
+兩個 commit：`51667fe`（環境）、`1d49fe4`（輪 1）。`74 passed`（+5）。
+
+**環境那一半比 Ch6 本身更有價值。** Ch5 坑 #6 的 `read ECONNRESET` 當時停在
+「這台機器 HTTP socket 層的問題」，這次拆開來發現底下其實是**三個各自獨立的問題**：
+測試跑完不結束（jest 等殘留 handle → `--forceExit`）、
+中斷後留下孤兒（Windows 沒有 process group → `pretest:e2e` 自動清）、
+以及 ECONNRESET 本身。
+
+**ECONNRESET 的根因**：supertest 底下的 superagent 建構時寫死 `this._agent = false`，
+在 Node 裡那代表「每個請求自己開一個一次性 Agent、不做連線池」—— 於是每個請求
+都開一條新 TCP 連線、用完就關。換成 keep-alive 之後實測 **16/9/14 條紅 → 0/0/0**。
+
+而 Ch5 排除表裡有一行「試了 `app.listen(0)` 重用同一個 server → 沒用」。
+**「重用同一個 server」和「重用同一條連線」是兩件事** —— 前者省 listen，
+後者省 TCP 握手與關閉。Ch5 的結論方向對，但停得太早。
+
+修完之後還學到一件：ECONNRESET 歸零後剩下的偶發失敗**確實是 5 秒逾時**，
+而排除表寫「`testTimeout` 改 30000 → 沒用」**也是對的**（當時連 HTTP 都沒打通）。
+**同一個旋鈕在不同的根因下，結論會完全相反。**
+
+這一段最貴的三課：
+
+1. **「改一個東西之前先問：現在有什麼在保護它？」** 開工前數了一次，31 條測試在斷言
+   錯誤**狀態碼**，斷言錯誤 **body** 的是 **0 條** —— 改格式一條都不會紅。
+   這跟前面幾次假綠不同：那些是測試寫錯，**這次是那個面向從來就沒有測試**。
+2. **「設定寫了但沒生效」同一輪踩兩次，兩次都沒有錯誤訊息。**
+   原本要寫的 `http.globalAgent.keepAlive = true` 根本不會有效果（superagent 不走
+   globalAgent）；第一版 patch 又打在了沒人用的那一份 superagent 上（pnpm 的隔離讓
+   `require('superagent')` 跟 supertest 內部用的**不是同一個檔案**）。
+   **判準：改了設定之後先驗證它真的接上了，再去測效果。** 少了這一步，
+   兩次都會變成「keep-alive 沒用」這個錯誤結論。
+3. **`git show` 看換行會騙人。** 它會套用簽出轉換，在 `autocrlf=true` 的機器上
+   一律報 CRLF，看起來像 commit 錯了。**只信 `git ls-files --eol` 的 `i/` 欄。**
+   順帶更正了 `CLAUDE.md` 兩處寫錯的說法（`core.autocrlf` 的值、以及檢查方法）。
+
+Ch6 本身的三個決定（不做 domain error、`code` 先做狀態碼鏡像、
+不改 `assertExists` 策略）與 5 條坑都在
+[`ch06`](docs/chapters/ch06-統一錯誤處理與回應格式.md)，這裡不重複。
+
 ---
 
-### Ch6 接續點（2026-08-21）
+### Ch6 輪 2 接續點（2026-08-22）
 
-**目前狀態**：`pnpm test:e2e` **69 passed**、`pnpm test` **6 passed**、
-`tsc --noEmit` 0 errors、`eslint` 0 problems。**Ch0 ~ Ch5 全部完成**、註解與文件已收尾。
+**目前狀態**：`pnpm test:e2e` **74 passed**、`pnpm test` **6 passed**、
+`tsc --noEmit` 0 errors、`eslint` 0 problems。
+**Ch0 ~ Ch5 完成、Ch6 輪 1 完成**（註解與文件已同步到輪 1 為止）。
 
-Ch5 的觀念、取捨、6 條坑、SQL 觀察與六題作業在
-[`ch05`](docs/chapters/ch05-提交與查詢作答.md)，**這裡不重複**。
+兩個 commit：`51667fe`（環境修復）、`1d49fe4`（Ch6 輪 1）。
 
-#### 進 Ch6 之前先確認的兩件事
+Ch6 的觀念、取捨與 5 條坑在
+[`ch06`](docs/chapters/ch06-統一錯誤處理與回應格式.md)，**這裡不重複**。
 
-1. **Ch5 的程式碼讀得懂嗎。** 最值得自己講一遍的三處：
-   - `answers: { create: [...] }` 裡的 `create` 是什麼（提示：它跟 `where` 裡的
-     `contains` 站在同一個位置，但回答的是不同的問題）
-   - 為什麼「歸屬檢查」不能寫成 DTO 的裝飾器
-   - `$transaction` 包住 `count` 與 `create` 之後，`order` 的 race **為什麼還在**
-2. **`ch05` 的作業第 3 題一定要實跑** —— 直接呼叫 `ResponsesService.create`（不透過 HTTP），
-   看「空 `answers` 會成功、`DRAFT` 仍然 409」。那是「三層防線各自管什麼」的現場，
-   而那件事 Ch6 會整個重來一次。
+#### 換機之後先做這三件事
 
-#### Ch6 的範圍：統一錯誤處理與回應格式
+1. **一般的換機步驟**（`git pull` / `pnpm install` / `pnpm exec prisma generate` /
+   重建 `.env`、`.env.test` / 重建 skills junction）—— 見
+   [`docs/專案速查.md`](docs/專案速查.md) 的「換機接續」。
+2. **跑四項驗收確認數字對得上**：`test:e2e` **74**、`test` **6**、`tsc` 0、`lint` 0。
+   對不上就先修環境，別開始寫程式。
+3. **確認 `core.autocrlf`**：`git config --get core.autocrlf`。
+   這台（桌機）是 `true`，另一台不一定。它是本機設定、不跟著 git 走。
+   查換行**只信 `git ls-files --eol` 的 `i/` 欄**，`file` 與 `git show` 都會誤判
+   （見 `CLAUDE.md` 的「換行一律 LF」，2026-08-22 更正過）。
 
-課綱寫的是「Exception Filter 把 Prisma 錯誤碼轉 HTTP」。這一章的價值在於
-**它要收拾前面五章刻意留下的債**，而那些債都已經寫在註解裡了：
+> **e2e 的三個防呆已經進版控了**（`--forceExit`、`pretest:e2e`、keep-alive patch），
+> 所以換機後 ECONNRESET / 卡死 / 孤兒行程這三件事**不會重演**。
+> 如果重演了，先確認 `pnpm test:e2e` 真的有跑到 `pretest:e2e`
+> （pnpm 有 `enable-pre-post-scripts` 設定，預設值在不同版本改過 —— 實測方式見
+> `docs/設定檔導讀.md`）。
 
-| 留在哪 | 欠的是什麼 |
+#### 輪 1 已經完成的事
+
+- `src/common/filters/all-exceptions-filters.ts` —— 全域 catch-all filter
+- `src/setup-app.ts` —— `useGlobalFilters`，跟 `ValidationPipe` 並排
+- `test/errors.e2e-spec.ts` —— 5 條，補上「錯誤 body 從來沒有測試保護」這個缺口
+- 回應格式統一成 `{ error: { code, message } }`，驗證失敗多一個 `details`
+
+三個已拍板、**輪 2 不要再翻案**的決定（完整理由在 `ch06` 的「決策取捨」）：
+
+| 決定 | 結論 |
 | --- | --- |
-| `surveys.service.ts` 檔頭 | 「service 丟 `NotFoundException` 嚴格說是破了分層，**Ch6 有了 Exception Filter 之後會回頭重看**」 |
-| Ch2 的取捨 | 選了「先 `assertExists` 再操作」而不是 catch `P2025`，代價是**同一筆資料查兩次** |
-| Ch5 的歸屬檢查 | 為了避開 `P2002` / `P2003` 變成 500，在 service 先擋掉 |
-| `docs/Prisma速查.md` 第 7 節 | 三個錯誤碼的對照表已經整理好了 |
+| service 要不要改丟 domain error | **不改**，維持丟 HTTP 例外。判準是「除了 HTTP 還有沒有第二個入口」 |
+| `code` 要多細 | **狀態碼的鏡像**，五種。細粒度留到 Ch7 寫 Swagger 時評估 |
+| Ch2 那筆「查兩次」的債 | **不改策略**，filter 的 Prisma 分支定位成**安全網**不是主要防線 |
 
-**五個要點：**
+#### 輪 2 要做什麼：Prisma 錯誤碼的安全網
 
-1. **先決定「要不要真的改掉 service 丟 HTTP 例外」。** 那句註解說「會回頭重看」，
-   不是「一定會改」。改的話 service 就得改丟自訂錯誤（例如 `SurveyNotFoundError`），
-   由 filter 翻譯成 404 —— **好處是 service 徹底不認識 HTTP，代價是多一層錯誤類別**。
-   **這是這一章最大的取捨，先想清楚再動手。**
-2. **Exception Filter 攔得到什麼、攔不到什麼。** 它是 Nest 的全域攔截點，
-   但 **ValidationPipe 的 400 是它自己丟的** —— 想統一格式就得連那個一起處理。
-   （Ch5 的「三層防線」在這裡會第三次出現：filter 站在最外面，但**它只看得到丟出來的東西**。）
-3. **回應格式要不要統一成 `{ error: { code, message } }`。** 這又是一次 breaking change
-   （這一章第三次，前兩次都在 Ch4）。而且**測試會全面受影響** ——
-   69 條裡有一大半在斷言狀態碼，改格式不影響狀態碼，但改了 body 就影響。
-   **先數一下有幾條在斷言 body。**
-4. **P2025 / P2002 / P2003 三個碼要對到什麼狀態碼。** 判準不是「錯誤碼長什麼樣」，
-   而是「**前端拿到之後能做什麼**」—— 404 可以顯示「查無此問卷」，
-   409 可以顯示「已經有人填過了」，500 只能顯示「伺服器壞了」。
-5. **不要把「防禦性 catch」寫成一個吞掉所有錯誤的黑洞。** filter 要**只翻譯認得的錯誤**，
-   認不得的原樣往上丟（並且留 log）。吞掉之後最貴的代價是**你再也看不到堆疊**。
+##### 逐檔案
 
-#### 現成可用的工具
+**`src/common/filters/all-exceptions-filters.ts`** —— 在 `HttpException` 那支**之前**
+多一支 `exception instanceof Prisma.PrismaClientKnownRequestError`。
 
-- **`docs/Prisma速查.md` 第 7 節** —— 三個錯誤碼與這個專案目前的處理方式，直接對照著改
-- **`PRISMA_LOG_QUERIES=1`** —— Ch6 要看的是「改成 catch 之後少了幾句 SQL」
-  （Ch2 那筆「同一筆資料查兩次」的債，這一章可以量出來）
-- **`api.http`** 已經有五整組請求（含十幾種錯誤情境），改完格式一輪送過去對照最快
-- **`docs/專案速查.md` 的「什麼時候用 API、什麼時候用 Prisma」** —— 寫 e2e 卡住時看這裡
+import 路徑是 `import { Prisma } from '../../generated/prisma/client'`
+（`surveys.service.ts` 已經這樣 import 了）。`Prisma.PrismaClientKnownRequestError`
+是真的 class，`instanceof` 可用 —— 已確認匯出在
+`src/generated/prisma/internal/prismaNamespace.ts`。
 
-#### 這一章的特別提醒
+對照表（判準是**「前端拿到之後能做什麼」**）：
 
-**Ch6 動到的是「所有端點的共同行為」**，所以它跟前面五章有一個結構性的差別：
-前面的改動壞掉只影響一支端點，這一章壞掉**會同時影響 69 條測試**。
+| 碼 | → | 為什麼 |
+| --- | --- | --- |
+| `P2025` | 404 `NOT_FOUND` | 「那筆資料不在了」＝前端可以顯示「查無此項目」 |
+| `P2002` | 409 `CONFLICT` | 唯一約束衝突＝請求合法但跟現況衝突，語義同 `unpublish` 的 409 |
+| `P2003` | 400 `BAD_REQUEST` | 外鍵指向不存在的東西＝**請求內容本身有錯** |
+| 其他 `P####` | 500 | 認不得就不翻譯，走既有的 500 分支（含完整 log） |
 
-判準沿用 `CLAUDE.md` 那條「一輪只做一個能獨立驗收的主題」——
-建議至少拆成「先接上 filter、不改格式」與「再改回應格式」兩輪。
+**`test/errors.e2e-spec.ts`** —— 加第二個 `describe`。它需要一個**不同的 app**：
+
+```ts
+Test.createTestingModule({ imports: [AppModule] })
+  .overrideProvider(PrismaService)
+  .useValue(/* 會丟指定錯誤的替身 */)
+```
+
+構造錯誤的形狀：
+
+```ts
+new Prisma.PrismaClientKnownRequestError('mocked', {
+  code: 'P2025',
+  clientVersion: 'test',
+});
+```
+
+**這是全專案第一次用 mock，而且不違反「E2E 優先」** —— 那條原則的判準是
+「mock 掉 Prisma 等於在測 mock」，但這裡要測的**不是業務邏輯**，
+是「這種錯誤發生時 filter 會怎麼做」，而正常路徑**製造不出那個錯誤**
+（service 三處都先擋掉了，那正是決定 3 的直接後果）。
+
+**不用改**：所有 controller、所有 service、所有 DTO、`setup-app.ts`。
+
+##### 重點：這一輪最容易錯的一件事
+
+**用鴨子型別判斷而不是 `instanceof`。**
+
+寫成 `if ('code' in exception)` 會出事：`HttpException` 也可能有 `code`
+（有人用物件形式建構時），於是 404 被誤判成 Prisma 錯誤。
+**`instanceof` 問「它是什麼」，屬性存在性問「它長得像什麼」** —— 這裡要問前者。
+
+症狀會很難查：大部分時候正常，只有某些例外被錯誤分類，而且狀態碼看起來仍然合理。
+
+##### 留給自己想的一點
+
+**`P2003` 為什麼是 400 而不是 404？**
+線索：`responses.service.ts` 已經對同一件事做過判斷了
+（「回 400 而不是 404（那些題目確實存在）也不是 409（不是狀態衝突）」）。
+filter 這一層要跟 service 那一層**得出同一個答案**，否則同一個錯誤走兩條路會回兩種狀態碼。
+
+##### 測試名稱（4 條，可直接貼上）
+
+```ts
+describe('Prisma 錯誤的安全網 (e2e)', () => {
+  it('Prisma 丟 P2025 時回 404 而不是 500', async () => {});
+
+  it('Prisma 丟 P2002 時回 409 而不是 500', async () => {});
+
+  it('Prisma 丟 P2003 時回 400 而不是 500', async () => {});
+
+  it('未知錯誤回 500，且 message 不含原始錯誤內容', async () => {});
+});
+```
+
+**主角是第 4 條** —— 它是唯一會抓到「把 `exception.message` 直接回給前端」的測試。
+斷言要寫成 `expect(res.body.error.message).not.toContain('mocked')`，
+不是只驗狀態碼是 500（那三條都在驗了）。
+
+##### 誠實記錄一個缺口
+
+**TOCTOU 的真實 race 在 e2e 重現不出來**（Ch5 已經學過「`Promise.all` 只保證一起送出，
+不保證同時到達資料庫」）。這四條驗的是「filter 收到那個錯誤時會怎麼做」，
+**不是「那個錯誤真的會發生」**。這個缺口要寫進 `ch06`，不要假裝它不存在。
+
+#### 輪 3（收尾）要做的事
+
+| 檔案 | 要做什麼 |
+| --- | --- |
+| `src/common/filters/all-exceptions-filters.ts` | **改名成 `all-exceptions.filter.ts`**（Nest 慣例，對照 `.service.ts` / `.controller.ts` / `.dto.ts`）。不影響行為，但 `setup-app.ts` 的 import 與 `docs/專案速查.md` 的檔案地圖／閱讀動線要一起改 |
+| `src/questions/questions.service.ts` | `update` / `remove` 提到「Prisma 丟 P2025 → 500」的兩處，輪 2 之後要補上安全網的存在 |
+| `src/responses/responses.service.ts` | 「能在自己這一層先擋掉的就不要讓錯誤碼冒上來」仍然成立，補一句「而且現在有安全網了」 |
+| `docs/Prisma速查.md` 第 7 節 | 已寫好「現在」與「之後」兩段，輪 2 完成後把「尚未實作」拿掉 |
+| `docs/chapters/ch06-*.md` | 補輪 2 的內容與**作業**（目前還沒出） |
+| `LEARNING.md` | 進度表 Ch6 → ✅、寫「Ch7 接續點」 |
+
+#### 這一輪已經處理掉的環境問題（不必再碰）
+
+Ch5 坑 #6 的 `read ECONNRESET` **根因找到並修好了**：supertest 底下的 superagent
+寫死 `this._agent = false`，每個請求都開一條新 TCP 連線。
+`test/setup-env.ts` 換成 keep-alive 的 Agent，實測 **16/9/14 條紅 → 0/0/0**。
+
+同時解決的還有兩件：`--forceExit`（測試跑完不結束）與 `pretest:e2e`（孤兒行程累積）。
+完整記錄在 `ch06` 的坑 #3、#4，操作方式在 `docs/專案速查.md` 與 `docs/設定檔導讀.md`。
+
+> **兩個判準值得記住：**
+> **「重用同一個 server」和「重用同一條連線」是兩件事**（Ch5 試了前者、以為排除了後者）；
+> **同一個旋鈕在不同的根因下結論會完全相反**（`testTimeout` 在 ECONNRESET 還在時沒用、修好後才對症）。
 
 #### 工作方式（沿用，實際付出代價換來的）
 
@@ -376,27 +505,22 @@ Ch5 的觀念、取捨、6 條坑、SQL 觀察與六題作業在
   那是收尾時統一處理的工作（2026-08-15 修正，已寫進 `CLAUDE.md`）
 - 一次做完一件事：service → controller → E2E → **跑測試**
 - **每寫一條測試就跑一次**，不要一口氣寫完才跑
-- 貼上測試的當下核對**動詞與路徑**跟 `describe` 一致（這個坑踩過五次，
-  第五次錯在**名字**：兩條測試同名，其中一條的名字描述的是別條在做的事）
-- **測試名稱要說「驗什麼」不是「測哪個功能」** —— 失敗時它是唯一的線索。
-  **名稱由教練先給**：要寫幾條就給幾條、含所屬 `describe`、可直接貼上
-  （2026-08-16 加的分工，已寫進 `CLAUDE.md`）
+- 貼上測試的當下核對**動詞與路徑**跟 `describe` 一致（這個坑踩過五次）
+- **測試名稱由教練先給**：要寫幾條就給幾條、含所屬 `describe`、可直接貼上
 - **每一輪開工前教練先給一份指引**：逐檔案列出要改什麼（不給實作）、每個決定附
   「為什麼」並指回學過的地方、把最容易錯的那點標成重點並說清楚錯了長什麼樣、
-  留一兩個自己想的提示、最後才給測試名稱
-  （2026-08-18 由使用者確認有效後寫進 `CLAUDE.md`，五個要素在那裡）
+  留一兩個自己想的提示、最後才給測試名稱（五個要素在 `CLAUDE.md`）
 - **一輪只做一個能獨立驗收的主題。** 判準：兩件事會不會在同一條測試裡同時失敗？會，就拆
 - **新加的功能要問一次「有測試蓋到嗎」。** 既有測試全綠只證明沒弄壞舊行為
-- 新檔案要接進閱讀動線（改前一站的「下一站」），別讓鏈斷掉。
+- **改一個東西之前先問「現在有什麼在保護它？」**（Ch6 新增）——
+  答案是「沒有」的時候，「測試全綠」這個資訊的價值是零
+- **改了一個「應該會生效」的設定之後，先驗證它真的接上了，再去測效果**（Ch6 新增）——
+  否則「沒生效」會被誤讀成「這個方法沒用」
+- 新檔案要接進閱讀動線（改前一站的「下一站」）**並同時加進檔案地圖**，別讓鏈斷掉。
   目前終點是 `src/surveys/survey.rules.spec.ts`
-- **import 路徑一律用相對路徑、不帶副檔名**，看到開頭是 `src/` 或結尾是 `.js` 直接改掉
-  （`tsc` 不會抓絕對路徑那種；判準見 `CLAUDE.md` 的「import 路徑的寫法」）
+- **import 路徑一律用相對路徑、不帶副檔名**（判準見 `CLAUDE.md`）
 - **query 參數改名時要全域搜一次那個字串** —— `whitelist` 會讓舊名字**安靜失效**
-  而不是報錯，測試照樣綠（Ch4 ③ 坑 #14）
-- **不要並行跑 `pnpm test:e2e`**，中斷測試後也要確認沒有孤兒 jest 行程 ——
-  `maxWorkers: 1` 只擋得住同一個 jest 行程內的並行
-- **「失敗的測試每次不同」+「錯誤不是斷言」= 先懷疑環境**，不要回去改程式碼。
-  查法與實測排除表見 `docs/專案速查.md` 的「e2e 測試連線問題怎麼查」（Ch5 坑 #6）
+- **不要並行跑 `pnpm test:e2e`**（`pretest:e2e` 會把另一個行程殺掉）
 - 丟給教練 review 之前先自己跑四項驗收：
   `pnpm test`、`pnpm test:e2e`、`pnpm exec tsc --noEmit`、`pnpm lint`
 
@@ -405,12 +529,8 @@ Ch5 的觀念、取捨、6 條坑、SQL 觀察與六題作業在
 > `src/generated/` 也不進版控，記得 `pnpm exec prisma generate`。
 
 > **加分項（非前提）：** 讀 NestJS 官方文件 Overview 前四篇
-> （First steps / Controllers / Providers / Modules，約一小時）。內容與閱讀動線上的
-> `src/` 檔案一一對應，等於同一件事的第二個講法。
-> Prisma 則不要上網找教學：v7 太新，網路上九成是 v5/v6，會是負收益；用 `.agents/skills/` 的官方技能包。
-
-> 如果卡住的是 TypeScript 本身（型別註記、interface、async/await、泛型），那要先處理那一層 ——
-> NestJS 與 Prisma 都站在它上面。
+> （First steps / Controllers / Providers / Modules，約一小時）。
+> Prisma 則不要上網找教學：v7 太新，網路上九成是 v5/v6；用 `.agents/skills/` 的官方技能包。
 
 ---
 
@@ -429,7 +549,7 @@ Ch5 的觀念、取捨、6 條坑、SQL 觀察與六題作業在
 | Ch3 | 巢狀資源與關聯查詢（Questions） | `include`/`select`、**看 Prisma 產生的 SQL**、商業規則與第一支單元測試 | ✅ |
 | Ch4 | 分頁、排序、篩選 | query string 轉型驗證、`skip/take` vs cursor | ✅ |
 | Ch5 | 提交與查詢作答（Responses） | 巢狀 write vs `$transaction`、原子性、**商業規則與單元測試** | ✅ |
-| Ch6 | 統一錯誤處理與回應格式 | Exception Filter 把 Prisma 錯誤碼轉 HTTP | ⬜ |
+| Ch6 | 統一錯誤處理與回應格式 | Exception Filter 把 Prisma 錯誤碼轉 HTTP | 🚧 輪 1 完成 |
 | Ch7 | Swagger API 文件 | 產出前端能直接照著串的契約 | ⬜ |
 | Ch8 | **第一次部署（後端先上線）** | `migrate deploy`、正式環境變數、連線數上限 | ⬜ |
 
@@ -495,6 +615,7 @@ Ch5 的觀念、取捨、6 條坑、SQL 觀察與六題作業在
 | Ch3 — 巢狀資源與關聯查詢 | [`docs/chapters/ch03-巢狀資源與關聯查詢.md`](docs/chapters/ch03-巢狀資源與關聯查詢.md) |
 | Ch4 — 分頁、排序、篩選 | [`docs/chapters/ch04-分頁排序與篩選.md`](docs/chapters/ch04-分頁排序與篩選.md) |
 | Ch5 — 提交與查詢作答 | [`docs/chapters/ch05-提交與查詢作答.md`](docs/chapters/ch05-提交與查詢作答.md) |
+| Ch6 — 統一錯誤處理與回應格式（進行中） | [`docs/chapters/ch06-統一錯誤處理與回應格式.md`](docs/chapters/ch06-統一錯誤處理與回應格式.md) |
 
 ## 跨章節文件
 
