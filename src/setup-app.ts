@@ -11,10 +11,11 @@
 //
 // 通則：任何「改變應用整體行為」的設定都放這裡，不要留在 main.ts。
 //
-// 下一站：src/surveys/surveys.module.ts（一個真正有業務邏輯的 feature module）
+// 下一站：src/common/filters/all-exceptions-filters.ts（所有錯誤回應的唯一出口）
 // ============================================================
 
 import { INestApplication, ValidationPipe } from '@nestjs/common';
+import { AllExceptionsFilter } from './common/filters/all-exceptions-filters';
 
 /**
  * 套用全域設定。main.ts 與 E2E 測試都必須呼叫，兩邊行為才會一致。
@@ -36,6 +37,14 @@ export function setupApp(app: INestApplication): INestApplication {
       transform: true,
     }),
   );
+
+  // [教學] Filter 跟 Pipe 是同一個家族、位置相反的兩個中介層：
+  // Pipe 站在請求「進來」的路上（每個請求都跑），
+  // Filter 站在回應「出去」的路上，而且**只有例外被丟出來時才跑**。
+  // 所以這兩句是並排的兩件事，不是巢狀關係。
+  //
+  // Nest 本來就內建一個 filter，掛上自己這一支之後就換成由它負責錯誤回應。
+  app.useGlobalFilters(new AllExceptionsFilter());
 
   return app;
 }
