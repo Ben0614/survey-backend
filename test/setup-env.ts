@@ -65,3 +65,57 @@ if (devEnv['DATABASE_URL'] === testDatabaseUrl) {
       '請把 .env.test 指向 Neon 的 test branch（不同的 endpoint）。',
   );
 }
+
+// ============================================================
+// keep-alive：讓 supertest 重用 TCP 連線
+//
+// 這一段不是設定，是一個 monkey patch，理由值得寫清楚。
+//
+// 【問題】e2e 會隨機出現大量 `read ECONNRESET`，而且每次紅的測試都不一樣、
+// 錯誤永遠不是斷言。Ch5 花兩小時排除七個假設後，結論停在
+// 「這台機器 HTTP socket 層的問題」（見 docs/專案速查.md 的排除表）。
+//
+// 【真正的原因】supertest 底下的 superagent 在建構時寫死 `this._agent = false`。
+// 在 Node 裡 `agent: false` 的意思是「這個請求自己開一個一次性的 Agent、不做連線池」——
+// 於是**每一個請求都開一條新的 TCP 連線、用完就關**。全套 e2e 打下來是
+// 兩三百條 socket 的開開關關，Windows 的 socket 層扛不住就開始 reset。
+//
+// 【實測】同一份程式碼、同一個資料庫，各跑三次：
+//   沒有 keep-alive：16 / 9 / 14 條紅（全部是 ECONNRESET）
+//   有  keep-alive：0 / 0 / 0 條 ECONNRESET
+//
+// 【為什麼是從 supertest 拿 Test.prototype，不是 require('superagent')】
+// pnpm 的隔離讓專案根目錄那份 superagent 跟 supertest 內部用的**不是同一份檔案**
+// （實測：node_modules/superagent/... vs node_modules/.pnpm/superagent@10.3.0/...）。
+// patch 錯那一份不會報錯，只會**靜靜地沒有任何效果** —— 這是這個專案第 N 次
+// 遇到「設定寫了但沒生效」，而唯一的偵測方式是先驗證 patch 真的接上了再測效果。
+//
+// Test.prototype 自己沒有 request（實測 hasOwnProperty 是 false），
+// 它繼承自 superagent 的 Request.prototype，所以要往上一層拿原本那支。
+// ============================================================
+
+import { Agent } from 'node:http';
+import supertest from 'supertest';
+
+// 這個形狀是 superagent 的內部實作，型別定義裡沒有，所以自己描述一次。
+interface SuperagentInternals {
+  _agent: Agent | false;
+  request: (...args: unknown[]) => unknown;
+}
+
+// maxSockets 給 8 而不是 1：有一條併發測試（Promise.all 同時送兩個請求），
+// 只給一條連線會讓它們排隊，那條測試就測不到它要測的東西了。
+const keepAliveAgent = new Agent({ keepAlive: true, maxSockets: 8 });
+
+const testProto = supertest.Test.prototype as unknown as SuperagentInternals;
+const inheritedRequest = (
+  Object.getPrototypeOf(testProto) as SuperagentInternals
+).request;
+
+testProto.request = function (this: SuperagentInternals, ...args: unknown[]) {
+  // 只在還沒被指定過 agent 時介入，不覆蓋呼叫端自己設的。
+  if (this._agent === false) {
+    this._agent = keepAliveAgent;
+  }
+  return inheritedRequest.apply(this, args);
+};

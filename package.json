@@ -15,7 +15,9 @@
     "test": "node --experimental-vm-modules node_modules/jest/bin/jest.js --passWithNoTests",
     "test:watch": "node --experimental-vm-modules node_modules/jest/bin/jest.js --watch --passWithNoTests",
     "test:cov": "node --experimental-vm-modules node_modules/jest/bin/jest.js --coverage --passWithNoTests",
-    "test:e2e": "node --experimental-vm-modules node_modules/jest/bin/jest.js --config ./test/jest-e2e.json"
+    "kill:jest": "node scripts/kill-stale-workers.js",
+    "pretest:e2e": "node scripts/kill-stale-workers.js",
+    "test:e2e": "node --experimental-vm-modules node_modules/jest/bin/jest.js --config ./test/jest-e2e.json --forceExit"
   },
   "dependencies": {
     "@nestjs/common": "^11.0.1",

@@ -48,6 +48,7 @@ pnpm start:prod                  # node dist/main
 
 pnpm test                        # 單元測試（rootDir=src，*.spec.ts）
 pnpm test:e2e                    # E2E 測試（rootDir=.，test/*.e2e-spec.ts，連真實資料庫）
+pnpm kill:jest                   # 清掉殘留的 jest 行程（test:e2e 之前會自動跑，很少要手動）
 pnpm lint                        # ESLint --fix
 pnpm format                      # Prettier
 
@@ -65,6 +66,8 @@ pnpm test:e2e -- test/health.e2e-spec.ts
 ```
 
 > 注意測試指令是 `node --experimental-vm-modules node_modules/jest/bin/jest.js`，不是裸 `jest`——Prisma 7 的 WASM 查詢編譯器用動態 `import()`，Jest 的 CJS 沙箱沒有這個 flag 會失敗。新增測試腳本時務必保留。
+
+> **e2e 的三個防呆（2026-08-22 加，別隨手拿掉）**：`test:e2e` 的 `--forceExit`（否則 jest 跑完不結束）、`pretest:e2e` 自動清殘留行程（否則孤兒累積到下一輪炸掉）、`test/setup-env.ts` 的 keep-alive patch（否則隨機 ECONNRESET，實測 16/9/14 條 → 0/0/0）。三者各自解決不同的問題，說明分別在 `docs/設定檔導讀.md` 與 `docs/專案速查.md`。
 
 ## 架構重點
 
