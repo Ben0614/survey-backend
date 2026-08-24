@@ -11,11 +11,11 @@
 //
 // 通則：任何「改變應用整體行為」的設定都放這裡，不要留在 main.ts。
 //
-// 下一站：src/common/filters/all-exceptions-filters.ts（所有錯誤回應的唯一出口）
+// 下一站：src/common/filters/all-exceptions.filter.ts（所有錯誤回應的唯一出口）
 // ============================================================
 
 import { INestApplication, ValidationPipe } from '@nestjs/common';
-import { AllExceptionsFilter } from './common/filters/all-exceptions-filters';
+import { AllExceptionsFilter } from './common/filters/all-exceptions.filter';
 
 /**
  * 套用全域設定。main.ts 與 E2E 測試都必須呼叫，兩邊行為才會一致。

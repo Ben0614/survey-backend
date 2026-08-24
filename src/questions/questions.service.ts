@@ -154,8 +154,12 @@ export class QuestionsService {
 
   /** 更新一題。只有 dto 裡實際出現的欄位會被改動。 */
   async update(id: string, dto: UpdateQuestionDto) {
-    // 借 findOne 丟 404。沒有這行的話 Prisma 會丟 P2025，Nest 不認識 → 500
-    // （完整說明見 surveys.service.ts 的 update）。
+    // 借 findOne 丟 404。沒有這行的話 Prisma 會丟 P2025 ——
+    // Ch6 之後這種情況有安全網接住、不再是 500，而是 filter 翻譯成的 404
+    // （見 all-exceptions.filter.ts）。但兩者的 404 不是同一件事：
+    // 這裡查一次就先擋掉，安全網只在漏掉這一行時才會被觸發。
+    // 判準沒變（完整說明見 surveys.service.ts 的 update）：
+    // 主要防線永遠是這一行，安全網只是它失守時的備援。
     const question = await this.findOne(id);
 
     // [教學] 這裡的 question.survey 就是上面 include 帶回來的東西。
@@ -182,6 +186,10 @@ export class QuestionsService {
     //
     // 這裡實際漏寫過一次，結果是 `id 不存在時回 404` 那條測試拿到 500 ——
     // 少了它不是「一樣 404、訊息不同」，是完全不同的狀態碼。
+    // （Ch6 之後：現在漏掉這一行不會再是原始的 500，filter 的安全網會把
+    // Prisma 丟出的 P2025 翻譯成 404。但這不代表這一行可以省 —— 少了它，
+    // 「問卷已發布不能刪題目」那條商業規則檢查也一起消失，安全網只管錯誤格式，
+    // 不管商業邏輯。）
     const question = await this.findOne(id);
 
     // 規則檢查跟 update 同一套（說明見上面那支）。

@@ -1,5 +1,5 @@
 // ============================================================
-// [教學] all-exceptions-filters.ts —— 所有錯誤回應的唯一出口
+// [教學] all-exceptions.filter.ts —— 所有錯誤回應的唯一出口
 //
 // 什麼時候被執行：**只有例外被丟出來時**。正常回應完全不經過這裡。
 // 不管例外從哪一層冒出來（ValidationPipe / controller / service / Prisma），
@@ -21,6 +21,7 @@ import {
   Logger,
 } from '@nestjs/common';
 import type { Response } from 'express';
+import { Prisma } from '../../generated/prisma/client';
 
 // [教學] 狀態碼 → code 的對照表，寫成白名單。
 //
@@ -37,6 +38,32 @@ const STATUS_TO_CODE: Record<number, string | undefined> = {
   [HttpStatus.BAD_REQUEST]: 'BAD_REQUEST',
   [HttpStatus.NOT_FOUND]: 'NOT_FOUND',
   [HttpStatus.CONFLICT]: 'CONFLICT',
+};
+
+// [教學] Prisma 錯誤碼 → 狀態碼與訊息。這是這一輪唯一新增的知識。
+//
+// 判準是**「前端拿到之後能做什麼」**，不是「這個錯誤有多嚴重」：
+//   P2025 記錄不存在   → 404，前端可以顯示「查無此項目」
+//   P2002 唯一約束衝突 → 409，請求合法但跟現況衝突（語義同 unpublish 的 409）
+//   P2003 外鍵不存在   → 400，**請求內容本身有錯**（那些 id 指向不存在的東西）
+//
+// P2003 選 400 而不是 404，是為了跟 responses.service.ts 已經做過的同一個判斷
+// 保持一致（那裡對「題目不屬於這份問卷」也是回 400）。**同一種錯誤走兩條路
+// 卻回兩種狀態碼**，前端只會覺得這支 API 反覆無常。
+//
+// 表裡沒有的碼**刻意不列**，不是漏掉 —— 見下面 catch() 裡的說明。
+//
+// message 為什麼要一碼一句、不共用 FALLBACK_MESSAGE：
+// 404 配「伺服器發生未預期的錯誤」是在說謊（伺服器好得很，是那筆資料不在）。
+// 但也不能用 exception.message，理由見 FALLBACK_MESSAGE 上方那段。
+// 所以是第三條路：**自己寫的、不含任何資料庫細節的句子**。
+const PRISMA_ERRORS: Record<
+  string,
+  { status: number; message: string } | undefined
+> = {
+  P2025: { status: HttpStatus.NOT_FOUND, message: '找不到指定的資料' },
+  P2002: { status: HttpStatus.CONFLICT, message: '資料已存在' },
+  P2003: { status: HttpStatus.BAD_REQUEST, message: '關聯的資料不存在' },
 };
 
 const FALLBACK_CODE = 'INTERNAL_ERROR';
@@ -76,6 +103,59 @@ export class AllExceptionsFilter implements ExceptionFilter {
     let message: string;
     let details: string[] | undefined;
 
+    // [教學] 先把「這是不是一個我認得的 Prisma 錯誤」算成兩個區域變數，
+    // 再拿它當分支條件 —— 而不是直接寫 if (exception instanceof Prisma...)。
+    //
+    // 差別在**認不得的碼（例如 P1001 連不到資料庫）會走去哪裡**：
+    //   直接用 instanceof 當條件 → 進到這支分支，然後被迫在裡面自己補一份
+    //     「查不到就 500」的邏輯，而那份複製品**不會有下面 else 的 logger.error**。
+    //     症狀：前端拿到 500（正確），伺服器 log 一個字都沒有 —— 出事時你查不到原因。
+    //   先查表再判斷（現在這樣）→ 查不到就當作「不是我認得的東西」，
+    //     整個掉進最後那支 else，走既有的 500 + 完整堆疊。
+    //
+    // 一句話：**認得的才翻譯，認不得的原樣交給既有的 500 分支**，
+    // 不要在新分支裡複製一份 500 的行為。
+    const prismaCode =
+      exception instanceof Prisma.PrismaClientKnownRequestError
+        ? exception.code
+        : undefined;
+    const prismaError = prismaCode ? PRISMA_ERRORS[prismaCode] : undefined;
+
+    // [教學] 用 instanceof 而不是 'code' in exception 這種鴨子型別判斷。
+    //
+    // 理由**不是**「鴨子型別會誤判」—— 這件事實測過（ch06 作業第 3 題）：
+    // 換成 'code' in exception 之後 79 條測試**全綠**。因為下一行還有
+    // PRISMA_ERRORS[prismaCode] 這道查表，Node 的 'ECONNRESET' 之類查不到，
+    // 一樣掉進 500。要誤判得有個「不是 Prisma 例外、卻剛好帶著 P2025 形狀的 code」
+    // 的東西，實務上很罕見。
+    //
+    // 真正的理由是**型別**：鴨子型別那個版本 TypeScript 不知道 .code 是什麼，
+    // 得寫成 String((exception as { code: unknown }).code) 才拿得到。
+    // 而 as 是斷言（「相信我」），關掉的是檢查、不是風險（Ch4 學過的那句）。
+    // instanceof 讓型別自己收窄成 PrismaClientKnownRequestError，
+    // exception.code 直接就是 string —— 一個 as 都不需要。
+    //
+    // 判準：**instanceof 問「它是什麼」，屬性存在性問「它長得像什麼」。**
+    // 問前者，型別系統才有辦法幫你。
+    if (prismaError) {
+      status = prismaError.status;
+
+      // [教學] code 不自己寫，回頭查 STATUS_TO_CODE。
+      //
+      // 寫成 code = 'NOT_FOUND' 也會過，但那樣「404 叫什麼名字」就有了兩個真相來源：
+      // 以後改命名時兩處會不一致，而且**不會有任何測試變紅**（每條測試各驗各的分支）。
+      // 讓它們共用同一張表，不一致在結構上就不可能發生。
+      code = STATUS_TO_CODE[status] ?? FALLBACK_CODE;
+      message = prismaError.message;
+
+      // [教學] 翻譯成功了還是要留一筆 log —— 用 warn 不是 error。
+      //
+      // 理由是這支分支的定位：它是**安全網，不是主要防線**（輪 1 拍板的決定 3）。
+      // service 本來就該先擋掉這些情況，所以每一次安全網被觸發，都代表
+      // 「有一條路徑漏掉了 service 那一層的檢查」。前端拿到的回應是好的，
+      // 但這件事你會想知道 —— 沒有這一句，它就是一個永遠不會被發現的靜默降級。
+      this.logger.warn(`Prisma 錯誤 ${prismaCode} 被安全網翻譯成 ${status}`);
+    }
     // [教學] instanceof 這一行做了兩件事，第二件是 TypeScript 的：
     //   1. 執行期判斷「它是不是 HttpException」
     //   2. 在這個 if 裡面，exception 的型別自動從 unknown 收窄成 HttpException
@@ -84,7 +164,10 @@ export class AllExceptionsFilter implements ExceptionFilter {
     //
     // 用 instanceof 而不是 'getStatus' in exception 這種「長得像不像」的判斷：
     // 前者問「它是什麼」，後者問「它剛好有沒有這個屬性」。
-    if (exception instanceof HttpException) {
+    // 這裡是 else if：三支分支互斥，而且順序有意義 ——
+    // Prisma 錯誤先被挑走，剩下的才問「是不是 HttpException」，
+    // 都不是的才落到最後的 500。
+    else if (exception instanceof HttpException) {
       status = exception.getStatus();
 
       // [教學] getResponse() 的回傳型別是 string | object，因為 HttpException

@@ -63,9 +63,13 @@ export class ResponsesService {
     // 照著那個訊息去查會查錯方向。先擋重複，每個 400 才說得出真正的原因。
     //
     // 為什麼不交給資料庫擋：schema 有 @@unique([responseId, questionId])，
-    // 但那會讓 Prisma 丟 P2002 → Nest 不認識 → **500**。
+    // 但那會讓 Prisma 丟 P2002。Ch6 之後 filter 認得這個碼、會翻成 409 ——
+    // 不再是原始的 500，**但這裡的判準沒有變**：409（CONFLICT）跟這裡要回的
+    // 400（BAD_REQUEST，見上面「行為是對的，但訊息會說錯方向」那段）
+    // 是兩種不同的語義，讓資料庫擋只會拿到錯的狀態碼跟一句英文的約束名。
     // 判準同 Ch2「先 assertExists 再操作，而不是 catch P2025」：
-    // **能在自己這一層先擋掉的，就不要讓資料庫的錯誤碼冒上來。**
+    // **能在自己這一層先擋掉的，就不要讓資料庫的錯誤碼冒上來 ——
+    // 即使現在冒上來也有安全網接住，那也是安全網、不是替代方案。**
     const hasDuplicates = new Set(questionIds).size !== questionIds.length;
     if (hasDuplicates) {
       throw new BadRequestException('有重複的題目ID');
