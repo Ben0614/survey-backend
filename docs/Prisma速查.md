@@ -343,19 +343,18 @@ $env:PRISMA_LOG_QUERIES=1; pnpm start:dev
 **Ch6 重新評估過，這個判準不變。** 先擋才給得出「問卷不存在」這種具體訊息 ——
 `catch P2025` 只知道「某一筆不見了」，說不出是哪一種資源。
 
-### 現在（Ch6 輪 1 之後）冒上來會怎樣
+### 萬一真的冒上來了（Ch6 輪 2 之後）
 
-`src/common/filters/all-exceptions-filters.ts` 認不得 Prisma 的錯誤碼，
-所以仍然是 **500** —— 但跟 Ch5 之前有兩個差別：
-
-1. 回應是統一格式 `{ error: { code: "INTERNAL_ERROR", message: "伺服器發生未預期的錯誤" } }`，
-   **不會把 Prisma 的原始訊息送到瀏覽器**（那裡面有完整檔案路徑、表名、約束名）
-2. 完整的堆疊會進 `logger.error` —— 看得到，只是使用者看不到
-
-### 之後（Ch6 輪 2，尚未實作）
-
-filter 會認得這三個碼並翻成 404 / 409 / 400。但它的定位是**縱深防禦，不是主要防線**：
-漏寫一處 `assertExists` 時，前端拿到的是 404 而不是 500。
+`src/common/filters/all-exceptions.filter.ts` 認得這三個碼，會翻譯成
+404 / 409 / 400（對照表與理由見 [`docs/錯誤處理與狀態碼.md`](錯誤處理與狀態碼.md) 第 5 節），
+不再是原始的 500。但它的定位是**安全網，不是主要防線**：
+漏寫一處 `assertExists` 時，前端拿到的是 404 而不是 500，可是那條路徑本身
+仍然是漏洞（filter 只管錯誤格式，不管商業邏輯有沒有先擋住）。
 
 它防的不是假想的情境，是 **TOCTOU** —— `assertExists` 通過之後、`update` 執行之前，
 另一個請求把那筆刪掉了。跟 `questions.service.ts` 的 `order` race 是同一族的形狀。
+（`test/errors.e2e-spec.ts` 的第二個 `describe` 驗的是「filter 收到這種錯誤時會怎麼做」，
+不是「TOCTOU 真的會發生」—— 那個 race 在 e2e 重現不出來，這是誠實記錄的缺口。）
+
+認不得的碼（不在這張表裡的、或根本沒有 `code` 的）仍然是 500，
+而且會被 `logger.error` 記下完整堆疊 —— **只翻譯認得的，不對未知的東西亂猜。**
