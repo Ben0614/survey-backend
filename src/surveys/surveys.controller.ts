@@ -19,14 +19,30 @@ import {
   Param,
   Query,
 } from '@nestjs/common';
+import {
+  ApiTags,
+  ApiOperation,
+  ApiCreatedResponse,
+  ApiOkResponse,
+  ApiNotFoundResponse,
+  ApiBadRequestResponse,
+  ApiConflictResponse,
+} from '@nestjs/swagger';
 import { CreateSurveyDto } from './dto/create-survey.dto';
 import { UpdateSurveyDto } from './dto/update-survey.dto';
 import { FindSurveysQueryDto } from './dto/find-surveys-query.dto';
 import { FindOneSurveyQueryDto } from './dto/find-one-survey-query.dto';
 import { SurveysService } from './surveys.service';
+import { SurveyEntity, PaginatedSurveysEntity } from './entities/survey.entity';
+import { ErrorResponseEntity } from '../common/entities/error-response.entity';
 
 // [教學] @Controller('surveys') 是這個 class 所有路由的共同前綴。
 // 下面的 @Get() 因此是 GET /surveys，不是 GET /。
+//
+// [教學] @ApiTags 純粹是分類（Ch7 加的）：/docs 上這個 class 的七支端點
+// 會被收進一個叫 surveys 的摺疊區塊。不標的話全部散在最上層 default 裡。
+// 它不影響任何行為，標在 class 上，底下每一支自動繼承。
+@ApiTags('surveys')
 @Controller('surveys')
 export class SurveysController {
   constructor(private readonly surveysService: SurveysService) {}
@@ -52,6 +68,9 @@ export class SurveysController {
   //
   // 對照下面的 create()：@Body() createSurveyDto: CreateSurveyDto 同樣是整包接、
   // 靠型別註記對接。兩者是同一套機制（emitDecoratorMetadata）。
+  @ApiOperation({ summary: '查詢所有問卷' })
+  @ApiOkResponse({ type: PaginatedSurveysEntity })
+  @ApiBadRequestResponse({ description: '參數錯誤', type: ErrorResponseEntity })
   @Get()
   findAll(@Query() query: FindSurveysQueryDto) {
     // [教學] 直接回傳 Promise 就好，Nest 會自己 await 再序列化成 JSON。
@@ -69,6 +88,10 @@ export class SurveysController {
   // 路由是**依宣告順序**比對的。之後要加 @Get('published') 這類固定路徑時，
   // 必須放在 @Get(':id') **上面** —— 否則 /surveys/published 會先被 :id 吃掉，
   // 變成「查一份 id 是 published 的問卷」，然後回 404。
+  @ApiOperation({ summary: '查詢單一問卷' })
+  @ApiOkResponse({ type: SurveyEntity })
+  @ApiNotFoundResponse({ description: '問卷不存在', type: ErrorResponseEntity })
+  @ApiBadRequestResponse({ description: '參數錯誤', type: ErrorResponseEntity })
   @Get(':id')
   findOne(@Param('id') id: string, @Query() query: FindOneSurveyQueryDto) {
     // [教學] @Param('id') 從**網址**取值，對照 @Body() 從 request body 取值。
@@ -101,6 +124,22 @@ export class SurveysController {
   // 改既有資源、查詢、刪除都沒有「新資源」，所以是 200。
   //
   // 這是 Nest 內建的預設值，不必自己設；要覆蓋才需要 @HttpCode()。
+  //
+  // [教學] 這兩個裝飾器補的是輪 ① 量到的最後一塊空白：**回應**。
+  //
+  //   @ApiOperation        —— 這支端點在做什麼（/docs 上端點旁邊那行字）
+  //   @ApiCreatedResponse  —— 「201 的時候回這個形狀」
+  //
+  // 為什麼是 Created 而不是 Ok：這兩個只是 @ApiResponse({ status: 201 })
+  // 的別名，選對的那個，狀態碼就不必自己寫。@Post() 的預設是 201（見上面），
+  // 所以這裡用 Created；其餘四支用 @ApiOkResponse。
+  // **標錯的症狀**：文件上出現一個 200 的欄位、實際卻永遠回 201，
+  // 前端寫 `if (res.status === 200)` 就永遠不成立。
+  //
+  // type 給的是 class 而不是型別 —— 理由見 survey.entity.ts 的檔頭。
+  @ApiOperation({ summary: '建立問卷（一律是 DRAFT）' })
+  @ApiCreatedResponse({ description: '建立成功', type: SurveyEntity })
+  @ApiBadRequestResponse({ description: '參數錯誤', type: ErrorResponseEntity })
   @Post()
   create(@Body() createSurveyDto: CreateSurveyDto) {
     // [教學] @Body() 把 request body 取出來塞進這個參數。
@@ -117,6 +156,10 @@ export class SurveysController {
   //
   // 必須跟 UpdateSurveyDto 的 PartialType 對齊：DTO 都說「每個欄位都可以不給」了，
   // 路由卻宣稱自己是整份取代，前端就會照著錯的語義來用這支 API。
+  @ApiOperation({ summary: '編輯問卷' })
+  @ApiOkResponse({ type: SurveyEntity })
+  @ApiNotFoundResponse({ description: '問卷不存在', type: ErrorResponseEntity })
+  @ApiBadRequestResponse({ description: '參數錯誤', type: ErrorResponseEntity })
   @Patch(':id')
   update(@Param('id') id: string, @Body() updateSurveyDto: UpdateSurveyDto) {
     // [教學] 這是第一個同時吃兩個來源的方法：
@@ -138,6 +181,9 @@ export class SurveysController {
   //
   // 但要記得那個 body 是**刪除前的快照** —— 它有內容，不代表資料還在。
   // 所以 e2e 除了看 body，還要再查一次資料庫確認真的沒了。
+  @ApiOperation({ summary: '刪除問卷' })
+  @ApiOkResponse({ type: SurveyEntity })
+  @ApiNotFoundResponse({ description: '問卷不存在', type: ErrorResponseEntity })
   @Delete(':id')
   remove(@Param('id') id: string) {
     // [教學] 只吃網址、不吃 body —— DELETE 依規範不帶 body，
@@ -159,11 +205,18 @@ export class SurveysController {
   //
   // 兩支都沒有 @Body()，所以也不需要 DTO：要做什麼已經寫在網址裡了。
   // 網址也要注意大小寫 —— /unpublish 和 /unPublish 是兩條不同的路由。
+  @ApiOperation({ summary: '公開問卷' })
+  @ApiOkResponse({ type: SurveyEntity })
+  @ApiNotFoundResponse({ description: '問卷不存在', type: ErrorResponseEntity })
   @Patch(':id/publish')
   publish(@Param('id') id: string) {
     return this.surveysService.publish(id);
   }
 
+  @ApiOperation({ summary: '不公開問卷' })
+  @ApiOkResponse({ type: SurveyEntity })
+  @ApiNotFoundResponse({ description: '問卷不存在', type: ErrorResponseEntity })
+  @ApiConflictResponse({ description: '已有人填答', type: ErrorResponseEntity })
   @Patch(':id/unpublish')
   unpublish(@Param('id') id: string) {
     return this.surveysService.unpublish(id);

@@ -10,6 +10,7 @@
 // 下一站：prisma/prisma.module.ts（下面的 this.prisma 是從哪冒出來的）
 // ============================================================
 
+import { ApiTags, ApiOperation } from '@nestjs/swagger';
 import { Controller, Get } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 
@@ -17,6 +18,7 @@ import { PrismaService } from '../prisma/prisma.service';
 //   @Controller('health')  決定路徑前綴  → /health
 //   @Get()                 決定方法路徑  → （空字串，就是前綴本身）
 // 合起來是 GET /health。若下面改寫成 @Get('db')，網址就變成 GET /health/db。
+@ApiTags('health')
 @Controller('health')
 export class HealthController {
   // 這行就是 NestJS 的依賴注入：宣告「我需要 PrismaService」，
@@ -39,6 +41,16 @@ export class HealthController {
   // 回傳的物件 Nest 會自動轉成 JSON 並帶上 200 狀態碼 ——
   // 不需要自己碰 request / response 物件。若方法內 throw，
   // Nest 會攔下來轉成對應的錯誤回應（未分類的錯誤就是 500）。
+  // 這支端點刻意**不標回應 schema**（Ch7 的決定）。
+  //
+  // 判準是「誰照著這份文件寫程式」：/docs 的產品是給前端串接用的契約，
+  // 而 /health 的呼叫者是 Render 的健康檢查與人工排錯，它們只看狀態碼。
+  // 為一個沒有前端讀者的回應維護一份 entity，等於多養一份會過期的真相
+  // （代價見 survey.entity.ts 檔頭）。
+  //
+  // 留 @ApiOperation 是因為它仍然該出現在端點清單上 ——
+  // 「有這支端點、但它不是給你串的」本身就是一句有用的資訊。
+  @ApiOperation({ summary: '路由健康檢查' })
   @Get()
   async check() {
     // 目前 schema 還沒有任何 model，所以用 raw query 確認連線真的通。

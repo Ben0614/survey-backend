@@ -10,9 +10,19 @@
 // 下一站：src/questions/dto/create-question.dto.ts（body 進來之前先被誰檢查）
 // ============================================================
 
+import {
+  ApiTags,
+  ApiOkResponse,
+  ApiOperation,
+  ApiNotFoundResponse,
+  ApiBadRequestResponse,
+  ApiConflictResponse,
+} from '@nestjs/swagger';
 import { Controller, Patch, Delete, Param, Body } from '@nestjs/common';
 import { QuestionsService } from './questions.service';
 import { UpdateQuestionDto } from './dto/update-question.dto';
+import { QuestionEntity } from './entities/question.entity';
+import { ErrorResponseEntity } from '../common/entities/error-response.entity';
 
 // [教學] 為什麼改與刪是扁平的、不寫成 /surveys/:surveyId/questions/:id：
 //
@@ -22,10 +32,19 @@ import { UpdateQuestionDto } from './dto/update-question.dto';
 //
 // 對照列表與建立：那兩支**沒有** id 可用，「哪一份問卷」是唯一的線索，所以非巢狀不可。
 // 這個不對稱是刻意的：**父資源出現在網址裡，是因為少了它就講不完整，不是為了整齊。**
+@ApiTags('questions')
 @Controller('questions')
 export class QuestionsController {
   constructor(private readonly questionsService: QuestionsService) {}
 
+  @ApiOperation({ summary: '編輯題目' })
+  @ApiOkResponse({ type: QuestionEntity })
+  @ApiNotFoundResponse({ description: '題目不存在', type: ErrorResponseEntity })
+  @ApiBadRequestResponse({ description: '參數錯誤', type: ErrorResponseEntity })
+  @ApiConflictResponse({
+    description: '問卷已發布，無法編輯',
+    type: ErrorResponseEntity,
+  })
   @Patch(':id')
   update(
     @Param('id') id: string,
@@ -34,6 +53,13 @@ export class QuestionsController {
     return this.questionsService.update(id, updateQuestionDto);
   }
 
+  @ApiOperation({ summary: '刪除題目' })
+  @ApiOkResponse({ type: QuestionEntity })
+  @ApiNotFoundResponse({ description: '題目不存在', type: ErrorResponseEntity })
+  @ApiConflictResponse({
+    description: '問卷已發布，無法刪除',
+    type: ErrorResponseEntity,
+  })
   @Delete(':id')
   remove(@Param('id') id: string) {
     return this.questionsService.remove(id);

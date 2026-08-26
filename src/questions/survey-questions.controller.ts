@@ -9,9 +9,20 @@
 // 下一站：src/questions/questions.controller.ts（同一個功能的另一半路由，形狀不一樣）
 // ============================================================
 
+import {
+  ApiTags,
+  ApiCreatedResponse,
+  ApiOkResponse,
+  ApiOperation,
+  ApiNotFoundResponse,
+  ApiBadRequestResponse,
+  ApiConflictResponse,
+} from '@nestjs/swagger';
 import { Controller, Get, Post, Param, Body } from '@nestjs/common';
 import { QuestionsService } from './questions.service';
 import { CreateQuestionDto } from './dto/create-question.dto';
+import { QuestionEntity } from './entities/question.entity';
+import { ErrorResponseEntity } from '../common/entities/error-response.entity';
 
 // [教學] 前綴裡可以放**路徑參數**（:surveyId），不是只能放固定文字。
 // 底下每一支路由都自動帶著這一段，@Param('surveyId') 照樣抓得到。
@@ -23,10 +34,14 @@ import { CreateQuestionDto } from './dto/create-question.dto';
 // （那樣等於讓呼叫端自己決定題目要長在誰身上）。
 //
 // 改與刪為什麼**不**巢狀，見 questions.controller.ts 的檔頭 —— 那是刻意的不對稱。
+@ApiTags('questions')
 @Controller('surveys/:surveyId/questions')
 export class SurveysQuestionsController {
   constructor(private readonly questionsService: QuestionsService) {}
 
+  @ApiOperation({ summary: '查詢問卷所有題目' })
+  @ApiOkResponse({ type: QuestionEntity, isArray: true })
+  @ApiNotFoundResponse({ description: '問卷不存在', type: ErrorResponseEntity })
   @Get()
   findAll(@Param('surveyId') surveyId: string) {
     // [教學] @Get() 是空的，實際網址是 GET /surveys/:surveyId/questions ——
@@ -34,6 +49,14 @@ export class SurveysQuestionsController {
     return this.questionsService.findAll(surveyId);
   }
 
+  @ApiOperation({ summary: '建立題目' })
+  @ApiCreatedResponse({ type: QuestionEntity })
+  @ApiBadRequestResponse({ description: '參數錯誤', type: ErrorResponseEntity })
+  @ApiConflictResponse({
+    description: '問卷已發布，無法新增題目',
+    type: ErrorResponseEntity,
+  })
+  @ApiNotFoundResponse({ description: '問卷不存在', type: ErrorResponseEntity })
   @Post()
   create(
     // [教學] 第一次出現「兩個來源」的巢狀版本：

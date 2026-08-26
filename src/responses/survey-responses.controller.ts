@@ -13,11 +13,26 @@
 // 下一站：src/responses/responses.controller.ts（另一半路由，形狀不一樣）
 // ============================================================
 
+import {
+  ApiTags,
+  ApiCreatedResponse,
+  ApiOperation,
+  ApiOkResponse,
+  ApiBadRequestResponse,
+  ApiNotFoundResponse,
+  ApiConflictResponse,
+} from '@nestjs/swagger';
 import { Body, Controller, Post, Param, Get, Query } from '@nestjs/common';
 import { CreateResponseDto } from './dto/create-response.dto';
 import { FindResponsesQueryDto } from './dto/find-responses-query.dto';
 import { ResponsesService } from './responses.service';
+import {
+  ResponseEntity,
+  PaginatedResponsesEntity,
+} from './entities/response.entity';
+import { ErrorResponseEntity } from '../common/entities/error-response.entity';
 
+@ApiTags('responses')
 @Controller('surveys/:surveyId/responses')
 export class SurveyResponsesController {
   constructor(private readonly responsesService: ResponsesService) {}
@@ -28,6 +43,15 @@ export class SurveyResponsesController {
   // 「要填哪一份問卷」是資源識別，屬於網址；「答了什麼」才是要寫進去的資料。
   // 把 surveyId 放進 body 的話，這條路由就不需要 :surveyId 了，
   // 而那等於讓外面決定答案要長在誰身上（同 create-question.dto.ts 結尾那段）。
+  @ApiOperation({ summary: '送出填寫' })
+  @ApiCreatedResponse({ type: ResponseEntity })
+  @ApiBadRequestResponse({
+    description:
+      '請求內容不合法：欄位驗證失敗、題目 ID 重複、或題目不屬於這份問卷',
+    type: ErrorResponseEntity,
+  })
+  @ApiNotFoundResponse({ description: '問卷不存在', type: ErrorResponseEntity })
+  @ApiConflictResponse({ description: '問卷未發布', type: ErrorResponseEntity })
   @Post()
   create(
     @Param('surveyId') surveyId: string,
@@ -38,6 +62,10 @@ export class SurveyResponsesController {
 
   // [教學] 這一支同時吃三個來源裡的兩個：@Param 取路徑、@Query 取 ? 後面。
   // 分頁的形狀跟 GET /surveys 完全一樣（見 find-responses-query.dto.ts）。
+  @ApiOperation({ summary: '查詢所有填寫' })
+  @ApiOkResponse({ type: PaginatedResponsesEntity })
+  @ApiBadRequestResponse({ description: '參數錯誤', type: ErrorResponseEntity })
+  @ApiNotFoundResponse({ description: '問卷不存在', type: ErrorResponseEntity })
   @Get()
   findAll(
     @Param('surveyId') surveyId: string,

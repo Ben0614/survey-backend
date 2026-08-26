@@ -11,9 +11,16 @@
 //
 // 下一站：src/responses/dto/create-response.dto.ts（提交的 body 進來之前先被誰檢查）
 // ============================================================
-
+import {
+  ApiTags,
+  ApiOkResponse,
+  ApiOperation,
+  ApiNotFoundResponse,
+} from '@nestjs/swagger';
 import { Controller, Get, Param } from '@nestjs/common';
 import { ResponsesService } from './responses.service';
+import { ResponseDetailEntity } from './entities/response.entity';
+import { ErrorResponseEntity } from '../common/entities/error-response.entity';
 
 // [教學] 前綴只寫 'responses'，`:id` 放在 @Get() 裡。
 //
@@ -21,10 +28,14 @@ import { ResponsesService } from './responses.service';
 // 但那樣**這個 class 之後每一條路由都會繼承那個 :id** ——
 // 哪天要加 GET /responses（列表）就卡住了。
 // **前綴放「這組路由共同的部分」，變動的部分放在方法上。**
+@ApiTags('responses')
 @Controller('responses')
 export class ResponsesController {
   constructor(private readonly responsesService: ResponsesService) {}
 
+  @ApiOperation({ summary: '查詢填寫' })
+  @ApiOkResponse({ type: ResponseDetailEntity })
+  @ApiNotFoundResponse({ description: '填寫不存在', type: ErrorResponseEntity })
   @Get(':id')
   findOne(@Param('id') id: string) {
     return this.responsesService.findOne(id);
