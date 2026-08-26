@@ -4,6 +4,7 @@
 # 這個檔案要進版控：換一台機器、或 pnpm 升到新版本時，會卡在同一個地方。
 allowBuilds:
   '@prisma/engines': true # Prisma 的查詢引擎，安裝時要下載對應平台的二進位檔
+  '@scarf/scarf': false # @nestjs/swagger 帶進來的安裝統計回報，不跑它不影響功能
   esbuild: true # 原生 binary，@nestjs/cli 與 tsx 依賴它
   prisma: true # Prisma CLI 本身
   unrs-resolver: true # eslint 的模組解析器（Rust 寫的原生模組）
