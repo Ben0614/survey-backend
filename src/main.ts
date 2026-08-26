@@ -13,6 +13,8 @@
 import { NestFactory } from '@nestjs/core';
 import { AppModule } from './app.module';
 import { setupApp } from './setup-app';
+import { SwaggerModule } from '@nestjs/swagger';
+import { buildSwaggerDocument } from './swagger';
 
 async function bootstrap() {
   // [教學] NestJS 的核心想法：你不自己 new 任何東西，只宣告「有哪些零件」。
@@ -27,6 +29,8 @@ async function bootstrap() {
   // 讓 Ctrl+C / SIGTERM 時能觸發 onModuleDestroy，正常關閉資料庫連線池。
   // 部署到 Render 之後這件事更重要，否則每次重啟都會留下沒關掉的連線。
   app.enableShutdownHooks();
+
+  SwaggerModule.setup('docs', app, buildSwaggerDocument(app));
 
   // [教學] ?? 是「左邊沒有就用右邊」（只有 null 或 undefined 才算沒有）。
   // .env 有設 PORT 就用它（本機是 3100），沒設就退回 3000。
