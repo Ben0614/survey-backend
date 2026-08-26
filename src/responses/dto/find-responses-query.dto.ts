@@ -14,6 +14,7 @@
 // 下一站：src/responses/responses.service.ts（通過檢查之後誰來處理）
 // ============================================================
 
+import { ApiPropertyOptional } from '@nestjs/swagger';
 import { IsInt, Min, Max } from 'class-validator';
 import { Type } from 'class-transformer';
 
@@ -38,6 +39,10 @@ export class FindResponsesQueryDto {
   // 另一種做法是在 setup-app.ts 開全域的 enableImplicitConversion，
   // 讓它依 TypeScript 的型別註記自動猜。沒有選它的理由寫在 ch04 的「決策取捨」：
   // 隱式轉型的規則要另外記，而且對 boolean 特別容易出錯。
+  @ApiPropertyOptional({
+    description: '分頁',
+    default: 1,
+  })
   @Type(() => Number)
   // 用 @IsInt() 而不是 @IsNumber()：後者會放行 2.5，而頁碼沒有 2.5 頁。
   @IsInt()
@@ -54,6 +59,10 @@ export class FindResponsesQueryDto {
   // 「@IsOptional() 是短路開關」——那份 DTO 的欄位真的可能是 undefined，這份不會。
   page: number = 1;
 
+  @ApiPropertyOptional({
+    description: '每頁筆數',
+    default: 10,
+  })
   @Type(() => Number)
   @IsInt()
   @Min(1)

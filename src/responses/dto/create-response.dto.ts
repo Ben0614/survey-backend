@@ -10,6 +10,7 @@
 // 下一站：src/responses/dto/find-responses-query.dto.ts（列表的網址參數）
 // ============================================================
 
+import { ApiProperty } from '@nestjs/swagger';
 import {
   IsString,
   IsNotEmpty,
@@ -22,16 +23,23 @@ import { Type } from 'class-transformer';
 
 // [教學] 這個 class 沒有 export，是刻意的：外面永遠是整包 CreateResponseDto 進出，
 // 沒有任何地方需要單獨拿一筆答案的型別。**先關起來，有人要用時再打開。**
-class AnswerDto {
+export class AnswerDto {
   // surveyId 不在這裡（它在網址上），responseId 也不在 ——
   // 那個 id 要等 Response 建出來才存在，由 Prisma 的巢狀 write 自己填
   // （見 responses.service.ts）。
+  @ApiProperty({
+    description: '題目ID',
+  })
   @IsString()
   @IsNotEmpty()
   questionId: string;
 
   // @MaxLength(500) 跟 Ch4 的 @Max(100) 是同一種東西：**這是公開端點**，
   // 沒有上限的話一筆答案可以塞幾 MB 文字。數字本身可以調，重點是有一個。
+  @ApiProperty({
+    description: '回答內容',
+    maxLength: 500,
+  })
   @IsString()
   @IsNotEmpty()
   @MaxLength(500)
@@ -63,6 +71,10 @@ export class CreateResponseDto {
   // **@Type 在這裡是它的原意** —— 「這個屬性要建成哪個 class 的實例」。
   // 對照 find-responses-query.dto.ts 的 @Type(() => Number)：那是拿它來做
   // primitive 轉型，是順便沾了 JS 建構函式的行為，不是它本來的用途。
+  @ApiProperty({
+    description: '回答',
+    type: [AnswerDto],
+  })
   @IsArray()
   @ValidateNested({ each: true })
   @Type(() => AnswerDto)

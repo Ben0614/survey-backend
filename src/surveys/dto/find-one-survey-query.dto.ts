@@ -11,9 +11,10 @@
 // 這份 DTO 只有一個屬性，但它是三份 query DTO 裡最麻煩的一個：
 // **boolean 是 query string 轉型最容易出錯的型別。**
 //
-// 下一站：src/surveys/surveys.service.ts（通過檢查之後誰來處理）
+// 下一站：src/surveys/entities/survey.entity.ts（這支 API 回什麼的形狀）
 // ============================================================
 
+import { ApiPropertyOptional } from '@nestjs/swagger';
 import { IsBoolean } from 'class-validator';
 import { Transform } from 'class-transformer';
 
@@ -50,6 +51,10 @@ export class FindOneSurveyQueryDto {
   // unknown 的意思是「我不知道它是什麼，所以你不准直接用它」，
   // 而下面本來就先比對過才使用，標成 unknown 一行都不用改。
   // **處理外部輸入的通則：邊界上標 unknown，不要標 any。**
+  @ApiPropertyOptional({
+    description: '是否回傳題目',
+    default: false,
+  })
   @Transform(({ value }: { value: unknown }) =>
     value === 'true' ? true : value === 'false' ? false : value,
   )

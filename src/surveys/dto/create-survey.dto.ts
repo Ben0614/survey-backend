@@ -14,6 +14,7 @@
 // 下一站：src/surveys/dto/update-survey.dto.ts（同一份規則，改成「部分更新」版）
 // ============================================================
 
+import { ApiProperty } from '@nestjs/swagger';
 import { IsNotEmpty, IsString, MaxLength } from 'class-validator';
 
 export class CreateSurveyDto {
@@ -23,6 +24,34 @@ export class CreateSurveyDto {
   //   @IsString()   型別必須是字串（送數字進來也會被擋）
   //   @IsNotEmpty() 不能是空字串
   //   @MaxLength()  上限，避免有人塞一份小說進來當標題
+  //
+  // [教學] @ApiProperty 是 @nestjs/swagger 的裝飾器（Ch7 加的），
+  // 它跟上面那三個**不是同一套東西**，這是這一章最重要的一件事：
+  //
+  //   class-validator 的裝飾器 —— 執行期真的檢查，不合格回 400
+  //   @ApiProperty            —— 只是登記「文件上要怎麼描述這個屬性」，
+  //                              從不檢查任何東西，拿掉它 API 行為一個字都不變
+  //
+  // **兩套 metadata 互不相通**：Swagger 不會去讀 @MaxLength(200)，
+  // class-validator 也不知道 @ApiProperty 說了什麼。所以下面的 maxLength: 200
+  // 是**第二次**寫同一件事 —— 改了一邊忘了另一邊，文件就開始說謊，
+  // 而且不會有任何錯誤訊息（tsc 綠、測試綠、API 行為完全正確）。
+  //
+  // 為什麼非要它不可：沒有它的話，這份 DTO 在 /docs-json 裡是
+  // `{ "type": "object", "properties": {} }` —— 一個空殼。
+  // Swagger 拿得到 CreateSurveyDto 這個 class（requestBody 的 $ref 就是證據），
+  // 但拿不到它的屬性 —— `title: string` 這個宣告編譯成 JS 之後完全不存在，
+  // 執行期要知道一個 class 有哪些屬性，唯一的辦法就是屬性上有裝飾器。
+  //
+  // 三個欄位各自的作用：
+  //   description —— Swagger UI 上顯示的說明文字
+  //   maxLength   —— 只是顯示，不會檢查（真正擋人的是上面的 @MaxLength）
+  //   example     —— Swagger UI「Try it out」預填的值，也是前端最常看的東西
+  @ApiProperty({
+    description: '問卷標題',
+    maxLength: 200,
+    example: '員工滿意度調查',
+  })
   @IsString()
   @IsNotEmpty()
   @MaxLength(200)

@@ -10,7 +10,7 @@
 // 下一站：src/questions/questions.service.ts（通過檢查之後誰來處理）
 // ============================================================
 
-import { PartialType } from '@nestjs/mapped-types';
+import { PartialType } from '@nestjs/swagger';
 import { CreateQuestionDto } from './create-question.dto';
 
 // 三個欄位全部可改，包含 type。

@@ -11,7 +11,7 @@
 // 下一站：src/surveys/dto/find-surveys-query.dto.ts（第三份 DTO：檢查的不是 body，是網址）
 // ============================================================
 
-import { PartialType } from '@nestjs/mapped-types';
+import { PartialType } from '@nestjs/swagger';
 import { CreateSurveyDto } from './create-survey.dto';
 
 // [教學] PartialType(CreateSurveyDto) 是一個**函式呼叫**，不是什麼特殊的型別語法。

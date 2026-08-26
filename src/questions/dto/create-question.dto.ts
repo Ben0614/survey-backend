@@ -27,9 +27,15 @@ import {
 // 值得記的是另一件事：它**同時是值也是型別**。下面 @IsEnum(QuestionType) 用的是「值」
 // （執行期要拿它去比對），type: QuestionType 用的是「型別」（編譯期的事）。
 // 一次 import 兩種用途都拿到。
+import { ApiProperty } from '@nestjs/swagger';
 import { QuestionType } from '../../generated/prisma/enums';
 
 export class CreateQuestionDto {
+  @ApiProperty({
+    description: '題目標題',
+    maxLength: 200,
+    example: '題目',
+  })
   @IsString()
   @IsNotEmpty()
   @MaxLength(200)
@@ -42,6 +48,10 @@ export class CreateQuestionDto {
   // 拔掉 @IsEnum 的下場不是「改由資料庫的 enum 擋」，而是
   // whitelist 認定這個屬性沒有驗證裝飾器 → 整個丟掉 → prisma 收到 undefined → 500。
   // （whitelist 的判準見 create-survey.dto.ts 與 ch02。）
+  @ApiProperty({
+    description: '類型',
+    enum: QuestionType,
+  })
   @IsEnum(QuestionType)
   type: QuestionType;
 
@@ -50,6 +60,10 @@ export class CreateQuestionDto {
   //
   // 少了 each 就變成「這個陣列本身必須是字串」，永遠不會通過。
   // 這個 { each: true } 幾乎所有 @Is... 裝飾器都支援。
+  @ApiProperty({
+    description: '選項',
+    type: [String],
+  })
   @IsArray()
   @IsString({ each: true })
   options: string[];

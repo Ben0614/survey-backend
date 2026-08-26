@@ -12,6 +12,7 @@
 // 下一站：src/surveys/dto/find-one-survey-query.dto.ts（查一份問卷的網址參數）
 // ============================================================
 
+import { ApiPropertyOptional } from '@nestjs/swagger';
 import {
   IsInt,
   Min,
@@ -45,6 +46,10 @@ export class FindSurveysQueryDto {
   // 另一種做法是在 setup-app.ts 開全域的 enableImplicitConversion，
   // 讓它依 TypeScript 的型別註記自動猜。沒有選它的理由寫在 ch04 的「決策取捨」：
   // 隱式轉型的規則要另外記，而且對 boolean 特別容易出錯。
+  @ApiPropertyOptional({
+    description: '分頁',
+    default: 1,
+  })
   @Type(() => Number)
   // 用 @IsInt() 而不是 @IsNumber()：後者會放行 2.5，而頁碼沒有 2.5 頁。
   @IsInt()
@@ -75,6 +80,10 @@ export class FindSurveysQueryDto {
   // 那是另一支端點的事（串流或背景任務），不是把這個數字調大。
   //
   // 100 本身是慣例、可以調，重點是有一個。
+  @ApiPropertyOptional({
+    description: '每頁筆數',
+    default: 10,
+  })
   @Max(100)
   pageSize: number = 10;
 
@@ -90,9 +99,19 @@ export class FindSurveysQueryDto {
   // （`{ [query.sort]: query.order }`），而 **TypeScript 對動態 key 完全檢查不到** ——
   // 連把欄位名拼錯成 createAt 都是綠的（實測見 ch04 坑 #8）。
   // 也就是說：**這個白名單是那一行唯一的防線。**
+  @ApiPropertyOptional({
+    description: '排序',
+    default: 'createdAt',
+    enum: ['createdAt', 'title'],
+  })
   @IsIn(['createdAt', 'title'])
   sort: 'createdAt' | 'title' = 'createdAt';
 
+  @ApiPropertyOptional({
+    description: '順序',
+    default: 'desc',
+    enum: ['asc', 'desc'],
+  })
   @IsIn(['asc', 'desc'])
   order: 'asc' | 'desc' = 'desc';
 
@@ -112,10 +131,17 @@ export class FindSurveysQueryDto {
   // 為什麼沒有給它們預設值：預設值的意思是「沒指定就用這個」，
   // 但「沒指定篩選條件」要的是**不要篩**，不是「篩某個特定值」——
   // 而 undefined 在 Prisma 眼中正好就是「不加這個條件」（見 surveys.service.ts 的 where）。
+  @ApiPropertyOptional({
+    description: '狀態',
+    enum: SurveyStatus,
+  })
   @IsEnum(SurveyStatus)
   @IsOptional()
   status?: SurveyStatus;
 
+  @ApiPropertyOptional({
+    description: '搜尋條件',
+  })
   @IsString()
   @IsOptional()
   q?: string;
