@@ -271,3 +271,7 @@ PATCH {{host}}/surveys/{{surveyId}}/unpublish
 
 ### 刪除問卷。它的題目、回覆、答案會一起消失（schema 的 onDelete: Cascade）
 DELETE {{host}}/surveys/{{surveyId}}
+
+### Ch7：OpenAPI 規格本身。/docs 是給人看的網頁，這個是給機器讀的
+### Ch13 的 openapi-typescript 吃的就是這一份 —— spec 裡缺什麼，前端那邊就是 any
+GET {{host}}/docs-json

@@ -12,10 +12,10 @@
 > 換機或開新對話時**先讀這一節**。對話歷史與 AI 記憶都在 `~/.claude/` 底下，不跟 git 走 ——
 > 這裡沒寫的東西，換一台機器就等於沒發生過。
 
-**進度：** Ch0 ~ Ch6 完成。
-**階段一剩 Ch7、Ch8。**
-`pnpm test:e2e` **79 passed**、`pnpm test` **6 passed**、`tsc --noEmit` 0 errors、`lint` 0 problems。
-下一步是 **Ch7（Swagger API 文件）**，接續點寫在下方「Ch7 接續點」。
+**進度：** Ch0 ~ Ch7 完成。
+**階段一只剩 Ch8。**
+`pnpm test:e2e` **84 passed**、`pnpm test` **6 passed**、`tsc --noEmit` 0 errors、`lint` 0 problems。
+下一步是 **Ch8（第一次部署）**，接續點寫在下方「Ch8 接續點」。
 
 **重要脈絡：** Ch0 的程式碼是 AI 產生的，因此進度表的 ✅ 起初**只代表環境可用**，
 不代表讀得懂 —— 為此補了一批 `[教學]` 註解當作理解鷹架（見 `docs/專案速查.md` 的「閱讀動線」）。
@@ -384,32 +384,90 @@ Ch6 的完整觀念、取捨、6 條坑（含新增的坑 #6）、追加問答�
 
 ---
 
-### Ch7 接續點（2026-08-24）
+**2026-08-28 —— Ch7 完成。** `84 passed`（+5）、`pnpm test` 仍 `6 passed`。
+15 支端點全部進了契約：請求端、成功回應、錯誤回應，外加一條會紅燈的 e2e。
 
-**目前狀態**：`pnpm test:e2e` **79 passed**、`pnpm test` **6 passed**、
+這一章跟前七章有一個結構性差別：**它產出的東西不會改變任何行為。**
+把全部 `@Api*` 裝飾器刪光，15 支端點的回應一個位元組都不會變 ——
+所以這一章的每一個錯誤都**沒有症狀**。輪 ④ 那條測試就是為此存在的。
+
+最貴的六課：
+
+1. **陣列的元素型別推不出來時，Swagger 會「猜」而不是留白。** `answers: AnswerDto[]`
+   沒寫 `type: [AnswerDto]` → spec 說它是 `string[]`，前端照著送會 400 而文件說它對。
+   而隔壁 `options: string[]` 同樣沒寫卻是對的 —— **它猜對了**。
+   同一個疏漏、同一份 spec，一個碰巧正確、一個安靜地說謊，`/docs` 上兩個看起來一樣。
+2. **`enum: [SurveyStatus]` 的方括號 —— 寫錯一處、spec 錯兩處。**
+   合法值清單裡變成一個物件，而且 `type` 連帶被推成 `number`。
+   同一個方括號在 `type:` 上代表「陣列」、在 `enum:` 上代表「清單本身」。
+   使用者在 `sort` 寫對、在 `status` 寫錯，兩行相距不到 30 行 ——
+   差別是傳變數的時候，「這個參數要的是清單」從眼前消失了。
+3. **第二份真相：三次抄錯，三次 `tsc` 都是 0 errors。**
+   `Question.order`（`Int`）被抄成 `'asc' | 'desc'`、`Answer.responseId` 被抄成 `Date`、
+   分頁 `meta` 被標成陣列。entity 跟 service 的回傳值之間**沒有任何型別關係**，
+   所以編譯器永遠不會知道。唯一的偵測器是那條 e2e。
+4. **「借來的 404」——漏標的四支形狀完全一致。** 它們的 404 不是自己丟的，
+   是 `await this.surveysService.assertExists(surveyId)` 借來的，
+   在自己的檔案裡搜 `throw new NotFoundException` 找不到。
+   其中最貴的是 `POST /surveys/:surveyId/responses` 漏掉的 **409**（問卷未發布不能填）——
+   那是 Ch5 整章的核心商業規則，**寫在 service 裡三章了，
+   只有寫進 `@ApiConflictResponse` 的那一刻，前端才知道它存在。**
+5. **規則有效，但使用時機錯了。** 「query DTO 裡搜到 `@ApiProperty(` 就是錯的」
+   這條結構性對策事先給了，10 個屬性仍然 10/10 全錯 ——
+   因為它被當成「寫的當下要想起來」的規則在用。**它是收工前 grep 一次的規則**，
+   成本三秒、命中率百分之百。
+6. **教練第九次「先給結論、沒有先量」，而且方向相反。**
+   說「CLI plugin 只看 TS 型別、不看 `@IsIn`」，探針直接推翻：
+   把型別改成 `string`、只留 `@IsIn`，`enum` 照樣出現。
+   plugin 讀 class-validator 讀得比預期多得多（`@Min`/`@Max`/`@ArrayNotEmpty` 都讀）。
+   結論方向對（不建議開），機制講錯了。
+
+**不開 CLI plugin 的真正理由**是第四個探針量出來的：
+`nest build` 與 ts-jest 產出的 spec **不一樣**（`minimum` 只有前者有）。
+開了之後，那條「文件有沒有說謊」的測試會在一份不是線上那份的 spec 上驗證。
+真實專案的作法是「開 plugin，並讓 jest 也跑同一個 transformer」——**知道往哪走就夠了**。
+
+**已知的債（寫進 ch07，不假裝蓋滿了）**：那五條測試只保護了 6 個 entity 裡的 2 個。
+`meta` 標成陣列、`@ApiCreatedResponse` 標成 `@ApiOkResponse`、`QuestionEntity` 少一個欄位 ——
+三種放回去都是 **84 條全綠**。
+
+觀念、取捨、9 條坑、四個探針與五題**實測**作業都在
+[`ch07`](docs/chapters/ch07-swagger-api文件.md)，這裡不重複。
+
+---
+
+### Ch8 接續點（2026-08-28）
+
+**目前狀態**：`pnpm test:e2e` **84 passed**、`pnpm test` **6 passed**、
 `tsc --noEmit` 0 errors、`eslint` 0 problems。
-**Ch0 ~ Ch6 完成。**
+**Ch0 ~ Ch7 完成，階段一只剩這一章。**
 
 #### 換機之後先做這三件事
 
 1. **一般的換機步驟**（`git pull` / `pnpm install` / `pnpm exec prisma generate` /
    重建 `.env`、`.env.test` / 重建 skills junction）—— 見
    [`docs/專案速查.md`](docs/專案速查.md) 的「換機接續」。
-2. **跑四項驗收確認數字對得上**：`test:e2e` **79**、`test` **6**、`tsc` 0、`lint` 0。
+2. **跑四項驗收確認數字對得上**：`test:e2e` **84**、`test` **6**、`tsc` 0、`lint` 0。
    對不上就先修環境，別開始寫程式。
 3. **確認 `core.autocrlf`**：`git config --get core.autocrlf`。
    本機設定、不跟著 git 走，查換行**只信 `git ls-files --eol` 的 `i/` 欄**。
 
-#### Ch7 要做什麼
+#### Ch8 要做什麼
 
-**主題：Swagger API 文件** —— 產出前端能直接照著串的契約。
-細節（要不要用 `@nestjs/swagger` 的裝飾器、DTO 要不要補 `@ApiProperty`、
-回應碼要不要照 [`docs/錯誤處理與狀態碼.md`](docs/錯誤處理與狀態碼.md) 第 5 節列出來）
-留到開工前一輪再定，這裡先只記接續點本身。
+**主題：第一次部署（後端先上線）** —— `migrate deploy`、正式環境變數、連線數上限。
 
-> **加分項（非前提）：** 讀 NestJS 官方文件 Overview 前四篇
-> （First steps / Controllers / Providers / Modules，約一小時）。
-> Prisma 則不要上網找教學：v7 太新，網路上九成是 v5/v6；用 `.agents/skills/` 的官方技能包。
+此時系統最簡單（沒有認證、沒有前端），變數最少，這是課綱刻意把部署排在階段一結尾的理由。
+幾個已經知道會碰到的點，開工前一輪再定細節：
+
+- `prisma migrate deploy` 與 `migrate dev` 的差別（正式環境不能產生新 migration）
+- 正式環境的 `DATABASE_URL` 要指向 Neon 的主分支，不是 test branch
+- **連線數上限**：Neon 有上限，而 `PrismaService` 每個實例一個連線池；
+  `app.enableShutdownHooks()` 拿掉會導致重啟後連線累積（`main.ts` 已有註解）
+- `pnpm build` 產出的是 `dist/main.js`，`start:prod` 跑的是它 ——
+  根目錄新增 `.ts` 檔要記得加進 `tsconfig.build.json` 的 `exclude`，否則進入點路徑會跑掉
+
+> **Ch7 留下、Ch8 可以順手處理的一件事**：`/docs` 在正式環境要不要公開？
+> 目前是無條件掛上的（`main.ts`）。這是部署時才需要回答的問題。
 
 ---
 
@@ -429,7 +487,7 @@ Ch6 的完整觀念、取捨、6 條坑（含新增的坑 #6）、追加問答�
 | Ch4 | 分頁、排序、篩選 | query string 轉型驗證、`skip/take` vs cursor | ✅ |
 | Ch5 | 提交與查詢作答（Responses） | 巢狀 write vs `$transaction`、原子性、**商業規則與單元測試** | ✅ |
 | Ch6 | 統一錯誤處理與回應格式 | Exception Filter 把 Prisma 錯誤碼轉 HTTP | ✅ |
-| Ch7 | Swagger API 文件 | 產出前端能直接照著串的契約 | ⬜ |
+| Ch7 | Swagger API 文件 | 產出前端能直接照著串的契約；**契約與實際回應的一致性要用測試守住** | ✅ |
 | Ch8 | **第一次部署（後端先上線）** | `migrate deploy`、正式環境變數、連線數上限 | ⬜ |
 
 ### 階段二：JWT 與權限控管
@@ -495,6 +553,7 @@ Ch6 的完整觀念、取捨、6 條坑（含新增的坑 #6）、追加問答�
 | Ch4 — 分頁、排序、篩選 | [`docs/chapters/ch04-分頁排序與篩選.md`](docs/chapters/ch04-分頁排序與篩選.md) |
 | Ch5 — 提交與查詢作答 | [`docs/chapters/ch05-提交與查詢作答.md`](docs/chapters/ch05-提交與查詢作答.md) |
 | Ch6 — 統一錯誤處理與回應格式 | [`docs/chapters/ch06-統一錯誤處理與回應格式.md`](docs/chapters/ch06-統一錯誤處理與回應格式.md) |
+| Ch7 — Swagger API 文件 | [`docs/chapters/ch07-swagger-api文件.md`](docs/chapters/ch07-swagger-api文件.md) |
 
 ## 跨章節文件
 
