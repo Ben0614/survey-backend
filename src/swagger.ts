@@ -24,9 +24,28 @@ import { INestApplication } from '@nestjs/common';
 import { DocumentBuilder, SwaggerModule, OpenAPIObject } from '@nestjs/swagger';
 
 export function buildSwaggerDocument(app: INestApplication): OpenAPIObject {
+  // [教學] 這三句寫的是「整份文件的抬頭」，會出現在 /docs 頁面最上方 ——
+  // 前端打開文件第一眼看到的就是它。
+  //
+  // description 值得多寫幾句：它是唯一可以放**跨端點共通規則**的地方。
+  // 錯誤格式、狀態碼的判準這類東西每一支端點都適用，逐支寫 15 次不合理，
+  // 但完全不寫，前端就得自己從各支端點的回應反推。
   const config = new DocumentBuilder()
-    .setTitle('問卷')
-    .setDescription('問卷swagger')
+    .setTitle('問卷平台 API')
+    .setDescription(
+      [
+        '建立問卷、發布、填答與查詢結果。',
+        '',
+        '**錯誤格式**：所有端點的錯誤回應都是 `{ error: { code, message, details? } }`，',
+        '`code` 是 `BAD_REQUEST` / `NOT_FOUND` / `CONFLICT` / `VALIDATION_FAILED` / `INTERNAL_ERROR` 其中之一。',
+        '請用 `code` 分支處理，不要解析 `message`（它的內容會隨版本變動）。',
+        '`details` 只有欄位驗證失敗（`VALIDATION_FAILED`）時才會出現。',
+        '',
+        '**兩條商業規則**，違反時回 409：',
+        '- 只有 `PUBLISHED` 的問卷能被填答',
+        '- `DRAFT` 才能增刪改題目；一旦有人填答就不能撤回發布',
+      ].join('\n'),
+    )
     .setVersion('1.0.0')
     .build();
 
