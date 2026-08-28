@@ -32,10 +32,17 @@ export class CreateSurveyDto {
   //   @ApiProperty            —— 只是登記「文件上要怎麼描述這個屬性」，
   //                              從不檢查任何東西，拿掉它 API 行為一個字都不變
   //
-  // **兩套 metadata 互不相通**：Swagger 不會去讀 @MaxLength(200)，
+  // **兩套 metadata 互不相通**：執行期 Swagger 不會去讀 @MaxLength(200)，
   // class-validator 也不知道 @ApiProperty 說了什麼。所以下面的 maxLength: 200
   // 是**第二次**寫同一件事 —— 改了一邊忘了另一邊，文件就開始說謊，
   // 而且不會有任何錯誤訊息（tsc 綠、測試綠、API 行為完全正確）。
+  //
+  // 「互不相通」只在**這個專案現在的設定下**成立，收尾時實測確認過：
+  // @nestjs/swagger 有一個 CLI plugin（nest-cli.json 的 plugins），開了之後
+  // 它會在**編譯期**去讀 class-validator，把 @Min/@Max 變成 minimum/maximum、
+  // @ArrayNotEmpty 變成 minItems、@IsIn 變成 enum。也就是說那道牆是可以打通的，
+  // 只是要用另一套機制（編譯期的 AST 轉換，不是執行期的 metadata）。
+  // 這個專案沒有開，理由與四個探針的量測結果寫在 ch07 的「決策取捨」。
   //
   // 為什麼非要它不可：沒有它的話，這份 DTO 在 /docs-json 裡是
   // `{ "type": "object", "properties": {} }` —— 一個空殼。

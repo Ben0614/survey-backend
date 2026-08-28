@@ -1,3 +1,22 @@
+// ============================================================
+// [教學] response.entity.ts —— 同一張資料表，三支端點回三種形狀
+//
+// 什麼時候被執行：**執行期永遠不會**（理由見 survey.entity.ts 檔頭）。
+//
+// 這個檔案是「entity 對應的是一次回應的形狀，不是一張資料表」最清楚的例子：
+//
+//   POST /surveys/:surveyId/responses   ResponseEntity        create 沒有 include，不帶 answers
+//   GET  /surveys/:surveyId/responses   ResponseEntity        列表刻意不帶 answers（見 service）
+//   GET  /responses/:id                 ResponseDetailEntity  include answers，每筆再 include question
+//
+// 照著 schema.prisma 抄一份含 answers 的 entity 然後三支都標它，
+// 症狀是前端看文件寫 res.answers.length，打 POST 之後拿到 undefined 直接 crash ——
+// 文件說有那個欄位，實際上沒有。這條規則在 DTO 那一側已經講過一次
+// （create-survey.dto.ts 檔頭：DTO 跟 Model 是兩件事，刻意不共用）。
+//
+// 下一站：src/responses/responses.service.ts（通過檢查之後誰來處理）
+// ============================================================
+
 import { ApiProperty } from '@nestjs/swagger';
 import { QuestionEntity } from '../../questions/entities/question.entity';
 import { PaginationMetaEntity } from '../../common/entities/pagination-meta.entity';
@@ -49,7 +68,7 @@ export class AnswerEntity {
   content: string;
 
   @ApiProperty({
-    description: '問卷',
+    description: '這則答案對應的題目（GET /responses/:id 會一併帶回）',
   })
   question: QuestionEntity;
 }

@@ -11,7 +11,7 @@
 // 共用會讓 ?sort=title 通過驗證、然後在執行期炸成 500（ch04 ② 坑 #8 的形狀）。
 // **白名單是綁定在特定資料表上的，不能跨表借用。**
 //
-// 下一站：src/responses/responses.service.ts（通過檢查之後誰來處理）
+// 下一站：src/responses/entities/response.entity.ts（三支端點回三種形狀）
 // ============================================================
 
 import { ApiPropertyOptional } from '@nestjs/swagger';

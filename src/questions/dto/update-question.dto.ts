@@ -7,7 +7,7 @@
 // 已經寫在 src/surveys/dto/update-survey.dto.ts 的檔頭，這裡不重複。
 // 這個檔案只有一個新東西：它是**全開**的，而那是一個有代價的選擇（見下方）。
 //
-// 下一站：src/questions/questions.service.ts（通過檢查之後誰來處理）
+// 下一站：src/questions/entities/question.entity.ts（這兩支 API 回什麼的形狀）
 // ============================================================
 
 import { PartialType } from '@nestjs/swagger';

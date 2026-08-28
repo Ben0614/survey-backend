@@ -59,7 +59,19 @@ export class SurveyEntity {
   })
   updatedAt: Date;
 
-  @ApiPropertyOptional({ type: [QuestionEntity] })
+  // questions 是**選填**，因為它取決於呼叫端問不問：
+  // GET /surveys/:id 預設不帶題目，?includeQuestions=true 才會多這個欄位（Ch4 ③）。
+  //
+  // 另外兩條路沒有走：為兩種形狀各寫一個 class 再用 oneOf（兩者只差一個欄位，
+  // 前端拿到 union 卻沒有東西可以 narrow，反而更難用），或拆成兩支端點（Ch4 ③
+  // 已經決定過不拆）。選填是唯一「說實話」的表達方式 —— 那個欄位真的可能有、可能沒有。
+  //
+  // 代價：Ch13 產出的型別是 questions?: QuestionEntity[]，前端要自己判斷。
+  // 這跟 Ch4 ③ 當時的選擇是同一個方向（執行期正確、編譯期不精確）。
+  @ApiPropertyOptional({
+    description: '題目清單，只有 ?includeQuestions=true 時才會出現',
+    type: [QuestionEntity],
+  })
   questions?: QuestionEntity[];
 }
 

@@ -13,7 +13,7 @@
 //   entities/ 我們**回出去**什麼（只給 Swagger 讀，沒有任何檢查）
 // meta 屬於後者。
 //
-// 下一站：src/surveys/entities/survey.entity.ts（第一份回應形狀）
+// 下一站：src/surveys/surveys.module.ts（一個真正有業務邏輯的 feature module）
 // ============================================================
 
 import { ApiProperty } from '@nestjs/swagger';

@@ -38,7 +38,7 @@ export class QuestionsController {
   constructor(private readonly questionsService: QuestionsService) {}
 
   @ApiOperation({ summary: '編輯題目' })
-  @ApiOkResponse({ type: QuestionEntity })
+  @ApiOkResponse({ description: '更新後的題目', type: QuestionEntity })
   @ApiNotFoundResponse({ description: '題目不存在', type: ErrorResponseEntity })
   @ApiBadRequestResponse({ description: '參數錯誤', type: ErrorResponseEntity })
   @ApiConflictResponse({
@@ -54,7 +54,7 @@ export class QuestionsController {
   }
 
   @ApiOperation({ summary: '刪除題目' })
-  @ApiOkResponse({ type: QuestionEntity })
+  @ApiOkResponse({ description: '刪除前的那一題', type: QuestionEntity })
   @ApiNotFoundResponse({ description: '題目不存在', type: ErrorResponseEntity })
   @ApiConflictResponse({
     description: '問卷已發布，無法刪除',

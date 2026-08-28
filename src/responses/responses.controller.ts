@@ -34,7 +34,10 @@ export class ResponsesController {
   constructor(private readonly responsesService: ResponsesService) {}
 
   @ApiOperation({ summary: '查詢填寫' })
-  @ApiOkResponse({ type: ResponseDetailEntity })
+  @ApiOkResponse({
+    description: '單筆作答，含每題的答案與題目內容',
+    type: ResponseDetailEntity,
+  })
   @ApiNotFoundResponse({ description: '填寫不存在', type: ErrorResponseEntity })
   @Get(':id')
   findOne(@Param('id') id: string) {

@@ -40,7 +40,11 @@ export class SurveysQuestionsController {
   constructor(private readonly questionsService: QuestionsService) {}
 
   @ApiOperation({ summary: '查詢問卷所有題目' })
-  @ApiOkResponse({ type: QuestionEntity, isArray: true })
+  @ApiOkResponse({
+    description: '這份問卷的全部題目，依 order 由小到大',
+    type: QuestionEntity,
+    isArray: true,
+  })
   @ApiNotFoundResponse({ description: '問卷不存在', type: ErrorResponseEntity })
   @Get()
   findAll(@Param('surveyId') surveyId: string) {
@@ -50,7 +54,7 @@ export class SurveysQuestionsController {
   }
 
   @ApiOperation({ summary: '建立題目' })
-  @ApiCreatedResponse({ type: QuestionEntity })
+  @ApiCreatedResponse({ description: '新增後的題目', type: QuestionEntity })
   @ApiBadRequestResponse({ description: '參數錯誤', type: ErrorResponseEntity })
   @ApiConflictResponse({
     description: '問卷已發布，無法新增題目',

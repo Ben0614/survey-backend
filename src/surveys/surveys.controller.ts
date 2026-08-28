@@ -69,7 +69,10 @@ export class SurveysController {
   // 對照下面的 create()：@Body() createSurveyDto: CreateSurveyDto 同樣是整包接、
   // 靠型別註記對接。兩者是同一套機制（emitDecoratorMetadata）。
   @ApiOperation({ summary: '查詢所有問卷' })
-  @ApiOkResponse({ type: PaginatedSurveysEntity })
+  @ApiOkResponse({
+    description: '問卷列表（一頁）',
+    type: PaginatedSurveysEntity,
+  })
   @ApiBadRequestResponse({ description: '參數錯誤', type: ErrorResponseEntity })
   @Get()
   findAll(@Query() query: FindSurveysQueryDto) {
@@ -89,7 +92,10 @@ export class SurveysController {
   // 必須放在 @Get(':id') **上面** —— 否則 /surveys/published 會先被 :id 吃掉，
   // 變成「查一份 id 是 published 的問卷」，然後回 404。
   @ApiOperation({ summary: '查詢單一問卷' })
-  @ApiOkResponse({ type: SurveyEntity })
+  @ApiOkResponse({
+    description: '單一問卷（?includeQuestions=true 時含題目）',
+    type: SurveyEntity,
+  })
   @ApiNotFoundResponse({ description: '問卷不存在', type: ErrorResponseEntity })
   @ApiBadRequestResponse({ description: '參數錯誤', type: ErrorResponseEntity })
   @Get(':id')
@@ -157,7 +163,7 @@ export class SurveysController {
   // 必須跟 UpdateSurveyDto 的 PartialType 對齊：DTO 都說「每個欄位都可以不給」了，
   // 路由卻宣稱自己是整份取代，前端就會照著錯的語義來用這支 API。
   @ApiOperation({ summary: '編輯問卷' })
-  @ApiOkResponse({ type: SurveyEntity })
+  @ApiOkResponse({ description: '更新後的問卷', type: SurveyEntity })
   @ApiNotFoundResponse({ description: '問卷不存在', type: ErrorResponseEntity })
   @ApiBadRequestResponse({ description: '參數錯誤', type: ErrorResponseEntity })
   @Patch(':id')
@@ -182,7 +188,7 @@ export class SurveysController {
   // 但要記得那個 body 是**刪除前的快照** —— 它有內容，不代表資料還在。
   // 所以 e2e 除了看 body，還要再查一次資料庫確認真的沒了。
   @ApiOperation({ summary: '刪除問卷' })
-  @ApiOkResponse({ type: SurveyEntity })
+  @ApiOkResponse({ description: '刪除前的那一筆問卷', type: SurveyEntity })
   @ApiNotFoundResponse({ description: '問卷不存在', type: ErrorResponseEntity })
   @Delete(':id')
   remove(@Param('id') id: string) {
@@ -206,7 +212,7 @@ export class SurveysController {
   // 兩支都沒有 @Body()，所以也不需要 DTO：要做什麼已經寫在網址裡了。
   // 網址也要注意大小寫 —— /unpublish 和 /unPublish 是兩條不同的路由。
   @ApiOperation({ summary: '公開問卷' })
-  @ApiOkResponse({ type: SurveyEntity })
+  @ApiOkResponse({ description: '發布後的問卷', type: SurveyEntity })
   @ApiNotFoundResponse({ description: '問卷不存在', type: ErrorResponseEntity })
   @Patch(':id/publish')
   publish(@Param('id') id: string) {
@@ -214,7 +220,7 @@ export class SurveysController {
   }
 
   @ApiOperation({ summary: '不公開問卷' })
-  @ApiOkResponse({ type: SurveyEntity })
+  @ApiOkResponse({ description: '撤回後的問卷', type: SurveyEntity })
   @ApiNotFoundResponse({ description: '問卷不存在', type: ErrorResponseEntity })
   @ApiConflictResponse({ description: '已有人填答', type: ErrorResponseEntity })
   @Patch(':id/unpublish')

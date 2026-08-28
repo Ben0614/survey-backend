@@ -9,7 +9,7 @@
 // {"statusCode":404,"message":"問卷不存在","error":"Not Found"} 就是它產生的），
 // setup-app.ts 掛上這一支之後就換成由它負責。
 //
-// 下一站：src/surveys/surveys.module.ts（一個真正有業務邏輯的 feature module）
+// 下一站：src/common/entities/error-response.entity.ts（上面這個形狀在文件裡怎麼描述）
 // ============================================================
 
 import {
