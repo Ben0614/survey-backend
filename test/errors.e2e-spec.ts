@@ -10,7 +10,7 @@
 //
 // 跑法：pnpm test:e2e -- test/errors.e2e-spec.ts
 //
-// 下一站：src/surveys/survey.rules.spec.ts（同樣是測試，但什麼都不必準備 —— 動線終點）
+// 下一站：test/swagger.e2e-spec.ts（唯一一支不打 API、改去驗「文件有沒有說謊」的測試）
 // ============================================================
 
 import { INestApplication, LoggerService } from '@nestjs/common';
