@@ -27,7 +27,12 @@ async function bootstrap() {
   setupApp(app);
 
   // 讓 Ctrl+C / SIGTERM 時能觸發 onModuleDestroy，正常關閉資料庫連線池。
-  // 部署到 Render 之後這件事更重要，否則每次重啟都會留下沒關掉的連線。
+  //
+  // Ch8 部署到 Render 之後量過：在這個組合下它的效果**觀測不到** ——
+  // pg 的連線池閒置 10 秒就自己關掉連線、Neon 免費方案的 compute 也會 autosuspend，
+  // 兩個機制都會搶先把連線收走，所以「重啟後連線累積」根本不會發生。
+  // 它真正會發威的是「長閒置逾時 + 不會休眠的資料庫 + 頻繁重啟」。
+  // 留著的理由是成本為零，而它失效的時候完全無聲。
   app.enableShutdownHooks();
 
   SwaggerModule.setup('docs', app, buildSwaggerDocument(app));

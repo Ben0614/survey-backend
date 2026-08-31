@@ -12,10 +12,10 @@
 > 換機或開新對話時**先讀這一節**。對話歷史與 AI 記憶都在 `~/.claude/` 底下，不跟 git 走 ——
 > 這裡沒寫的東西，換一台機器就等於沒發生過。
 
-**進度：** Ch0 ~ Ch7 完成。
-**階段一只剩 Ch8。**
+**進度：** Ch0 ~ Ch8 完成 —— **階段一結束，後端已經上線。**
+線上位址 `https://survey-backend-0dku.onrender.com`（Render 免費方案 + Neon 的 `production` branch）。
 `pnpm test:e2e` **84 passed**、`pnpm test` **6 passed**、`tsc --noEmit` 0 errors、`lint` 0 problems。
-下一步是 **Ch8（第一次部署）**，接續點寫在下方「Ch8 接續點」。
+下一步是 **Ch9（User model、bcrypt、註冊登入）**，接續點寫在下方「Ch9 接續點」。
 
 **重要脈絡：** Ch0 的程式碼是 AI 產生的，因此進度表的 ✅ 起初**只代表環境可用**，
 不代表讀得懂 —— 為此補了一批 `[教學]` 註解當作理解鷹架（見 `docs/專案速查.md` 的「閱讀動線」）。
@@ -436,38 +436,107 @@ Ch6 的完整觀念、取捨、6 條坑（含新增的坑 #6）、追加問答�
 
 ---
 
-### Ch8 接續點（2026-08-28）
+**2026-08-31 —— Ch8 完成，階段一結束，後端上線。**
+測試數字不變（`84 passed` / `6 passed`）—— **這一章沒有寫任何一條測試，也沒有任何行為改變。**
+四輪：production build、`migrate deploy` 與正式資料庫、Render 上線、連線數量測。
+
+這一章跟前八章的結構性差別是：**沒有 e2e 綠燈可以當驗收。** 84 條測試跑的是
+ts-jest 直接載入的 `AppModule`，跟 `nest build` 的產物、跟線上那台機器都是不同的路徑，
+所以「建置產物對不對」「線上連得到資料庫嗎」它們一條都保護不到。驗收全是手動的。
+
+最貴的五課：
+
+1. **本機 build 綠燈對線上幾乎沒有保證。** `/src/generated` 在 `.gitignore` 裡，
+   Prisma Client 是**產物**；平台 clone 的是乾淨的 repo，那個資料夾根本不存在，
+   `nest build` 會以 `TS2307` 掛在**建置階段**。而這件事在本機怎麼試都是綠的。
+   解法是 `prebuild` 鉤子 —— 讓「build 前一定有最新的 client」變成結構上不可能忘記。
+   這是 2026-08-09 換機那次的第二次現場，根因一模一樣。
+2. **假綠的第十種：驗收對象是上一次的建置產物。** `nest build` 不清空 `dist/`、
+   `node` 又早把檔案載進記憶體，於是「build 掛掉 → `dist/main.js` 還在 → `/health` 回 200」
+   整條路成立。證據是 `dist/` 裡同時有兩次 build 的產物。
+   **前九種假綠都出在測試或程式碼本身，這次是驗收的對象錯了。**
+3. **不要用「改資料夾名字」模擬「資料夾不存在」。** VS Code 把它當成重構，
+   16 行 import、14 個檔案一起被改掉。`rm -rf` 就好，`prisma generate` 一秒重建。
+4. **兩個機制都能解釋同一個觀測結果時，那個觀測就不是證據。**
+   `app.enableShutdownHooks()` 的效果在這個組合下**觀測不到** ——
+   `pg` 閒置 10 秒關連線、Neon 免費方案 compute 會 autosuspend，兩者都會搶先把連線收走。
+   所以「重啟後連線沒累積」不能當成它有效的證據。**這一章沒有假裝驗證過它**（同 Ch5「症狀減輕不等於找到原因」）。
+5. **教練第十一次「先給結論、沒有先量」，這次自己在同一輪內推翻。**
+   先建議把 Health Check Path 設成 `/health`，算完 CU-hours 才發現會害 Neon 永遠不休眠
+   （100 CU-hours/月，`0.25 × 730 ≈ 182`，額度撐不到月底）。
+   對照組是同一輪的另一個問題：`prisma` 在 `devDependencies` 裡會不會被跳過 ——
+   那次**沒有猜，直接讓部署當探針**，幾分鐘換到確定的答案。
+
+量到的三個數字：`max_connections` **901**；持續 12 條並發時 `pg_stat_activity`
+只有 **7 條**、`application_name` 是 **`pgbouncer`**（所以那張表看到的不是應用開的連線，
+是中間那層開的）；熱狀態下台灣打到 Render 新加坡往返 **0.16 ~ 0.22 秒**（五次取樣）。
+**冷啟動沒量到** —— 量的時候服務剛好還醒著，沒有硬等它休眠。
+
+兩個刻意的「不做」，都有數字撐著：正式環境**不設 `DATABASE_POOL_MAX`**（離 901 遠得看不到）、
+**不設 Health Check Path**（見第 5 點）。
+
+另外收尾時抓到 `docs/專案速查.md` 換機驗收那一節的數字停在 **`4 / 36 passed`**，
+過期了四章半 —— 而那一節的用途正是「數字對不上就別開始寫程式」。
+
+觀念、取捨、5 條坑與五題作業都在
+[`ch08`](docs/chapters/ch08-第一次部署.md)，這裡不重複。
+部署設定值、線上網址、連線的三段結構寫在
+[`docs/專案速查.md`](docs/專案速查.md) 的「部署與正式環境」（那份反映現況，隨時更新）。
+
+**現狀要記住的一件事**：這個 API **完全沒有認證**，而它現在在公開網址上 ——
+任何人都能建立、修改、刪除問卷與作答。這正是階段二存在的理由。
+**Ch10 的 AuthGuard 上線之前，不要把網址貼到公開的地方。**
+
+---
+
+### Ch9 接續點（2026-08-31）
 
 **目前狀態**：`pnpm test:e2e` **84 passed**、`pnpm test` **6 passed**、
 `tsc --noEmit` 0 errors、`eslint` 0 problems。
-**Ch0 ~ Ch7 完成，階段一只剩這一章。**
+**Ch0 ~ Ch8 完成，階段一結束。後端已經上線。**
 
-#### 換機之後先做這三件事
+#### 換機之後先做這四件事
 
 1. **一般的換機步驟**（`git pull` / `pnpm install` / `pnpm exec prisma generate` /
    重建 `.env`、`.env.test` / 重建 skills junction）—— 見
    [`docs/專案速查.md`](docs/專案速查.md) 的「換機接續」。
-2. **跑四項驗收確認數字對得上**：`test:e2e` **84**、`test` **6**、`tsc` 0、`lint` 0。
+2. **`.env` 要指向 `dev` branch**（Ch8 起 Neon 上有三條：`production` / `dev` / `test`，
+   host 前綴互不相同）。**`production` 那條本機不需要**，它只填在 Render 的環境變數裡。
+3. **跑四項驗收確認數字對得上**：`test:e2e` **84**、`test` **6**、`tsc` 0、`lint` 0。
    對不上就先修環境，別開始寫程式。
-3. **確認 `core.autocrlf`**：`git config --get core.autocrlf`。
-   本機設定、不跟著 git 走，查換行**只信 `git ls-files --eol` 的 `i/` 欄**。
+4. **確認 `core.autocrlf`**：`git config --get core.autocrlf`。
+   本機設定、不跟著 git 走（兩台機器實測是不同的值），
+   查換行**只信 `git ls-files --eol` 的 `i/` 欄**。
 
-#### Ch8 要做什麼
+#### 線上環境
 
-**主題：第一次部署（後端先上線）** —— `migrate deploy`、正式環境變數、連線數上限。
+| 項目 | 值 |
+| --- | --- |
+| 網址 | `https://survey-backend-0dku.onrender.com` |
+| 平台 | Render 免費方案，Region Singapore，接 GitHub `main`（push 就自動重新部署） |
+| 資料庫 | Neon 的 `production` branch |
+| `/docs` | 公開（刻意的，理由見 `ch08`） |
+| 認證 | **沒有** —— 任何人都能讀寫刪。網址先不要公開貼 |
 
-此時系統最簡單（沒有認證、沒有前端），變數最少，這是課綱刻意把部署排在階段一結尾的理由。
+設定值與維運細節在 [`docs/專案速查.md`](docs/專案速查.md) 的「部署與正式環境」。
+
+#### Ch9 要做什麼
+
+**主題：User model、bcrypt、註冊登入。** 階段二的第一章，也是這個專案第一次處理**機密資料**。
+
 幾個已經知道會碰到的點，開工前一輪再定細節：
 
-- `prisma migrate deploy` 與 `migrate dev` 的差別（正式環境不能產生新 migration）
-- 正式環境的 `DATABASE_URL` 要指向 Neon 的主分支，不是 test branch
-- **連線數上限**：Neon 有上限，而 `PrismaService` 每個實例一個連線池；
-  `app.enableShutdownHooks()` 拿掉會導致重啟後連線累積（`main.ts` 已有註解）
-- `pnpm build` 產出的是 `dist/main.js`，`start:prod` 跑的是它 ——
-  根目錄新增 `.ts` 檔要記得加進 `tsconfig.build.json` 的 `exclude`，否則進入點路徑會跑掉
+- **對已有資料的表加欄位**：`Survey` 要不要加 `ownerId`？既有的問卷填什麼值？
+  能不能設 `NOT NULL`？—— 這是整個專案最真實的一堂 migration 課（課綱第一次修訂時特別點名的）
+- **密碼雜湊**：bcrypt 的 salt rounds 是成本與安全的取捨；密碼欄位**永遠不能出現在任何回應裡**，
+  而 Ch7 的 entity 是手寫的第二份真相 —— 漏標一個欄位不會有任何錯誤訊息
+- **線上資料庫也要套用**：Ch9 會產生新的 migration，`git push` 之後 Render 的
+  Build Command 會自動跑 `migrate deploy` 把它套到 `production` branch
+- 註冊登入是**兩支新端點**，一樣要進 Swagger 契約（Ch7 的規則：查漏用 grep，不靠記得）
 
-> **Ch7 留下、Ch8 可以順手處理的一件事**：`/docs` 在正式環境要不要公開？
-> 目前是無條件掛上的（`main.ts`）。這是部署時才需要回答的問題。
+> **Ch8 留下、Ch9 之後要重新評估的一件事**：`/docs` 目前公開。
+> 等 Ch10 的 AuthGuard 上線、API 不再對全世界開放讀寫之後，這個決定的前提就變了 ——
+> 到時候「公開契約」才是一個真正可以獨立討論的選擇，而不是「反正門本來就開著」。
 
 ---
 
@@ -488,7 +557,7 @@ Ch6 的完整觀念、取捨、6 條坑（含新增的坑 #6）、追加問答�
 | Ch5 | 提交與查詢作答（Responses） | 巢狀 write vs `$transaction`、原子性、**商業規則與單元測試** | ✅ |
 | Ch6 | 統一錯誤處理與回應格式 | Exception Filter 把 Prisma 錯誤碼轉 HTTP | ✅ |
 | Ch7 | Swagger API 文件 | 產出前端能直接照著串的契約；**契約與實際回應的一致性要用測試守住** | ✅ |
-| Ch8 | **第一次部署（後端先上線）** | `migrate deploy`、正式環境變數、連線數上限 | ⬜ |
+| Ch8 | **第一次部署（後端先上線）** | `migrate deploy` 的冪等性、產物不進版控、連線其實有三段 | ✅ |
 
 ### 階段二：JWT 與權限控管
 
@@ -554,6 +623,7 @@ Ch6 的完整觀念、取捨、6 條坑（含新增的坑 #6）、追加問答�
 | Ch5 — 提交與查詢作答 | [`docs/chapters/ch05-提交與查詢作答.md`](docs/chapters/ch05-提交與查詢作答.md) |
 | Ch6 — 統一錯誤處理與回應格式 | [`docs/chapters/ch06-統一錯誤處理與回應格式.md`](docs/chapters/ch06-統一錯誤處理與回應格式.md) |
 | Ch7 — Swagger API 文件 | [`docs/chapters/ch07-swagger-api文件.md`](docs/chapters/ch07-swagger-api文件.md) |
+| Ch8 — 第一次部署 | [`docs/chapters/ch08-第一次部署.md`](docs/chapters/ch08-第一次部署.md) |
 
 ## 跨章節文件
 

@@ -191,8 +191,14 @@ ResponseDetailEntity 的欄位: [ 'id', 'surveyId', 'createdAt', 'answers' ]
 ### `/health` 不進契約，而理由要寫下來
 
 判準是「**誰照著這份文件寫程式**」：`/docs` 的產品是給前端串接的契約，
-而 `/health` 的呼叫者是 Render 的健康檢查與人工排錯，它們只看狀態碼。
+而 `/health` 的呼叫者是人工排錯（未來若接監控也算），它們只看狀態碼。
 為一個沒有前端讀者的回應維護一份 entity，等於多養一份會過期的真相。
+
+> **Ch8 更正**：這裡原本寫的是「`/health` 的呼叫者是 **Render 的健康檢查**與人工排錯」。
+> 那句話從來沒成真 —— Ch8 部署時**刻意沒有**把它設成 Render 的 Health Check Path，
+> 因為這支會做真的資料庫查詢，被定期輪詢會讓 Neon 的 compute 永遠不 autosuspend，
+> 免費方案的 100 CU-hours 撐不到月底（算式見 [`ch08`](ch08-第一次部署.md) 的「決策取捨」）。
+> **結論（不進契約）沒變，但支撐它的那個理由是錯的。**
 
 留 `@ApiOperation` 是因為「**有這支端點、但它不是給你串的**」本身就是有用的資訊。
 決定不做也是一個決定，理由寫在 `health.controller.ts`（同 `surveys.service.ts` 檔頭那段）。

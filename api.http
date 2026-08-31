@@ -1,7 +1,9 @@
 ### 用 VS Code 的 REST Client 擴充套件開啟這個檔案，每個請求上方會出現 "Send Request"。
 ### 先開一個終端機跑 `pnpm start:dev`，再回來這裡點送出。
 ###
-### 打的是**開發資料庫**（.env 的 DATABASE_URL），不是測試資料庫 —— 這裡建的資料會留著。
+### 預設打的是**開發資料庫**（.env 的 DATABASE_URL，也就是 Neon 的 dev branch），
+### 不是測試資料庫 —— 這裡建的資料會留著。
+### （Ch8 之後也可以改打線上，見下方 @host 那一段的警告。）
 ###
 ### 底下用了 REST Client 的「具名請求」：`# @name xxx` 之後就能用
 ### {{xxx.response.body.id}} 取出上一個回應的欄位。所以請**由上往下依序送出**，
@@ -28,6 +30,13 @@
 ### ------------------------------------------------------------
 
 @host = http://localhost:3100
+
+### 線上服務（Ch8 部署到 Render）。把上面那行註解掉、這行打開就會改打線上：
+### @host = https://survey-backend-0dku.onrender.com
+###
+### **切過去之前想清楚**：線上連的是 production branch，也就是正式資料庫。
+### 底下每一個 POST / PATCH / DELETE 都會真的改到線上資料，而且沒有還原機制。
+### 只是想看看回應長怎樣的話，用 GET 就夠了。
 
 ### 健康檢查：確認服務活著、而且資料庫連得上
 GET {{host}}/health
