@@ -4,6 +4,10 @@
   "description": "問卷管理平台 API（NestJS + Prisma + PostgreSQL）",
   "private": true,
   "license": "UNLICENSED",
+  "packageManager": "pnpm@11.17.0",
+  "engines": {
+    "node": ">=22"
+  },
   "scripts": {
     "prebuild": "prisma generate",
     "build": "nest build",
