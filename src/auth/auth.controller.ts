@@ -13,6 +13,10 @@
 // register 是 201/409/400，login 是 200/401/400 —— 兩支各三個，但只有 400 重疊。
 // 查漏的方法不是靠記憶，是問「這支端點有幾條路可以走出去」。
 //
+// **Ch10 之後兩支的成功回應不再是同一種形狀**：register 是 UserEntity、
+// login 是 LoginEntity。這兩個 type: 是純文件，service 實際回什麼跟它們無關 ——
+// 分岔了也沒有任何工具會叫（理由與踩過的坑見 entities/login.entity.ts 檔頭）。
+//
 // 下一站：src/auth/dto/register.dto.ts（body 進來之前先被誰檢查）
 // ============================================================
 
@@ -31,6 +35,7 @@ import { AuthService } from './auth.service';
 import { RegisterDto } from './dto/register.dto';
 import { LoginDto } from './dto/login.dto';
 import { UserEntity } from './entities/user.entity';
+import { LoginEntity } from './entities/login.entity';
 import { ErrorResponseEntity } from '../common/entities/error-response.entity';
 
 @ApiTags('auth')
@@ -53,7 +58,7 @@ export class AuthController {
   @Post('login')
   @HttpCode(HttpStatus.OK)
   @ApiOperation({ summary: '用戶登入' })
-  @ApiOkResponse({ description: '登入成功', type: UserEntity })
+  @ApiOkResponse({ description: '登入成功', type: LoginEntity })
   @ApiBadRequestResponse({ description: '參數錯誤', type: ErrorResponseEntity })
   @ApiUnauthorizedResponse({
     description: '帳號或密碼錯誤',

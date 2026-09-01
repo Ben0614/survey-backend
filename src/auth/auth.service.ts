@@ -20,12 +20,27 @@
 //
 // 3. **login 是全專案唯一寫 omit: { passwordHash: false } 的地方。**
 //    全域 omit 是「預設拒絕」，比對密碼是唯一有正當理由要回它的場合。
-//    代價是：要回來之後那個物件就帶著雜湊了，所以回傳前必須剔除
-//    （下面那行解構）。register 不需要做這件事，因為它從來沒把它撈出來。
+//    代價是：查回來之後那個物件就帶著雜湊了。
+//
+//    Ch9 時靠回傳前解構把它剔除，**Ch10 之後那一步消失了** ——
+//    login 只回 { accessToken }，整個 user 物件根本沒有被送出去。
+//    但風險只是換了位置：現在要小心的是別把它放進 payload（見下一點）。
+//    register 兩種情況都不必處理，因為它從來沒把雜湊撈出來。
+//
+// 4. **payload 只放 sub（Ch10）。** 兩個理由，都跟「payload 是什麼」有關：
+//    它是 **base64 編碼、不是加密**，任何拿到 token 的人都看得見裡面每個字；
+//    而且它是**簽發當下的快照**，不會跟著資料庫更新（exp 也是同一個道理）。
+//
+//    所以放進去的東西必須「不機密」而且「有效期內不會變」。
+//    email 兩條都踩線（是個資，而且使用者可以改 —— 改完 token 裡那份就是舊的），
+//    id 兩條都安全。輪 3 的 Survey.ownerId 直接拿 sub 來填，不必再查一次資料庫。
+//
+//    iat / exp 不是我們寫的，是 auth.module.ts 的 signOptions 自動塞進去的。
 //
 // 下一站：test/setup-env.ts（上面這些怎麼被自動驗證）
 // ============================================================
 
+import { JwtService } from '@nestjs/jwt';
 import { Injectable, UnauthorizedException } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { RegisterDto } from './dto/register.dto';
@@ -36,7 +51,10 @@ const unauthorizedExceptionDescription = '帳號或密碼錯誤';
 
 @Injectable()
 export class AuthService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly jwtService: JwtService,
+  ) {}
 
   async register(dto: RegisterDto) {
     return this.prisma.user.create({
@@ -64,8 +82,9 @@ export class AuthService {
       throw new UnauthorizedException(unauthorizedExceptionDescription);
     }
 
-    const { passwordHash, ...safe } = user;
+    const payload = { sub: user.id };
+    const token = await this.jwtService.signAsync(payload);
 
-    return safe;
+    return { accessToken: token };
   }
 }

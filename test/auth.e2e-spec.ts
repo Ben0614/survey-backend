@@ -1,9 +1,9 @@
 // ============================================================
-// [教學] auth.e2e-spec.ts —— 註冊與登入的 E2E（Ch9）
+// [教學] auth.e2e-spec.ts —— 註冊與登入的 E2E（Ch9 建立，Ch10 改寫登入那一組）
 //
 // 跑法：pnpm test:e2e -- test/auth.e2e-spec.ts
 //
-// 這一支有兩條「主角」測試，各自守著一個沒有症狀的錯誤：
+// 這一支有三條「主角」測試，各自守著一個沒有症狀的錯誤：
 //
 //   「201 的回應不含 passwordHash」
 //       用 Object.keys(body).sort() 比對**整個欄位集合**，而不是只寫
@@ -15,6 +15,13 @@
 //       它是 user enumeration 唯一的守衛，而且刻意**比對兩個回應**
 //       而不是寫死字串：改文案時測試不用跟著改，但兩邊分岔立刻紅。
 //       已實測 —— 把其中一支的訊息改掉，剛好只有這一條變紅。
+//
+//   「回傳的 accessToken 解開後 sub 等於註冊時那個使用者的 id」（Ch10）
+//       它守的是 signAsync 漏掉 await。那時回應是 {"accessToken":{}} ——
+//       key 集合仍然只有 accessToken，所以上面那條「body 只有一個欄位」是**綠的**；
+//       tsc 也綠、lint 也綠（Promise 有被指派也有被 return，不算浮空）。
+//       只有把 token 真的解開才抓得到。
+//       **「形狀對」和「值對」是兩條測試，一條蓋不了另一條。**
 //
 // 前提資料一律用 POST /auth/register 產生，不用 prisma.user.create ——
 // 後者存的是明文、繞過被測的程式碼（Ch5 假綠的第九種）。
@@ -38,6 +45,10 @@ interface AuthRegisterBody {
   updatedAt: string;
 }
 
+interface AuthLoginBody {
+  accessToken: string;
+}
+
 interface ErrorBody {
   error: {
     code: string;
@@ -45,6 +56,12 @@ interface ErrorBody {
     details?: string[];
   };
 }
+
+const decodeFunc = (body: AuthLoginBody) => {
+  return JSON.parse(
+    Buffer.from(body.accessToken.split('.')[1], 'base64').toString(),
+  ) as { sub: string; iat: number; exp: number };
+};
 
 describe('Auth (e2e)', () => {
   let app: INestApplication<App>;
@@ -167,7 +184,7 @@ describe('Auth (e2e)', () => {
   });
 
   describe('POST /auth/login', () => {
-    it('正確的 email 與密碼 → 200，回傳 id、email、createdAt、updatedAt', async () => {
+    it('正確的 email 與密碼 → 200，body 只有 accessToken 一個欄位', async () => {
       await request(app.getHttpServer())
         .post('/auth/register')
         .send({ email: 'user@example.com', password: 'zxcv1234' })
@@ -178,18 +195,30 @@ describe('Auth (e2e)', () => {
         .send({ email: 'user@example.com', password: 'zxcv1234' })
         .expect(200);
 
-      const body = res.body as AuthRegisterBody;
-      expect(Object.keys(body).sort()).toEqual([
-        'createdAt',
-        'email',
-        'id',
-        'updatedAt',
-      ]);
-      expect(body.email).toBe('user@example.com');
-      expect(body.id).toEqual(expect.any(String));
+      const body = res.body as AuthLoginBody;
+      expect(Object.keys(body).sort()).toEqual(['accessToken']);
+      expect(body.accessToken).toEqual(expect.any(String));
     });
 
-    it('200 的回應不含 passwordHash', async () => {
+    it('回傳的 accessToken 解開後 sub 等於註冊時那個使用者的 id', async () => {
+      const user = await request(app.getHttpServer())
+        .post('/auth/register')
+        .send({ email: 'user@example.com', password: 'zxcv1234' })
+        .expect(201);
+
+      const userBody = user.body as AuthRegisterBody;
+
+      const res = await request(app.getHttpServer())
+        .post('/auth/login')
+        .send({ email: 'user@example.com', password: 'zxcv1234' })
+        .expect(200);
+
+      const resBody = res.body as AuthLoginBody;
+      const payload = decodeFunc(resBody);
+      expect(payload.sub).toBe(userBody.id);
+    });
+
+    it('回傳的 accessToken 裡不含 passwordHash', async () => {
       await request(app.getHttpServer())
         .post('/auth/register')
         .send({ email: 'user@example.com', password: 'zxcv1234' })
@@ -200,17 +229,12 @@ describe('Auth (e2e)', () => {
         .send({ email: 'user@example.com', password: 'zxcv1234' })
         .expect(200);
 
-      const body = res.body as AuthRegisterBody;
-      expect(Object.keys(body).sort()).toEqual([
-        'createdAt',
-        'email',
-        'id',
-        'updatedAt',
-      ]);
-      expect(body).not.toHaveProperty('passwordHash');
+      const body = res.body as AuthLoginBody;
+      const payload = decodeFunc(body);
+      expect(Object.keys(payload).sort()).toEqual(['exp', 'iat', 'sub']);
     });
 
-    it('密碼錯誤 → 401，code 是 UNAUTHORIZED', async () => {
+    it('密碼錯誤 → 401，code 是 UNAUTHORIZED，且不回 accessToken', async () => {
       await request(app.getHttpServer())
         .post('/auth/register')
         .send({ email: 'user@example.com', password: 'zxcv1234' })
@@ -223,6 +247,7 @@ describe('Auth (e2e)', () => {
 
       const body = res.body as ErrorBody;
       expect(body.error.code).toBe('UNAUTHORIZED');
+      expect(Object.keys(body).sort()).toEqual(['error']);
     });
 
     it('email 沒註冊過 → 401，message 與密碼錯誤時完全相同', async () => {
