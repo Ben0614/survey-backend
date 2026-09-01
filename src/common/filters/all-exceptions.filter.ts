@@ -36,6 +36,7 @@ import { Prisma } from '../../generated/prisma/client';
 // 型別要說實話，下面的 ?? 才不會被當成多餘的判斷。
 const STATUS_TO_CODE: Record<number, string | undefined> = {
   [HttpStatus.BAD_REQUEST]: 'BAD_REQUEST',
+  [HttpStatus.UNAUTHORIZED]: 'UNAUTHORIZED',
   [HttpStatus.NOT_FOUND]: 'NOT_FOUND',
   [HttpStatus.CONFLICT]: 'CONFLICT',
 };
