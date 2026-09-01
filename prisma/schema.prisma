@@ -81,6 +81,9 @@ model Survey {
   // 等一下讀 migration.sql 時，你會發現這兩行完全找不到對應的 SQL。
   questions Question[]
   responses Response[]
+
+  ownerId String?
+  owner   User?   @relation(fields: [ownerId], references: [id], onDelete: SetNull)
 }
 
 enum QuestionType {
@@ -132,4 +135,5 @@ model User {
   passwordHash String
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
+  surveys      Survey[]
 }

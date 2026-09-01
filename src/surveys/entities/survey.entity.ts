@@ -73,6 +73,12 @@ export class SurveyEntity {
     type: [QuestionEntity],
   })
   questions?: QuestionEntity[];
+
+  @ApiProperty({
+    description: '建立者的 User id，尚未有值時為 null',
+    nullable: true,
+  })
+  ownerId: string | null;
 }
 
 export class PaginatedSurveysEntity {
