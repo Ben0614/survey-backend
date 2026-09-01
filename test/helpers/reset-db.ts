@@ -28,6 +28,6 @@ export async function resetDb(prisma: PrismaClient): Promise<void> {
   // $executeRawUnsafe 的 Unsafe 是指「這段字串不會被參數化」——
   // 拼接使用者輸入進去就是 SQL injection。這裡是寫死的常數，沒有這個風險。
   await prisma.$executeRawUnsafe(
-    'TRUNCATE "Answer", "Response", "Question", "Survey" RESTART IDENTITY CASCADE',
+    'TRUNCATE "Answer", "Response", "Question", "Survey", "User" RESTART IDENTITY CASCADE',
   );
 }

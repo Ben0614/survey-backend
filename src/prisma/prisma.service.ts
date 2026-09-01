@@ -79,6 +79,7 @@ export class PrismaService
     // PrismaPg 的第一個參數就是 pg 的 Pool 設定，所以 max 直接放在這裡。
     super({
       adapter: new PrismaPg({ connectionString, max: poolMax }),
+      omit: { user: { passwordHash: true } },
       log: logQueries ? ['query'] : [],
     });
   }
