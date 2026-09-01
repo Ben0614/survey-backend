@@ -81,7 +81,7 @@ describe('Swagger 契約（buildSwaggerDocument）', () => {
     const doc = buildSwaggerDocument(app);
 
     expect(doc.openapi.startsWith('3')).toBe(true);
-    // Ch9 輪 2 加了 /auth/register，9 → 11。
+    // Ch9 加了 /auth/register（輪 2）與 /auth/login（輪 3），9 → 11。
     // 這條會因為新增端點而紅是刻意的：它強迫你回頭確認新端點的契約標齊了。
     expect(Object.keys(doc.paths)).toHaveLength(11);
   });

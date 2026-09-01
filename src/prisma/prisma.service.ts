@@ -77,6 +77,16 @@ export class PrismaService
     // 改由 Node 生態的 pg 套件負責，PrismaPg 就是兩者之間的轉接頭。
     //
     // PrismaPg 的第一個參數就是 pg 的 Pool 設定，所以 max 直接放在這裡。
+    // omit 是 Ch9 加的：讓 User.passwordHash 預設不會被任何查詢撈出來。
+    //
+    // 放在這裡而不是「每支查詢各寫一次 select」，是因為兩者的失敗方式差很多：
+    // 逐一排除要在 N 個查詢點各對一次，漏掉一處的症狀是密碼雜湊出現在
+    // API 回應裡 —— tsc 綠、測試綠、/docs 上看起來也正常。
+    // 寫在這裡則是「預設拒絕」：要拿到它必須明確寫 omit: { passwordHash: false }，
+    // 而全專案只有 auth.service.ts 的 login 有那個正當理由。
+    //
+    // 代價要知道：之後新增的欄位**預設會被送出去**。所以規則是
+    // **機密欄位一律加進這裡**，而不是指望呼叫端記得排除。
     super({
       adapter: new PrismaPg({ connectionString, max: poolMax }),
       omit: { user: { passwordHash: true } },

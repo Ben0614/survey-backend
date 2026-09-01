@@ -15,7 +15,7 @@
 // 還有一條是專案第一次的併發測試（在 questions.e2e-spec.ts），
 // 那條的結論寫在 ch05 坑 #5：**綠不代表修好了。**
 //
-// 下一站：test/errors.e2e-spec.ts（不測某一支端點，測所有端點共同的那一層）
+// 下一站：test/auth.e2e-spec.ts（第一次測「回應裡不該有什麼」）
 // ============================================================
 
 import { INestApplication } from '@nestjs/common';

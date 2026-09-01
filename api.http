@@ -43,6 +43,57 @@ GET {{host}}/health
 
 
 ### ------------------------------------------------------------
+### Auth（Ch9）—— 註冊與登入
+### ------------------------------------------------------------
+###
+### 注意：這兩支端點**只驗證身分，不會讓你「保持登入」** ——
+### 沒有 token、沒有 session，回應完伺服器就忘了。Ch10 的 JWT 才會讓它有用。
+
+### 註冊。email 有唯一約束，同一個送第二次會回 409。
+### 密碼會用 bcrypt 雜湊之後才存，回應裡不會有 passwordHash（全域 omit 擋掉的）。
+# @name register
+POST {{host}}/auth/register
+Content-Type: application/json
+
+{
+  "email": "demo@example.com",
+  "password": "zxcv1234"
+}
+
+
+### 登入。成功回 200（不是 201 —— 沒有建立任何資源）。
+POST {{host}}/auth/login
+Content-Type: application/json
+
+{
+  "email": "demo@example.com",
+  "password": "zxcv1234"
+}
+
+
+### 密碼錯誤 → 401，code 是 UNAUTHORIZED。
+### 把 email 換成一個沒註冊過的，回應會**一模一樣** ——
+### 那是刻意的：分開回就等於免費告訴別人「哪些 email 註冊過」。
+POST {{host}}/auth/login
+Content-Type: application/json
+
+{
+  "email": "demo@example.com",
+  "password": "wrongpassword"
+}
+
+
+### 驗證失敗 → 400，code 是 VALIDATION_FAILED，details 裡有逐條訊息。
+POST {{host}}/auth/register
+Content-Type: application/json
+
+{
+  "email": "not-an-email",
+  "password": "abc"
+}
+
+
+### ------------------------------------------------------------
 ### Surveys（Ch2）
 ### ------------------------------------------------------------
 

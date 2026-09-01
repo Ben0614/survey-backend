@@ -10,7 +10,7 @@
 // 所以「改完 schema 一定要跑 generate」不是儀式，是因為不跑的話
 // 程式裡用到的型別還停留在舊版本。
 //
-// 四個 model（Survey / Question / Response / Answer）在檔案下方。
+// 五個 model（Survey / Question / Response / Answer / User）在檔案下方。
 // 它們背後的資料庫觀念（主鍵、外鍵、一對多、唯一約束）寫在
 // docs/關聯式資料庫基礎.md —— 這裡只負責「翻譯成 Prisma 的寫法」。
 //

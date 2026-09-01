@@ -1,3 +1,27 @@
+// ============================================================
+// [教學] auth.e2e-spec.ts —— 註冊與登入的 E2E（Ch9）
+//
+// 跑法：pnpm test:e2e -- test/auth.e2e-spec.ts
+//
+// 這一支有兩條「主角」測試，各自守著一個沒有症狀的錯誤：
+//
+//   「201 的回應不含 passwordHash」
+//       用 Object.keys(body).sort() 比對**整個欄位集合**，而不是只寫
+//       not.toHaveProperty('passwordHash')。後者只要字串拼錯（passwordhash、
+//       或哪天欄位改名）就永遠是綠的，而雜湊每天照樣送出去。
+//       列「該有的」比列「不該有的」可靠 —— 前者不依賴你把名字拼對。
+//
+//   「email 沒註冊過 → message 與密碼錯誤時完全相同」
+//       它是 user enumeration 唯一的守衛，而且刻意**比對兩個回應**
+//       而不是寫死字串：改文案時測試不用跟著改，但兩邊分岔立刻紅。
+//       已實測 —— 把其中一支的訊息改掉，剛好只有這一條變紅。
+//
+// 前提資料一律用 POST /auth/register 產生，不用 prisma.user.create ——
+// 後者存的是明文、繞過被測的程式碼（Ch5 假綠的第九種）。
+//
+// 下一站：test/errors.e2e-spec.ts（不測某一支端點，測所有端點共同的那一層）
+// ============================================================
+
 import { INestApplication } from '@nestjs/common';
 import { Test, TestingModule } from '@nestjs/testing';
 import request from 'supertest';

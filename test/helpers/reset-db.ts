@@ -13,9 +13,9 @@
 import { PrismaClient } from '../../src/generated/prisma/client';
 
 /**
- * 清空四張業務資料表。
+ * 清空五張業務資料表（Ch9 起多了 User）。
  *
- * 用一句 TRUNCATE 一次處理四張表，`CASCADE` 讓資料庫自己解決外鍵順序 ——
+ * 用一句 TRUNCATE 一次處理五張表，`CASCADE` 讓資料庫自己解決外鍵順序 ——
  * 不必煩惱「要先刪 Answer 還是先刪 Question」。
  *
  * 為什麼不用 deleteMany()：那是四次來回，而且要自己排順序。

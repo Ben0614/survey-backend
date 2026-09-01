@@ -21,6 +21,7 @@
     "test:watch": "node --experimental-vm-modules node_modules/jest/bin/jest.js --watch --passWithNoTests",
     "test:cov": "node --experimental-vm-modules node_modules/jest/bin/jest.js --coverage --passWithNoTests",
     "kill:jest": "node scripts/kill-stale-workers.js",
+    "migrate:test": "node scripts/migrate-test.js",
     "pretest:e2e": "node scripts/kill-stale-workers.js",
     "test:e2e": "node --experimental-vm-modules node_modules/jest/bin/jest.js --config ./test/jest-e2e.json --forceExit"
   },

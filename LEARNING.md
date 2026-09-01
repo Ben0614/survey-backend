@@ -12,10 +12,10 @@
 > 換機或開新對話時**先讀這一節**。對話歷史與 AI 記憶都在 `~/.claude/` 底下，不跟 git 走 ——
 > 這裡沒寫的東西，換一台機器就等於沒發生過。
 
-**進度：** Ch0 ~ Ch8 完成 —— **階段一結束，後端已經上線。**
+**進度：** Ch0 ~ Ch9 完成。階段一（含部署）結束，**階段二做完第一章**。
 線上位址 `https://survey-backend-0dku.onrender.com`（Render 免費方案 + Neon 的 `production` branch）。
-`pnpm test:e2e` **84 passed**、`pnpm test` **6 passed**、`tsc --noEmit` 0 errors、`lint` 0 problems。
-下一步是 **Ch9（User model、bcrypt、註冊登入）**，接續點寫在下方「Ch9 接續點」。
+`pnpm test:e2e` **95 passed**、`pnpm test` **6 passed**、`tsc --noEmit` 0 errors、`lint` 0 problems。
+下一步是 **Ch10（JWT 與全域 AuthGuard）**，接續點寫在下方「Ch10 接續點」。
 
 **重要脈絡：** Ch0 的程式碼是 AI 產生的，因此進度表的 ✅ 起初**只代表環境可用**，
 不代表讀得懂 —— 為此補了一批 `[教學]` 註解當作理解鷹架（見 `docs/專案速查.md` 的「閱讀動線」）。
@@ -489,11 +489,54 @@ ts-jest 直接載入的 `AppModule`，跟 `nest build` 的產物、跟線上那�
 
 ---
 
-### Ch9 接續點（2026-08-31）
+**2026-09-01 —— Ch9 完成。** `95 passed`（+11）、`pnpm test` 仍 `6 passed`。
+四輪：`User` model、註冊、登入、`Survey.ownerId`。這是專案第一次處理**機密資料**。
 
-**目前狀態**：`pnpm test:e2e` **84 passed**、`pnpm test` **6 passed**、
+**這一章做完，登入仍然不會有任何效果** —— 沒有 token、沒有 session。
+真正讓它有用的是 Ch10。這一章驗證的只有「密碼比對這段邏輯是對的」。
+
+最貴的六課：
+
+1. **「預設拒絕」比「逐一排除」可靠。** `passwordHash` 擋在 `PrismaService` 的全域 `omit`
+   而不是每支查詢各寫一次 `select` —— 後者要在 N 個查詢點各對一次，漏一處的症狀是
+   雜湊出現在 API 回應裡，而 tsc 綠、測試綠、`/docs` 看起來也正常。
+   代價要記住：**之後新增的欄位預設會被送出去**，所以機密欄位一律加進那一層。
+2. **`prisma migrate status` 說 `up to date` 不代表資料庫跟 schema 一致。**
+   輪 4 把 `onDelete` 改成 `SetNull` 卻沒重新產生 migration，資料庫的外鍵其實還是
+   `CASCADE` —— 而 `Question`/`Response`/`Answer` 對 `Survey` 都是 Cascade，
+   **刪一個帳號會把所有人填的作答一起帶走**。`migrate status` 只比對「資料夾 vs 已套用清單」，
+   唯一抓得到的是 **`prisma migrate diff`**。
+   判準：**`schema.prisma` 不是資料庫的真相，`prisma/migrations/` 才是。**
+3. **`migrate dev` 不會順帶 `generate`，而 `tsc` 是綠的**（輪 1、輪 4 各一次）。
+   還沒有程式碼用到新 model／欄位時，client 有沒有跟上對 `tsc` 完全沒差。
+   **改完 schema 直接查產物**：`ls src/generated/prisma/models/`。
+4. **三條 branch 裡只有 test 要手動套用 migration**，而忘記的症狀有誤導性：
+   e2e 突然 500、訊息是 `The table public.User does not exist` 且指著剛寫的 service。
+   因此多了一支 `pnpm migrate:test` —— 靠結構，不靠紀律。
+5. **`NOT NULL` 加不上去是資料逼的，不是風格選擇。** 當時有 9 份問卷、0 個使用者，
+   而 `ownerId` 有外鍵約束 —— 沒有任何合法的值可以回填。真實專案的標準解是
+   三步 migration（先 nullable → 回填 → 再改 `NOT NULL`），這裡連可回填的值都還不存在。
+6. **規則存在、但沒被放進逐檔案清單，等於沒有。** `src/auth/` 六個檔案加測試檔的
+   `[教學]` 檔頭全部是收尾才補的，動線斷了三輪 —— 因為開工指引裡沒有把「寫檔頭」
+   列進「這一輪要改什麼」。這是 Ch7 坑 #5 的同一個形狀：**規則有效，但使用時機錯了。**
+
+安全相關的兩個決定寫在 [`ch09`](docs/chapters/ch09-認證基礎.md)：登入的兩條失敗路徑
+用同一句訊息（user enumeration），以及**時間差刻意沒有處理** —— 知道洞在哪，
+而不是以為補好了。
+
+觀念、取捨、6 條坑與五題作業都在 [`ch09`](docs/chapters/ch09-認證基礎.md)，這裡不重複。
+狀態碼「一個名字三種包裝」的完整對照表補進了
+[`docs/錯誤處理與狀態碼.md`](docs/錯誤處理與狀態碼.md)；
+`migrate` 與 `generate` 的分工、`migrate diff` 抓漂移、nullable vs optional
+補進了 [`docs/Prisma速查.md`](docs/Prisma速查.md)。
+
+---
+
+### Ch10 接續點（2026-09-01）
+
+**目前狀態**：`pnpm test:e2e` **95 passed**、`pnpm test` **6 passed**、
 `tsc --noEmit` 0 errors、`eslint` 0 problems。
-**Ch0 ~ Ch8 完成，階段一結束。後端已經上線。**
+**Ch0 ~ Ch9 完成。階段一結束、後端已上線，階段二做完第一章。**
 
 #### 換機之後先做這四件事
 
@@ -502,7 +545,7 @@ ts-jest 直接載入的 `AppModule`，跟 `nest build` 的產物、跟線上那�
    [`docs/專案速查.md`](docs/專案速查.md) 的「換機接續」。
 2. **`.env` 要指向 `dev` branch**（Ch8 起 Neon 上有三條：`production` / `dev` / `test`，
    host 前綴互不相同）。**`production` 那條本機不需要**，它只填在 Render 的環境變數裡。
-3. **跑四項驗收確認數字對得上**：`test:e2e` **84**、`test` **6**、`tsc` 0、`lint` 0。
+3. **跑四項驗收確認數字對得上**：`test:e2e` **95**、`test` **6**、`tsc` 0、`lint` 0。
    對不上就先修環境，別開始寫程式。
 4. **確認 `core.autocrlf`**：`git config --get core.autocrlf`。
    本機設定、不跟著 git 走（兩台機器實測是不同的值），
@@ -516,26 +559,40 @@ ts-jest 直接載入的 `AppModule`，跟 `nest build` 的產物、跟線上那�
 | 平台 | Render 免費方案，Region Singapore，接 GitHub `main`（push 就自動重新部署） |
 | 資料庫 | Neon 的 `production` branch |
 | `/docs` | 公開（刻意的，理由見 `ch08`） |
-| 認證 | **沒有** —— 任何人都能讀寫刪。網址先不要公開貼 |
+| 認證 | **註冊登入有了（Ch9），但還沒有保護任何端點** —— 任何人仍然能讀寫刪。網址先不要公開貼 |
 
 設定值與維運細節在 [`docs/專案速查.md`](docs/專案速查.md) 的「部署與正式環境」。
 
-#### Ch9 要做什麼
+#### 改完 schema 之後，三條 branch 各自怎麼套用
 
-**主題：User model、bcrypt、註冊登入。** 階段二的第一章，也是這個專案第一次處理**機密資料**。
+| branch | 誰套用 |
+| --- | --- |
+| dev | `prisma migrate dev` 當下就套用了 |
+| **test** | **只有這條要你動手：`pnpm migrate:test`**（Ch9 收尾加的腳本） |
+| production | `git push` 之後 Render 的 Build Command 自動跑 |
+
+忘記 test 的症狀有誤導性：e2e 突然 500、訊息是 `The table public.X does not exist`
+而且指著你剛寫的 service（Ch9 輪 2 實際踩過）。
+
+#### Ch10 要做什麼
+
+**主題：JWT 與全域 AuthGuard。** Ch9 把「驗證身分」做完了，但那一刻之後伺服器就忘了 ——
+Ch10 要讓它記得。
 
 幾個已經知道會碰到的點，開工前一輪再定細節：
 
-- **對已有資料的表加欄位**：`Survey` 要不要加 `ownerId`？既有的問卷填什麼值？
-  能不能設 `NOT NULL`？—— 這是整個專案最真實的一堂 migration 課（課綱第一次修訂時特別點名的）
-- **密碼雜湊**：bcrypt 的 salt rounds 是成本與安全的取捨；密碼欄位**永遠不能出現在任何回應裡**，
-  而 Ch7 的 entity 是手寫的第二份真相 —— 漏標一個欄位不會有任何錯誤訊息
-- **線上資料庫也要套用**：Ch9 會產生新的 migration，`git push` 之後 Render 的
-  Build Command 會自動跑 `migrate deploy` 把它套到 `production` branch
-- 註冊登入是**兩支新端點**，一樣要進 Swagger 契約（Ch7 的規則：查漏用 grep，不靠記得）
+- **`POST /auth/login` 的回應要改**：目前回 `UserEntity`，之後要帶 token。
+  這是這個專案第一次**改掉一支已經有測試的端點的回應形狀** —— Ch4 那次
+  「改共用型別的意思，炸掉六個無關的地方」的教訓要拿出來用
+- **全域 AuthGuard 與 `@Public()`**：預設全部要登入、例外明確標出來。
+  這跟全域 `omit`、`@unique`、`prebuild` 是同一條原則：**預設拒絕，例外明說**。
+  而 `/health`、`/docs`、註冊、登入四處一定是例外 —— 漏掉任何一個，服務就自己鎖死了
+- **`Survey.ownerId` 終於有值可以填**：Ch9 加了欄位卻沒有人填它（伺服器不知道請求是誰發的），
+  Ch10 之後 `POST /surveys` 才有辦法知道建立者是誰
+- **token 放哪、活多久**：這一章的取捨集中在這裡，跟 Ch14 的前端存放方式互相牽制
 
-> **Ch8 留下、Ch9 之後要重新評估的一件事**：`/docs` 目前公開。
-> 等 Ch10 的 AuthGuard 上線、API 不再對全世界開放讀寫之後，這個決定的前提就變了 ——
+> **Ch8 留下、Ch10 之後要重新評估的一件事**：`/docs` 目前公開。
+> 等 AuthGuard 上線、API 不再對全世界開放讀寫之後，這個決定的前提就變了 ——
 > 到時候「公開契約」才是一個真正可以獨立討論的選擇，而不是「反正門本來就開著」。
 
 ---
@@ -563,7 +620,7 @@ ts-jest 直接載入的 `AppModule`，跟 `nest build` 的產物、跟線上那�
 
 | 章節 | 主題 | 這章的關鍵收穫 | 狀態 |
 | :---: | --- | --- | :---: |
-| Ch9 | User model、bcrypt、註冊登入 | 密碼雜湊；**對已有資料的表加 `ownerId`** | ⬜ |
+| Ch9 | User model、bcrypt、註冊登入 | 密碼雜湊；預設拒絕比逐一排除可靠；**對已有資料的表加 `ownerId`** | ✅ |
 | Ch10 | JWT 與全域 AuthGuard | 認證流程、`@Public()` 的例外機制 | ⬜ |
 | Ch11 | RBAC：只有管理員能刪問卷 | 角色權限、`@Roles()` 自訂裝飾器 | ⬜ |
 | Ch12 | 資源層授權：只能改自己的問卷 | Guard 層 vs Service 層判斷的取捨 | ⬜ |
@@ -624,6 +681,7 @@ ts-jest 直接載入的 `AppModule`，跟 `nest build` 的產物、跟線上那�
 | Ch6 — 統一錯誤處理與回應格式 | [`docs/chapters/ch06-統一錯誤處理與回應格式.md`](docs/chapters/ch06-統一錯誤處理與回應格式.md) |
 | Ch7 — Swagger API 文件 | [`docs/chapters/ch07-swagger-api文件.md`](docs/chapters/ch07-swagger-api文件.md) |
 | Ch8 — 第一次部署 | [`docs/chapters/ch08-第一次部署.md`](docs/chapters/ch08-第一次部署.md) |
+| Ch9 — 認證基礎 | [`docs/chapters/ch09-認證基礎.md`](docs/chapters/ch09-認證基礎.md) |
 
 ## 跨章節文件
 

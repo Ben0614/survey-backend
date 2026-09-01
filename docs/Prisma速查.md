@@ -330,6 +330,77 @@ $env:PRISMA_LOG_QUERIES=1; pnpm start:dev
 
 ---
 
+## 6b. migrate 與 generate 是兩件事（Ch9 兩次踩到）
+
+**`migrate` 系列管「資料庫的結構」，`generate` 管「TypeScript 的型別」。**
+改完 `schema.prisma` 之後**兩邊都要更新**，而且不能假設其中一個會順帶做掉另一個。
+
+| 指令 | 資料庫 | `migrations/` | **`src/generated/`** |
+| --- | :---: | :---: | :---: |
+| `prisma generate` | ❌ | ❌ | ✅ **只做這件事** |
+| `prisma migrate dev --name X` | ✅ 套用 | ✅ 產生新資料夾 | ⚠️ **這個專案實測兩次都沒有** |
+| `prisma migrate deploy` | ✅ 套用 | 只讀 | ❌ **完全不碰** |
+| `prisma migrate status` | 只讀 | 只讀 | ❌ |
+| `prisma migrate diff` | 只讀 | ❌ | ❌ |
+| `prisma migrate reset` | ✅ 清空後重播 | 只讀 | ⚠️ 同 `migrate dev` |
+
+`migrate deploy` 不產生 client 是刻意的 —— 它設計給正式環境用，而那裡的 client 是 build 時就產好的。
+**這就是 `package.json` 要有 `prebuild: prisma generate` 的原因**：Render 的 Build Command
+（`pnpm install && pnpm build && prisma migrate deploy`）三段裡沒有一段會產生 client。
+
+> **驗收不能只看 `tsc`。** 還沒有程式碼用到新 model 或新欄位時，client 有沒有跟上對 `tsc` 完全沒差
+> —— Ch9 輪 1 就是這樣：`migrate dev` 跑完、`tsc` 0 errors，而 client 停在三小時前、沒有 `User` 型別。
+> **改完 schema 直接查產物**：`ls src/generated/prisma/models/` 或 `grep -rl "<新欄位名>" src/generated/`。
+
+### `migrate status` 抓不到 schema 與資料庫的漂移
+
+```
+$ pnpm exec prisma migrate status
+Database schema is up to date!
+```
+
+**這句話回答的不是你以為的問題。** 它只比對「`migrations/` 資料夾」與「資料庫記錄的已套用清單」，
+**完全不看 `schema.prisma`**。所以「改了 schema 但沒重新產生 migration」這種漂移它一個字都不會說。
+
+Ch9 輪 4 實際踩過：`schema.prisma` 寫 `onDelete: SetNull`，資料庫的外鍵其實是 `CASCADE`
+（先產生 migration、再回頭改 schema 而沒重新產生）。後果不只一張表 —— `Question` / `Response` /
+`Answer` 對 `Survey` 都是 `Cascade`，刪一個帳號會把所有人填的作答一起帶走。
+
+**唯一抓得到的工具是 `migrate diff`：**
+
+```bash
+pnpm exec prisma migrate diff   --from-config-datasource prisma.config.ts   --to-schema prisma/schema.prisma   --script
+```
+
+沒有漂移時它印 `-- This is an empty migration.`；有漂移時它把「要下什麼 SQL 才能追上」直接印出來。
+
+> Prisma 7 拿掉了 `--from-schema-datasource`，要用 `--from-config-datasource` 配設定檔。
+
+**判準：`schema.prisma` 不是資料庫的真相，`prisma/migrations/` 才是。**
+
+### `String?` 是「可為空」，不是「可省略」
+
+中文的「選填」同時蓋住兩件事，這是 Ch9 輪 4 實際卡住的地方。它們在 JSON 裡是不同的東西：
+
+```jsonc
+{ "ownerId": null }   // key 一定在，值可能是 null   ← nullable
+{ }                   // key 根本不存在              ← optional
+```
+
+| 層 | 寫法 | 意思 |
+| --- | --- | --- |
+| `schema.prisma` | `String?` | 這個欄位**可以沒有值**（`NULL`）；產生的 SQL 少了 `NOT NULL` |
+| Prisma 產的型別 | `ownerId: string \| null` | 屬性一定在，**值**可能是 null |
+| TypeScript | `ownerId?: string` | **屬性本身**可能不存在 |
+| Swagger | `@ApiProperty({ nullable: true })` | 對應第二種 |
+| Swagger | `@ApiPropertyOptional` | 對應第三種 |
+| DTO | `@IsOptional()` | 請求**可以不給**這個欄位 |
+
+`Survey.ownerId` 是第二種，`SurveyEntity.questions?` 才是第三種 —— **同一個檔案裡兩種都有，寫法必須不一樣**。
+而這種錯誤 `swagger.e2e-spec.ts` 抓不到：它只比對 key，不看型別。
+
+---
+
 ## 7. 常見錯誤碼
 
 | 碼 | 意思 | 這個專案怎麼處理 |

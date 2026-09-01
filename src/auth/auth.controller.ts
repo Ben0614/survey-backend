@@ -1,3 +1,21 @@
+// ============================================================
+// [教學] auth.controller.ts —— 註冊與登入兩支端點
+//
+// 什麼時候被執行：有人打 POST /auth/register 或 POST /auth/login 時。
+// 同其他 controller，它不碰 prisma，只負責「收參數、叫 service、回結果」。
+//
+// 這個檔案有一件前面八章都沒出現過的事：**@HttpCode(HttpStatus.OK)**。
+// @Post 的預設狀態碼是 201 Created，而登入**沒有建立任何資源** ——
+// 它只是驗證身分，所以要覆蓋成 200。註冊則吃預設值 201，不必寫。
+// （surveys.controller.ts 那段「要覆蓋才需要 @HttpCode()」講的就是這一刻。）
+//
+// 三個回應裝飾器怎麼挑：**這支端點實際會回哪些狀態碼，就標哪幾個**。
+// register 是 201/409/400，login 是 200/401/400 —— 兩支各三個，但只有 400 重疊。
+// 查漏的方法不是靠記憶，是問「這支端點有幾條路可以走出去」。
+//
+// 下一站：src/auth/dto/register.dto.ts（body 進來之前先被誰檢查）
+// ============================================================
+
 import { Body, Controller, Post } from '@nestjs/common';
 import {
   ApiTags,
