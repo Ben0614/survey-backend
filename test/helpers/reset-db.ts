@@ -7,7 +7,7 @@
 // 測試之間必須互相獨立。若 A 測試刪掉某份問卷、B 測試又需要它，
 // 就會出現「單獨跑會過、一起跑會失敗」——最難查的那種測試 bug。
 //
-// 下一站：test/health.e2e-spec.ts（最小的一個 E2E 測試）
+// 下一站：test/helpers/auth.ts（Ch10 之後，每個測試還需要一個「身分」）
 // ============================================================
 
 import { PrismaClient } from '../../src/generated/prisma/client';

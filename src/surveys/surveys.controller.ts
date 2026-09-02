@@ -27,6 +27,7 @@ import {
   ApiNotFoundResponse,
   ApiBadRequestResponse,
   ApiConflictResponse,
+  ApiBearerAuth,
 } from '@nestjs/swagger';
 import { CreateSurveyDto } from './dto/create-survey.dto';
 import { UpdateSurveyDto } from './dto/update-survey.dto';
@@ -43,6 +44,7 @@ import { ErrorResponseEntity } from '../common/entities/error-response.entity';
 // 會被收進一個叫 surveys 的摺疊區塊。不標的話全部散在最上層 default 裡。
 // 它不影響任何行為，標在 class 上，底下每一支自動繼承。
 @ApiTags('surveys')
+@ApiBearerAuth()
 @Controller('surveys')
 export class SurveysController {
   constructor(private readonly surveysService: SurveysService) {}

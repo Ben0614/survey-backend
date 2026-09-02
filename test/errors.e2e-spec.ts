@@ -23,6 +23,8 @@ import { setupApp } from '../src/setup-app';
 import { resetDb } from './helpers/reset-db';
 import { SurveyStatus, QuestionType } from '../src/generated/prisma/enums';
 import { Prisma } from '../src/generated/prisma/client';
+import { registerAndLogin, authHeader } from './helpers/auth';
+import { JwtService } from '@nestjs/jwt';
 
 // [教學] 這個 interface 就是 Ch6 定下來的契約，寫在這裡等於把它變成可執行的規格。
 // details 是選擇性的 —— 只有驗證失敗那一種才有（見第 4 條測試）。
@@ -44,6 +46,7 @@ interface SurveyBody {
 describe('錯誤回應格式 (e2e)', () => {
   let app: INestApplication<App>;
   let prisma: PrismaService;
+  let authToken: string;
 
   beforeAll(async () => {
     const moduleFixture: TestingModule = await Test.createTestingModule({
@@ -64,11 +67,13 @@ describe('錯誤回應格式 (e2e)', () => {
 
   beforeEach(async () => {
     await resetDb(prisma);
+    authToken = await registerAndLogin(app);
   });
 
   it('id 不存在時 body 是 { error: { code: NOT_FOUND, message } }', async () => {
     const res = await request(app.getHttpServer())
       .get('/surveys/不存在的id')
+      .set(...authHeader(authToken))
       .expect(404);
 
     const body = res.body as ErrorBody;
@@ -82,6 +87,7 @@ describe('錯誤回應格式 (e2e)', () => {
   it('驗證失敗時 code 是 VALIDATION_FAILED，details 列出每一條錯誤', async () => {
     const res = await request(app.getHttpServer())
       .post('/surveys')
+      .set(...authHeader(authToken))
       .send({})
       .expect(400);
 
@@ -109,6 +115,7 @@ describe('錯誤回應格式 (e2e)', () => {
 
     const res = await request(app.getHttpServer())
       .post(`/surveys/${survey.id}/responses`)
+      .set(...authHeader(authToken))
       .send({ answers: [{ questionId: question.id, content: '答案' }] })
       .expect(409);
 
@@ -136,6 +143,7 @@ describe('錯誤回應格式 (e2e)', () => {
 
     const res = await request(app.getHttpServer())
       .post(`/surveys/${survey.id}/responses`)
+      .set(...authHeader(authToken))
       .send({
         answers: [
           { questionId: question.id, content: 'a' },
@@ -157,6 +165,7 @@ describe('錯誤回應格式 (e2e)', () => {
     // 這一輪改的是全域設定，就該有一條測試說清楚它管不到哪裡。
     const res = await request(app.getHttpServer())
       .post('/surveys')
+      .set(...authHeader(authToken))
       .send({ title: '正常的問卷' })
       .expect(201);
 
@@ -181,6 +190,7 @@ describe('錯誤回應格式 (e2e)', () => {
 // ============================================================
 describe('Prisma 錯誤的安全網 (e2e)', () => {
   let app: INestApplication<App>;
+  let authToken: string;
 
   // [教學] filter 寫的 log 攔在這裡，不是攔在 console。
   //
@@ -235,6 +245,8 @@ describe('Prisma 錯誤的安全網 (e2e)', () => {
     app.useLogger(testLogger);
     setupApp(app); // 少了這行 filter 不會掛上，回的是 Nest 內建格式
     await app.init();
+
+    authToken = app.get(JwtService).sign({ sub: 'mocked-user-id' });
   });
 
   afterAll(async () => {
@@ -246,8 +258,20 @@ describe('Prisma 錯誤的安全網 (e2e)', () => {
     loggedErrors.length = 0;
   });
 
-  // [教學] 沒有 beforeEach / resetDb —— 這個 describe 一次資料庫都不碰，
+  // [教學] 沒有 resetDb —— 這個 describe 一次資料庫都不碰，
   // 沒有任何前提資料需要準備或清掉。這也是它比上面那個快很多的原因。
+  //
+  // Ch10 輪 2 因此在這裡踩了一個坑：token 一開始也是用 registerAndLogin 拿的，
+  // 結果 POST /auth/register 回 500 —— 上面那個替身只有 survey.findUnique，
+  // 根本沒有 user.create。前提資料在還沒輪到被測程式碼之前就死了。
+  //
+  // 改成直接 sign 一張票（見上面的 beforeAll）之所以行得通，
+  // 是因為 **guard 不查資料庫**：它只驗簽章與 exp，兩者都在 token 字串裡。
+  // 所以 sub 指向一個不存在的使用者也照樣通行。
+  //
+  // 代價要記住：帳號被刪掉之後，那個人的 token 在過期前仍然有效。
+  // 而輪 3 拿 sub 去填 Survey.ownerId 時那是外鍵 —— 會撞上 P2003，
+  // 也就是這個 describe 裡有一條測試在講的那個錯誤碼。
 
   // [教學] 這四條寫成 it.todo 而不是空的 it()，是刻意的：
   // 空的 it() 會**通過**，於是 jest 的數字從 74 漲到 78，而保護是零 ——
@@ -265,6 +289,7 @@ describe('Prisma 錯誤的安全網 (e2e)', () => {
 
     const res = await request(app.getHttpServer())
       .get('/surveys/隨便一個id')
+      .set(...authHeader(authToken))
       .expect(404);
 
     const body = res.body as ErrorBody;
@@ -281,6 +306,7 @@ describe('Prisma 錯誤的安全網 (e2e)', () => {
 
     const res = await request(app.getHttpServer())
       .get('/surveys/隨便一個id')
+      .set(...authHeader(authToken))
       .expect(409);
 
     const body = res.body as ErrorBody;
@@ -295,6 +321,7 @@ describe('Prisma 錯誤的安全網 (e2e)', () => {
 
     const res = await request(app.getHttpServer())
       .get('/surveys/隨便一個id')
+      .set(...authHeader(authToken))
       .expect(400);
 
     const body = res.body as ErrorBody;
@@ -309,6 +336,7 @@ describe('Prisma 錯誤的安全網 (e2e)', () => {
 
     const res = await request(app.getHttpServer())
       .get('/surveys/隨便一個id')
+      .set(...authHeader(authToken))
       .expect(500);
 
     const body = res.body as ErrorBody;
@@ -328,7 +356,10 @@ describe('Prisma 錯誤的安全網 (e2e)', () => {
       clientVersion: 'test',
     });
 
-    await request(app.getHttpServer()).get('/surveys/隨便一個id').expect(500);
+    await request(app.getHttpServer())
+      .get('/surveys/隨便一個id')
+      .set(...authHeader(authToken))
+      .expect(500);
 
     expect(loggedErrors.length).toBeGreaterThan(0);
   });

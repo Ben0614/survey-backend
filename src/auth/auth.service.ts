@@ -37,7 +37,7 @@
 //
 //    iat / exp 不是我們寫的，是 auth.module.ts 的 signOptions 自動塞進去的。
 //
-// 下一站：test/setup-env.ts（上面這些怎麼被自動驗證）
+// 下一站：src/auth/decorators/public.decorator.ts（票發出去了，誰在門口收）
 // ============================================================
 
 import { JwtService } from '@nestjs/jwt';

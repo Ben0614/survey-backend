@@ -18,6 +18,7 @@ import { PrismaService } from '../src/prisma/prisma.service';
 import { setupApp } from '../src/setup-app';
 import { resetDb } from './helpers/reset-db';
 import { SurveyStatus } from '../src/generated/prisma/enums';
+import { registerAndLogin, authHeader } from './helpers/auth';
 
 // [教學] supertest 的 res.body 型別是 any（它不可能知道你的 API 回什麼）。
 // 專案的 ESLint 規則禁止在 any 上直接取欄位，所以宣告一個形狀轉一次。
@@ -58,6 +59,7 @@ interface SurveyBodyList {
 describe('Surveys (e2e)', () => {
   let app: INestApplication<App>;
   let prisma: PrismaService;
+  let authToken: string;
 
   beforeAll(async () => {
     const moduleFixture: TestingModule = await Test.createTestingModule({
@@ -86,12 +88,14 @@ describe('Surveys (e2e)', () => {
   // 不保證執行順序 —— 症狀是「單獨跑會過、一起跑會失敗」。
   beforeEach(async () => {
     await resetDb(prisma);
+    authToken = await registerAndLogin(app);
   });
 
   describe('POST /surveys', () => {
     it('建立問卷後回 201，狀態預設為 DRAFT', async () => {
       const res = await request(app.getHttpServer())
         .post('/surveys')
+        .set(...authHeader(authToken))
         .send({ title: '員工滿意度調查' })
         .expect(201);
 
@@ -106,12 +110,17 @@ describe('Surveys (e2e)', () => {
     it('title 是空字串時回 400', async () => {
       await request(app.getHttpServer())
         .post('/surveys')
+        .set(...authHeader(authToken))
         .send({ title: '' })
         .expect(400);
     });
 
     it('沒有 title 時回 400', async () => {
-      await request(app.getHttpServer()).post('/surveys').send({}).expect(400);
+      await request(app.getHttpServer())
+        .post('/surveys')
+        .set(...authHeader(authToken))
+        .send({})
+        .expect(400);
     });
 
     // [教學] 這一題測的是 whitelist: true。
@@ -120,6 +129,7 @@ describe('Surveys (e2e)', () => {
     it('偷塞 DTO 沒宣告的 status 會被忽略', async () => {
       const res = await request(app.getHttpServer())
         .post('/surveys')
+        .set(...authHeader(authToken))
         .send({ title: '想偷跑的問卷', status: 'PUBLISHED' })
         .expect(201);
 
@@ -131,6 +141,7 @@ describe('Surveys (e2e)', () => {
     it('沒有問卷時 data 為空，total 與 totalPages 都是 0', async () => {
       const res = await request(app.getHttpServer())
         .get('/surveys')
+        .set(...authHeader(authToken))
         .expect(200);
 
       expect(res.body).toEqual({
@@ -161,6 +172,7 @@ describe('Surveys (e2e)', () => {
 
       const res = await request(app.getHttpServer())
         .get('/surveys')
+        .set(...authHeader(authToken))
         .expect(200);
 
       const surveys = res.body as SurveyBodyList;
@@ -187,6 +199,7 @@ describe('Surveys (e2e)', () => {
 
       const res = await request(app.getHttpServer())
         .get('/surveys?page=1&pageSize=2')
+        .set(...authHeader(authToken))
         .expect(200);
 
       const surveys = res.body as SurveyBodyList;
@@ -210,6 +223,7 @@ describe('Surveys (e2e)', () => {
 
       const res = await request(app.getHttpServer())
         .get('/surveys?page=2&pageSize=2')
+        .set(...authHeader(authToken))
         .expect(200);
 
       const surveys = res.body as SurveyBodyList;
@@ -224,6 +238,7 @@ describe('Surveys (e2e)', () => {
     it('不給參數時預設第 1 頁、每頁 10 筆', async () => {
       const res = await request(app.getHttpServer())
         .get('/surveys')
+        .set(...authHeader(authToken))
         .expect(200);
 
       const surveys = res.body as SurveyBodyList;
@@ -234,7 +249,10 @@ describe('Surveys (e2e)', () => {
     });
 
     it('page 小於 1 時回 400', async () => {
-      await request(app.getHttpServer()).get('/surveys?page=0').expect(400);
+      await request(app.getHttpServer())
+        .get('/surveys?page=0')
+        .set(...authHeader(authToken))
+        .expect(400);
     });
 
     it('sort=title&order=asc 依標題由小到大排序', async () => {
@@ -250,6 +268,7 @@ describe('Surveys (e2e)', () => {
 
       const res = await request(app.getHttpServer())
         .get(`/surveys?sort=title&order=asc`)
+        .set(...authHeader(authToken))
         .expect(200);
 
       const surveys = res.body as SurveyBodyList;
@@ -271,6 +290,7 @@ describe('Surveys (e2e)', () => {
 
       const res = await request(app.getHttpServer())
         .get(`/surveys`)
+        .set(...authHeader(authToken))
         .expect(200);
 
       const surveys = res.body as SurveyBodyList;
@@ -280,11 +300,17 @@ describe('Surveys (e2e)', () => {
     });
 
     it('sort 不在白名單內時回 400，不是 500', async () => {
-      await request(app.getHttpServer()).get(`/surveys?sort=name`).expect(400);
+      await request(app.getHttpServer())
+        .get(`/surveys?sort=name`)
+        .set(...authHeader(authToken))
+        .expect(400);
     });
 
     it('order 不是 asc 或 desc 時回 400', async () => {
-      await request(app.getHttpServer()).get(`/surveys?order=cac`).expect(400);
+      await request(app.getHttpServer())
+        .get(`/surveys?order=cac`)
+        .set(...authHeader(authToken))
+        .expect(400);
     });
 
     it('status=DRAFT 只回草稿問卷', async () => {
@@ -301,6 +327,7 @@ describe('Surveys (e2e)', () => {
 
       const res = await request(app.getHttpServer())
         .get('/surveys?status=DRAFT')
+        .set(...authHeader(authToken))
         .expect(200);
 
       const surveys = res.body as SurveyBodyList;
@@ -324,6 +351,7 @@ describe('Surveys (e2e)', () => {
 
       const res = await request(app.getHttpServer())
         .get('/surveys?q=滿意度')
+        .set(...authHeader(authToken))
         .expect(200);
 
       const surveys = res.body as SurveyBodyList;
@@ -348,6 +376,7 @@ describe('Surveys (e2e)', () => {
 
       const res = await request(app.getHttpServer())
         .get('/surveys?q=api')
+        .set(...authHeader(authToken))
         .expect(200);
 
       const surveys = res.body as SurveyBodyList;
@@ -359,6 +388,7 @@ describe('Surveys (e2e)', () => {
     it('status 不是合法的 SurveyStatus 時回 400', async () => {
       await request(app.getHttpServer())
         .get('/surveys?status=PPAP')
+        .set(...authHeader(authToken))
         .expect(400);
     });
 
@@ -378,6 +408,7 @@ describe('Surveys (e2e)', () => {
 
       const res = await request(app.getHttpServer())
         .get('/surveys?q=api&page=1&pageSize=1')
+        .set(...authHeader(authToken))
         .expect(200);
 
       const surveys = res.body as SurveyBodyList;
@@ -398,6 +429,7 @@ describe('Surveys (e2e)', () => {
 
       const res = await request(app.getHttpServer())
         .get(`/surveys/${survey.id}`)
+        .set(...authHeader(authToken))
         .expect(200);
 
       expect(res.body).toMatchObject({
@@ -419,6 +451,7 @@ describe('Surveys (e2e)', () => {
     it('id 不存在時回 404', async () => {
       await request(app.getHttpServer())
         .get('/surveys/nonexistent-id')
+        .set(...authHeader(authToken))
         .expect(404);
     });
 
@@ -448,6 +481,7 @@ describe('Surveys (e2e)', () => {
 
       const res = await request(app.getHttpServer())
         .get(`/surveys/${survey.id}?includeQuestions=true`)
+        .set(...authHeader(authToken))
         .expect(200);
 
       const body = res.body as SurveyWithQuestionsBody;
@@ -484,6 +518,7 @@ describe('Surveys (e2e)', () => {
 
       const res = await request(app.getHttpServer())
         .get(`/surveys/${survey.id}`)
+        .set(...authHeader(authToken))
         .expect(200);
 
       const body = res.body as SurveyBody;
@@ -517,6 +552,7 @@ describe('Surveys (e2e)', () => {
 
       const res = await request(app.getHttpServer())
         .get(`/surveys/${survey.id}?includeQuestions=false`)
+        .set(...authHeader(authToken))
         .expect(200);
 
       const body = res.body as SurveyBody;
@@ -531,6 +567,7 @@ describe('Surveys (e2e)', () => {
 
       await request(app.getHttpServer())
         .get(`/surveys/${survey.id}?includeQuestions=psads`)
+        .set(...authHeader(authToken))
         .expect(400);
     });
   });
@@ -543,6 +580,7 @@ describe('Surveys (e2e)', () => {
 
       const res = await request(app.getHttpServer())
         .patch(`/surveys/${survey.id}`)
+        .set(...authHeader(authToken))
         .send({ title: '新標題' })
         .expect(200);
 
@@ -577,6 +615,7 @@ describe('Surveys (e2e)', () => {
     it('id 不存在時回 404', async () => {
       await request(app.getHttpServer())
         .patch('/surveys/nonexistent-id')
+        .set(...authHeader(authToken))
         .send({ title: '新標題' })
         .expect(404);
     });
@@ -594,6 +633,7 @@ describe('Surveys (e2e)', () => {
 
       const res = await request(app.getHttpServer())
         .patch(`/surveys/${survey.id}`)
+        .set(...authHeader(authToken))
         .send({})
         .expect(200);
 
@@ -607,6 +647,7 @@ describe('Surveys (e2e)', () => {
 
       await request(app.getHttpServer())
         .patch(`/surveys/${survey.id}`)
+        .set(...authHeader(authToken))
         .send({ title: '' })
         .expect(400);
     });
@@ -622,6 +663,7 @@ describe('Surveys (e2e)', () => {
 
       const res = await request(app.getHttpServer())
         .patch(`/surveys/${survey.id}`)
+        .set(...authHeader(authToken))
         .send({ title: '想偷跑的問卷', status: 'PUBLISHED' })
         .expect(200);
 
@@ -643,6 +685,7 @@ describe('Surveys (e2e)', () => {
 
       const res = await request(app.getHttpServer())
         .delete(`/surveys/${survey.id}`)
+        .set(...authHeader(authToken))
         .expect(200);
 
       expect(res.body).toMatchObject({
@@ -659,6 +702,7 @@ describe('Surveys (e2e)', () => {
     it('id 不存在時回 404', async () => {
       await request(app.getHttpServer())
         .delete('/surveys/nonexistent-id')
+        .set(...authHeader(authToken))
         .expect(404);
     });
 
@@ -707,6 +751,7 @@ describe('Surveys (e2e)', () => {
 
       await request(app.getHttpServer())
         .delete(`/surveys/${survey.id}`)
+        .set(...authHeader(authToken))
         .expect(200);
 
       // [教學] 這三行**必須用 prisma 直接查、不能改用 API**。
@@ -734,6 +779,7 @@ describe('Surveys (e2e)', () => {
 
       const res = await request(app.getHttpServer())
         .patch(`/surveys/${survey.id}/publish`)
+        .set(...authHeader(authToken))
         .expect(200);
 
       expect((res.body as SurveyBody).status).toBe(SurveyStatus.PUBLISHED);
@@ -748,6 +794,7 @@ describe('Surveys (e2e)', () => {
 
       const res = await request(app.getHttpServer())
         .patch(`/surveys/${survey.id}/unpublish`)
+        .set(...authHeader(authToken))
         .expect(200);
 
       expect((res.body as SurveyBody).status).toBe(SurveyStatus.DRAFT);
@@ -764,6 +811,7 @@ describe('Surveys (e2e)', () => {
 
       await request(app.getHttpServer())
         .patch(`/surveys/${survey.id}/unpublish`)
+        .set(...authHeader(authToken))
         .expect(409);
 
       const res = await prisma.survey.findUnique({

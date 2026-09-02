@@ -21,6 +21,7 @@ import {
   ApiBadRequestResponse,
   ApiNotFoundResponse,
   ApiConflictResponse,
+  ApiBearerAuth,
 } from '@nestjs/swagger';
 import { Body, Controller, Post, Param, Get, Query } from '@nestjs/common';
 import { CreateResponseDto } from './dto/create-response.dto';
@@ -33,6 +34,7 @@ import {
 import { ErrorResponseEntity } from '../common/entities/error-response.entity';
 
 @ApiTags('responses')
+@ApiBearerAuth()
 @Controller('surveys/:surveyId/responses')
 export class SurveyResponsesController {
   constructor(private readonly responsesService: ResponsesService) {}

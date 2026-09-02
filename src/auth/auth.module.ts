@@ -9,18 +9,27 @@
 //   SurveysModule —— 一般 module，questions / responses 要 imports 才借得到
 //   JwtModule     —— 一般 module，而且**要帶設定**才借得到（見下面 registerAsync）
 //
+// Ch10 輪 2 又多了一件事：**全域 guard 在這裡註冊**（providers 裡的 APP_GUARD）。
+// 那個 token 很特別 —— 在任何 module 註冊都會變成全應用生效，
+// 所以「註冊在哪裡」純粹是看**它需要的零件在哪裡拿得到**：
+// JwtAuthGuard 要注入 JwtService，而 JwtModule 是在這裡被 import 的。
+// 寫在 AppModule 就找不到它（除非把 JwtModule 設成 @Global()，
+// 但那正好違反這一輪在教的東西 —— PrismaModule 的 @Global() 是例外，不是模式）。
+//
 // 下一站：src/auth/auth.controller.ts（兩支端點，狀態碼卻不一樣）
 // ============================================================
 
 import { Module } from '@nestjs/common';
+import { APP_GUARD } from '@nestjs/core';
 import { JwtModule, JwtSignOptions } from '@nestjs/jwt';
 import { ConfigService } from '@nestjs/config';
 import { AuthService } from './auth.service';
 import { AuthController } from './auth.controller';
+import { JwtAuthGuard } from './guards/jwt-auth.guard';
 
 @Module({
   controllers: [AuthController],
-  providers: [AuthService],
+  providers: [AuthService, { provide: APP_GUARD, useClass: JwtAuthGuard }],
   imports: [
     // [教學] JwtModule 的 providers / exports 裡有一個 JwtService（同 prisma.module.ts
     // 那段對照）。**imports 寫下去的那一刻**，AuthService 才注入得到它。

@@ -17,6 +17,7 @@ import {
   ApiNotFoundResponse,
   ApiBadRequestResponse,
   ApiConflictResponse,
+  ApiBearerAuth,
 } from '@nestjs/swagger';
 import { Controller, Get, Post, Param, Body } from '@nestjs/common';
 import { QuestionsService } from './questions.service';
@@ -35,6 +36,7 @@ import { ErrorResponseEntity } from '../common/entities/error-response.entity';
 //
 // 改與刪為什麼**不**巢狀，見 questions.controller.ts 的檔頭 —— 那是刻意的不對稱。
 @ApiTags('questions')
+@ApiBearerAuth()
 @Controller('surveys/:surveyId/questions')
 export class SurveysQuestionsController {
   constructor(private readonly questionsService: QuestionsService) {}

@@ -20,6 +20,7 @@ import { setupApp } from '../src/setup-app';
 import { resetDb } from './helpers/reset-db';
 import { QuestionType } from '../src/generated/prisma/enums';
 import { SurveyStatus } from '../src/generated/prisma/enums';
+import { registerAndLogin, authHeader } from './helpers/auth';
 
 // [教學] supertest 的 res.body 是 any，專案的 ESLint 禁止在 any 上直接取欄位，
 // 所以宣告一個形狀轉一次（同 surveys.e2e-spec.ts 的 SurveyBody）。
@@ -34,6 +35,7 @@ interface QuestionBody {
 describe('Questions (e2e)', () => {
   let app: INestApplication<App>;
   let prisma: PrismaService;
+  let authToken: string;
 
   beforeAll(async () => {
     const moduleFixture: TestingModule = await Test.createTestingModule({
@@ -54,6 +56,7 @@ describe('Questions (e2e)', () => {
 
   beforeEach(async () => {
     await resetDb(prisma);
+    authToken = await registerAndLogin(app);
   });
 
   describe('GET /surveys/:surveyId/questions', () => {
@@ -89,6 +92,7 @@ describe('Questions (e2e)', () => {
 
       const res = await request(app.getHttpServer())
         .get(`/surveys/${survey.id}/questions`)
+        .set(...authHeader(authToken))
         .expect(200);
 
       const questions = res.body as QuestionBody[];
@@ -103,6 +107,7 @@ describe('Questions (e2e)', () => {
     it('surveyId 不存在時回 404', async () => {
       await request(app.getHttpServer())
         .get('/surveys/nonexistent-id/questions')
+        .set(...authHeader(authToken))
         .expect(404);
     });
   });
@@ -117,6 +122,7 @@ describe('Questions (e2e)', () => {
 
       const res = await request(app.getHttpServer())
         .post(`/surveys/${survey.id}/questions`)
+        .set(...authHeader(authToken))
         .send({
           title: '題目一',
           type: 'SINGLE_CHOICE',
@@ -140,6 +146,7 @@ describe('Questions (e2e)', () => {
     it('surveyId 不存在時回 404', async () => {
       await request(app.getHttpServer())
         .post('/surveys/nonexistent-id/questions')
+        .set(...authHeader(authToken))
         .send({
           title: '題目一',
           type: 'SINGLE_CHOICE',
@@ -164,6 +171,7 @@ describe('Questions (e2e)', () => {
 
       await request(app.getHttpServer())
         .post(`/surveys/${survey.id}/questions`)
+        .set(...authHeader(authToken))
         .send({
           title: '題目一',
           type: 'MULTIPLE_CHOICE',
@@ -181,6 +189,7 @@ describe('Questions (e2e)', () => {
 
       await request(app.getHttpServer())
         .post(`/surveys/${survey.id}/questions`)
+        .set(...authHeader(authToken))
         .send({
           title: '題目一',
           type: 'SINGLE_CHOICE',
@@ -196,6 +205,7 @@ describe('Questions (e2e)', () => {
 
       await request(app.getHttpServer())
         .post(`/surveys/${survey.id}/questions`)
+        .set(...authHeader(authToken))
         .send({
           title: '題目一',
           type: 'SINGLE_CHOICE',
@@ -216,6 +226,7 @@ describe('Questions (e2e)', () => {
 
       await request(app.getHttpServer())
         .post(`/surveys/${survey.id}/questions`)
+        .set(...authHeader(authToken))
         .send({
           title: '題目一',
           type: 'SINGLE_CHOICE',
@@ -225,6 +236,7 @@ describe('Questions (e2e)', () => {
 
       await request(app.getHttpServer())
         .post(`/surveys/${survey.id}/questions`)
+        .set(...authHeader(authToken))
         .send({
           title: '題目二',
           type: 'SINGLE_CHOICE',
@@ -234,6 +246,7 @@ describe('Questions (e2e)', () => {
 
       await request(app.getHttpServer())
         .post(`/surveys/${survey.id}/questions`)
+        .set(...authHeader(authToken))
         .send({
           title: '題目三',
           type: 'SINGLE_CHOICE',
@@ -257,6 +270,7 @@ describe('Questions (e2e)', () => {
       await Promise.all([
         request(app.getHttpServer())
           .post(`/surveys/${survey.id}/questions`)
+          .set(...authHeader(authToken))
           .send({
             title: '題目一',
             type: 'SINGLE_CHOICE',
@@ -265,6 +279,7 @@ describe('Questions (e2e)', () => {
           .expect(201),
         request(app.getHttpServer())
           .post(`/surveys/${survey.id}/questions`)
+          .set(...authHeader(authToken))
           .send({
             title: '題目二',
             type: 'SINGLE_CHOICE',
@@ -312,6 +327,7 @@ describe('Questions (e2e)', () => {
 
       const res = await request(app.getHttpServer())
         .patch(`/questions/${question.id}`)
+        .set(...authHeader(authToken))
         .send({
           title: '修改後的題目一',
           options: ['修改後的選項1', '修改後的選項2', '修改後的選項3'],
@@ -335,6 +351,7 @@ describe('Questions (e2e)', () => {
     it('id 不存在時回 404', async () => {
       await request(app.getHttpServer())
         .patch('/questions/nonexistent-id')
+        .set(...authHeader(authToken))
         .send({
           title: '修改後的題目一',
           type: 'SINGLE_CHOICE',
@@ -362,6 +379,7 @@ describe('Questions (e2e)', () => {
 
       await request(app.getHttpServer())
         .patch(`/questions/${question.id}`)
+        .set(...authHeader(authToken))
         .send({
           title: '題目一',
           type: 'SINGLE_CHOICE',
@@ -396,6 +414,7 @@ describe('Questions (e2e)', () => {
 
       const res = await request(app.getHttpServer())
         .patch(`/questions/${question.id}`)
+        .set(...authHeader(authToken))
         .send({})
         .expect(200);
 
@@ -429,6 +448,7 @@ describe('Questions (e2e)', () => {
 
       await request(app.getHttpServer())
         .patch(`/questions/${question.id}`)
+        .set(...authHeader(authToken))
         .send({
           title: '修改後的題目一',
           options: ['修改後的選項1', '修改後的選項2', '修改後的選項3'],
@@ -462,6 +482,7 @@ describe('Questions (e2e)', () => {
 
       const res = await request(app.getHttpServer())
         .delete(`/questions/${question.id}`)
+        .set(...authHeader(authToken))
         .expect(200);
 
       expect(res.body).toMatchObject({
@@ -490,6 +511,7 @@ describe('Questions (e2e)', () => {
     it('id 不存在時回 404', async () => {
       await request(app.getHttpServer())
         .delete('/questions/nonexistent-id')
+        .set(...authHeader(authToken))
         .expect(404);
     });
 
@@ -515,6 +537,7 @@ describe('Questions (e2e)', () => {
 
       await request(app.getHttpServer())
         .delete(`/questions/${question.id}`)
+        .set(...authHeader(authToken))
         .expect(409);
 
       const still = await prisma.question.findUnique({

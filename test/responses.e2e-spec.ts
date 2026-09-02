@@ -26,6 +26,7 @@ import { AppModule } from '../src/app.module';
 import { PrismaService } from '../src/prisma/prisma.service';
 import { setupApp } from '../src/setup-app';
 import { resetDb } from './helpers/reset-db';
+import { registerAndLogin, authHeader } from './helpers/auth';
 
 // [教學] supertest 的 res.body 型別是 any，而專案的 ESLint 禁止在 any 上直接取欄位，
 // 所以宣告形狀轉一次（同 surveys.e2e-spec.ts 開頭那批）。
@@ -56,6 +57,7 @@ interface ResponseWithAnswersBody extends ResponseBody {
 describe('Responses (e2e)', () => {
   let app: INestApplication<App>;
   let prisma: PrismaService;
+  let authToken: string;
 
   beforeAll(async () => {
     const moduleFixture: TestingModule = await Test.createTestingModule({
@@ -84,6 +86,7 @@ describe('Responses (e2e)', () => {
   // 不保證執行順序 —— 症狀是「單獨跑會過、一起跑會失敗」。
   beforeEach(async () => {
     await resetDb(prisma);
+    authToken = await registerAndLogin(app);
   });
 
   describe('POST /surveys/:surveyId/responses', () => {
@@ -116,6 +119,7 @@ describe('Responses (e2e)', () => {
 
       await request(app.getHttpServer())
         .post(`/surveys/${survey.id}/responses`)
+        .set(...authHeader(authToken))
         .send({
           answers: [
             {
@@ -153,6 +157,7 @@ describe('Responses (e2e)', () => {
 
       await request(app.getHttpServer())
         .post(`/surveys/${survey.id}/responses`)
+        .set(...authHeader(authToken))
         .send({
           answers: [
             {
@@ -169,6 +174,7 @@ describe('Responses (e2e)', () => {
     it('問卷不存在時回 404', async () => {
       await request(app.getHttpServer())
         .post('/surveys/nonexistent-id/responses')
+        .set(...authHeader(authToken))
         .send({
           answers: [
             {
@@ -192,6 +198,7 @@ describe('Responses (e2e)', () => {
 
       await request(app.getHttpServer())
         .post(`/surveys/${survey.id}/responses`)
+        .set(...authHeader(authToken))
         .send({
           answers: [],
         })
@@ -220,6 +227,7 @@ describe('Responses (e2e)', () => {
 
       await request(app.getHttpServer())
         .post(`/surveys/${survey.id}/responses`)
+        .set(...authHeader(authToken))
         .send({
           answers: [
             {
@@ -259,6 +267,7 @@ describe('Responses (e2e)', () => {
 
       await request(app.getHttpServer())
         .post(`/surveys/${survey1.id}/responses`)
+        .set(...authHeader(authToken))
         .send({
           answers: [
             {
@@ -282,6 +291,7 @@ describe('Responses (e2e)', () => {
 
       await request(app.getHttpServer())
         .post(`/surveys/${survey.id}/responses`)
+        .set(...authHeader(authToken))
         .send({
           answers: [
             {
@@ -315,6 +325,7 @@ describe('Responses (e2e)', () => {
 
       await request(app.getHttpServer())
         .post(`/surveys/${survey.id}/responses`)
+        .set(...authHeader(authToken))
         .send({
           answers: [
             {
@@ -354,6 +365,7 @@ describe('Responses (e2e)', () => {
 
       const res = await request(app.getHttpServer())
         .get(`/surveys/${survey.id}/responses`)
+        .set(...authHeader(authToken))
         .expect(200);
 
       // [教學] Response 沒有任何可讀的欄位（沒有 title），所以要靠**建立時拿回的 id**
@@ -380,6 +392,7 @@ describe('Responses (e2e)', () => {
 
       const res1 = await request(app.getHttpServer())
         .get(`/surveys/${survey1.id}/responses`)
+        .set(...authHeader(authToken))
         .expect(200);
 
       const body1 = res1.body as ResponseBodyList;
@@ -387,6 +400,7 @@ describe('Responses (e2e)', () => {
 
       const res2 = await request(app.getHttpServer())
         .get(`/surveys/${survey2.id}/responses`)
+        .set(...authHeader(authToken))
         .expect(200);
 
       const body2 = res2.body as ResponseBodyList;
@@ -414,6 +428,7 @@ describe('Responses (e2e)', () => {
 
       const res = await request(app.getHttpServer())
         .get(`/surveys/${survey.id}/responses?pageSize=1`)
+        .set(...authHeader(authToken))
         .expect(200);
 
       const body = res.body as ResponseBodyList;
@@ -429,6 +444,7 @@ describe('Responses (e2e)', () => {
 
       const res = await request(app.getHttpServer())
         .get(`/surveys/${survey.id}/responses`)
+        .set(...authHeader(authToken))
         .expect(200);
 
       const body = res.body as ResponseBodyList;
@@ -440,6 +456,7 @@ describe('Responses (e2e)', () => {
     it('問卷不存在時回 404，不是 200 配空陣列', async () => {
       await request(app.getHttpServer())
         .get('/surveys/nonexistent-id/responses')
+        .set(...authHeader(authToken))
         .expect(404);
     });
   });
@@ -472,6 +489,7 @@ describe('Responses (e2e)', () => {
 
       const res = await request(app.getHttpServer())
         .get(`/responses/${response.id}`)
+        .set(...authHeader(authToken))
         .expect(200);
 
       const body = res.body as ResponseWithAnswersBody;
@@ -484,6 +502,7 @@ describe('Responses (e2e)', () => {
     it('id 不存在時回 404', async () => {
       await request(app.getHttpServer())
         .get(`/responses/nonexistent-id`)
+        .set(...authHeader(authToken))
         .expect(404);
     });
   });

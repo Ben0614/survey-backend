@@ -17,6 +17,7 @@ import {
   ApiNotFoundResponse,
   ApiBadRequestResponse,
   ApiConflictResponse,
+  ApiBearerAuth,
 } from '@nestjs/swagger';
 import { Controller, Patch, Delete, Param, Body } from '@nestjs/common';
 import { QuestionsService } from './questions.service';
@@ -33,6 +34,7 @@ import { ErrorResponseEntity } from '../common/entities/error-response.entity';
 // 對照列表與建立：那兩支**沒有** id 可用，「哪一份問卷」是唯一的線索，所以非巢狀不可。
 // 這個不對稱是刻意的：**父資源出現在網址裡，是因為少了它就講不完整，不是為了整齊。**
 @ApiTags('questions')
+@ApiBearerAuth()
 @Controller('questions')
 export class QuestionsController {
   constructor(private readonly questionsService: QuestionsService) {}

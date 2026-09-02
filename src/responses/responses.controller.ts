@@ -16,6 +16,7 @@ import {
   ApiOkResponse,
   ApiOperation,
   ApiNotFoundResponse,
+  ApiBearerAuth,
 } from '@nestjs/swagger';
 import { Controller, Get, Param } from '@nestjs/common';
 import { ResponsesService } from './responses.service';
@@ -29,6 +30,7 @@ import { ErrorResponseEntity } from '../common/entities/error-response.entity';
 // 哪天要加 GET /responses（列表）就卡住了。
 // **前綴放「這組路由共同的部分」，變動的部分放在方法上。**
 @ApiTags('responses')
+@ApiBearerAuth()
 @Controller('responses')
 export class ResponsesController {
   constructor(private readonly responsesService: ResponsesService) {}

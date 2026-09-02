@@ -26,7 +26,7 @@
 // 前提資料一律用 POST /auth/register 產生，不用 prisma.user.create ——
 // 後者存的是明文、繞過被測的程式碼（Ch5 假綠的第九種）。
 //
-// 下一站：test/errors.e2e-spec.ts（不測某一支端點，測所有端點共同的那一層）
+// 下一站：test/auth-guard.e2e-spec.ts（登入拿到票之後，誰在門口驗它）
 // ============================================================
 
 import { INestApplication } from '@nestjs/common';

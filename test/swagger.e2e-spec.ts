@@ -20,6 +20,7 @@ import { PrismaService } from '../src/prisma/prisma.service';
 import { setupApp } from '../src/setup-app';
 import { resetDb } from './helpers/reset-db';
 import { buildSwaggerDocument } from '../src/swagger';
+import { registerAndLogin, authHeader } from './helpers/auth';
 
 // [教學] OpenAPI 物件的官方型別非常寬鬆（每個位置都可能是 schema 或 $ref），
 // 照著它一層層收窄會寫掉半個檔案。這裡的做法跟 surveys.e2e-spec.ts 的
@@ -44,6 +45,7 @@ interface JsonContentLike {
 describe('Swagger 契約（buildSwaggerDocument）', () => {
   let app: INestApplication<App>;
   let prisma: PrismaService;
+  let authToken: string;
 
   beforeAll(async () => {
     const moduleFixture: TestingModule = await Test.createTestingModule({
@@ -72,6 +74,7 @@ describe('Swagger 契約（buildSwaggerDocument）', () => {
   // 不保證執行順序 —— 症狀是「單獨跑會過、一起跑會失敗」。
   beforeEach(async () => {
     await resetDb(prisma);
+    authToken = await registerAndLogin(app);
   });
 
   // [教學] 這三條是便宜的煙霧測試：spec 根本產不出來的時候，
@@ -119,12 +122,14 @@ describe('Swagger 契約（buildSwaggerDocument）', () => {
   it('SurveyEntity 的屬性，跟實際打 GET /surveys/:id 拿到的 key 完全一致', async () => {
     const created = await request(app.getHttpServer())
       .post('/surveys')
+      .set(...authHeader(authToken))
       .send({ title: '員工滿意度調查' })
       .expect(201);
 
     const id = (created.body as { id: string }).id;
     const res = await request(app.getHttpServer())
       .get(`/surveys/${id}`)
+      .set(...authHeader(authToken))
       .expect(200);
 
     const doc = buildSwaggerDocument(app);
@@ -158,6 +163,7 @@ describe('Swagger 契約（buildSwaggerDocument）', () => {
   it('ErrorResponseEntity 的屬性，跟實際打一次 404 拿到的 body 完全一致', async () => {
     const res = await request(app.getHttpServer())
       .get(`/surveys/nonexistent-id`)
+      .set(...authHeader(authToken))
       .expect(404);
 
     const doc = buildSwaggerDocument(app);

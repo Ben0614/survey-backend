@@ -17,6 +17,12 @@
 // 而這支只是多掛一條路由；而且 84 條 e2e 每一條都建一次應用，
 // 每條都掃一次全部 metadata 純粹是成本。
 //
+// Ch10 加了 .addBearerAuth()，但它只做一半：**宣告「有 bearer 這種認證方式」**，
+// 讓 /docs 右上角長出 Authorize 按鈕。它不會把任何端點標成需要認證 ——
+// 那要各 controller 自己加 @ApiBearerAuth()。
+// 兩邊只做一邊的話，/docs 會顯示端點不必認證而實際回 401：
+// 又一次「文件說謊」，跟 login.entity.ts 檔頭記的那次同一族。
+//
 // 下一站：src/common/filters/all-exceptions.filter.ts（所有錯誤回應的唯一出口）
 // ============================================================
 
@@ -47,6 +53,7 @@ export function buildSwaggerDocument(app: INestApplication): OpenAPIObject {
       ].join('\n'),
     )
     .setVersion('1.0.0')
+    .addBearerAuth()
     .build();
 
   return SwaggerModule.createDocument(app, config);

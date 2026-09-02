@@ -17,6 +17,11 @@
 // login 是 LoginEntity。這兩個 type: 是純文件，service 實際回什麼跟它們無關 ——
 // 分岔了也沒有任何工具會叫（理由與踩過的坑見 entities/login.entity.ts 檔頭）。
 //
+// **Ch10 輪 2：兩支都標了 @Public()。** 全域 guard 是「預設拒絕」，
+// 而這兩支是不可能要求先登入的 —— 沒有它們就沒有人拿得到 token。
+// 漏標任何一支的後果是服務把自己鎖死：沒有人能註冊、或沒有人能登入，
+// 而且**你連修復用的請求都發不出去**。
+//
 // 下一站：src/auth/dto/register.dto.ts（body 進來之前先被誰檢查）
 // ============================================================
 
@@ -37,6 +42,7 @@ import { LoginDto } from './dto/login.dto';
 import { UserEntity } from './entities/user.entity';
 import { LoginEntity } from './entities/login.entity';
 import { ErrorResponseEntity } from '../common/entities/error-response.entity';
+import { Public } from './decorators/public.decorator';
 
 @ApiTags('auth')
 @Controller('auth')
@@ -50,12 +56,12 @@ export class AuthController {
     description: 'email已被註冊',
     type: ErrorResponseEntity,
   })
+  @Public()
   @Post('register')
   create(@Body() registerDto: RegisterDto) {
     return this.authService.register(registerDto);
   }
 
-  @Post('login')
   @HttpCode(HttpStatus.OK)
   @ApiOperation({ summary: '用戶登入' })
   @ApiOkResponse({ description: '登入成功', type: LoginEntity })
@@ -64,6 +70,8 @@ export class AuthController {
     description: '帳號或密碼錯誤',
     type: ErrorResponseEntity,
   })
+  @Public()
+  @Post('login')
   login(@Body() loginDto: LoginDto) {
     return this.authService.login(loginDto);
   }

@@ -7,12 +7,17 @@
 // 這支 API 的用途：確認服務活著、而且資料庫真的連得上。
 // 部署到雲端後，平台會定期打它來判斷這個實例健不健康。
 //
+// **Ch10 輪 2 加了 @Public()**：全域 guard 上線後預設每支端點都要登入，
+// 而這支的呼叫者是 Render 的健康檢查 —— 它不會帶 token，也不該帶。
+// 漏標的症狀是平台判定實例不健康而反覆重啟，服務看起來時好時壞。
+//
 // 下一站：prisma/prisma.module.ts（下面的 this.prisma 是從哪冒出來的）
 // ============================================================
 
 import { ApiTags, ApiOperation } from '@nestjs/swagger';
 import { Controller, Get } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
+import { Public } from '../auth/decorators/public.decorator';
 
 // [教學] 網址是由兩層 decorator 組合出來的：
 //   @Controller('health')  決定路徑前綴  → /health
@@ -58,6 +63,7 @@ export class HealthController {
   // 留 @ApiOperation 是因為它仍然該出現在端點清單上 ——
   // 「有這支端點、但它不是給你串的」本身就是一句有用的資訊。
   @ApiOperation({ summary: '路由健康檢查' })
+  @Public()
   @Get()
   async check() {
     // 目前 schema 還沒有任何 model，所以用 raw query 確認連線真的通。
