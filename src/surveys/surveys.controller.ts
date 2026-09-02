@@ -36,6 +36,8 @@ import { FindOneSurveyQueryDto } from './dto/find-one-survey-query.dto';
 import { SurveysService } from './surveys.service';
 import { SurveyEntity, PaginatedSurveysEntity } from './entities/survey.entity';
 import { ErrorResponseEntity } from '../common/entities/error-response.entity';
+import { CurrentUser } from '../auth/decorators/current-user.decorator';
+import type { AuthUser } from '../auth/guards/jwt-auth.guard';
 
 // [教學] @Controller('surveys') 是這個 class 所有路由的共同前綴。
 // 下面的 @Get() 因此是 GET /surveys，不是 GET /。
@@ -149,13 +151,16 @@ export class SurveysController {
   @ApiCreatedResponse({ description: '建立成功', type: SurveyEntity })
   @ApiBadRequestResponse({ description: '參數錯誤', type: ErrorResponseEntity })
   @Post()
-  create(@Body() createSurveyDto: CreateSurveyDto) {
+  create(
+    @Body() createSurveyDto: CreateSurveyDto,
+    @CurrentUser() user: AuthUser,
+  ) {
     // [教學] @Body() 把 request body 取出來塞進這個參數。
     //
     // 關鍵在那個型別註記 `: CreateSurveyDto` —— ValidationPipe 就是靠它
     // 知道該用哪一份規則來檢查。**型別寫錯或漏寫，驗證就靜靜地不生效**，
     // 跟 Ch0 依賴注入靠型別找零件是同一套機制（emitDecoratorMetadata）。
-    return this.surveysService.create(createSurveyDto);
+    return this.surveysService.create(createSurveyDto, user.id);
   }
 
   // [教學] 是 @Patch 不是 @Put。兩者都是「改」，差在語義：

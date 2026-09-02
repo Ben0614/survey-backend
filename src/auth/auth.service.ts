@@ -37,6 +37,17 @@
 //
 //    iat / exp 不是我們寫的，是 auth.module.ts 的 signOptions 自動塞進去的。
 //
+// 4.5 **findMe 查不到時丟 401 而不是 404（Ch10 輪 3）。**
+//    判準是「這個『找不到』找的是資源，還是身分」：
+//    /surveys/:id 的識別資訊在網址裡，找不到就是 404；
+//    /auth/me 的識別資訊在**憑證**裡，找不到代表那張票已經失效 —— 401。
+//
+//    實務上的差別在前端：401 是唯一有「通用處置」的狀態碼（清 token、回登入頁），
+//    回 404 的話前端要嘛為這支寫特例，要嘛卡在「有票但拿不到自己是誰」轉圈圈。
+//
+//    這個情境不是假想的：guard 只驗簽章與 exp、**完全不查資料庫**，
+//    所以「票有效、但那個人已經被刪掉」是一個真的會發生的狀態。
+//
 // 下一站：src/auth/decorators/public.decorator.ts（票發出去了，誰在門口收）
 // ============================================================
 
@@ -86,5 +97,19 @@ export class AuthService {
     const token = await this.jwtService.signAsync(payload);
 
     return { accessToken: token };
+  }
+
+  async findMe(userId: string) {
+    const user = await this.prisma.user.findUnique({
+      where: {
+        id: userId,
+      },
+    });
+
+    if (!user) {
+      throw new UnauthorizedException('查無此用戶');
+    }
+
+    return user;
   }
 }

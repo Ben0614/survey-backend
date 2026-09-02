@@ -19,6 +19,7 @@ import { setupApp } from '../src/setup-app';
 import { resetDb } from './helpers/reset-db';
 import { SurveyStatus } from '../src/generated/prisma/enums';
 import { registerAndLogin, authHeader } from './helpers/auth';
+import { JwtService } from '@nestjs/jwt';
 
 // [教學] supertest 的 res.body 型別是 any（它不可能知道你的 API 回什麼）。
 // 專案的 ESLint 規則禁止在 any 上直接取欄位，所以宣告一個形狀轉一次。
@@ -27,6 +28,7 @@ interface SurveyBody {
   id: string;
   title: string;
   status: string;
+  ownerId: string | null;
 }
 
 interface SurveyWithQuestionsBody extends SurveyBody {
@@ -134,6 +136,42 @@ describe('Surveys (e2e)', () => {
         .expect(201);
 
       expect((res.body as SurveyBody).status).toBe('DRAFT');
+    });
+
+    // [教學] 這一條是 Ch10 輪 3 的主角，它守的是「ownerId 忘了填」。
+    //
+    // 那個錯幾乎沒有症狀：ownerId 在 schema 裡是 String?（Ch9 那一章的
+    // 整堂課），所以填不填資料庫都收；SurveyEntity 早就宣告了這個欄位，
+    // 回應形狀不變；其餘 104 條測試沒有一條看過它。
+    // 唯一的差別是值從 null 變成一個真的 id —— 只有這條測試在看。
+    //
+    // **要比對到 sub，不能只寫 not.toBeNull()**：那樣的話「填成別人的 id」
+    // 也會綠，而那才是真正危險的那一種錯。
+    it('建立的問卷 ownerId 等於 token 裡的 sub', async () => {
+      // 從 token 自己把 sub 挖出來，而不是另外查一次資料庫 ——
+      // 這條測試要證明的正是「ownerId 來自這張票」，所以答案得從票上拿。
+      // decode 不驗簽章，但這裡不需要驗：token 是我們幾行前才拿到的。
+      const { sub } = app.get(JwtService).decode<{ sub: string }>(authToken);
+
+      const res = await request(app.getHttpServer())
+        .post('/surveys')
+        .set(...authHeader(authToken))
+        .send({ title: '員工滿意度調查' })
+        .expect(201);
+
+      expect((res.body as SurveyBody).ownerId).toBe(sub);
+    });
+
+    it('body 硬送 ownerId 也會被忽略，實際存的是 token 的 sub', async () => {
+      const { sub } = app.get(JwtService).decode<{ sub: string }>(authToken);
+
+      const res = await request(app.getHttpServer())
+        .post('/surveys')
+        .set(...authHeader(authToken))
+        .send({ title: '員工滿意度調查', ownerId: 'some-other-id' })
+        .expect(201);
+
+      expect((res.body as SurveyBody).ownerId).toBe(sub);
     });
   });
 

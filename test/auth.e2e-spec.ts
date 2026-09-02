@@ -37,6 +37,8 @@ import { AppModule } from '../src/app.module';
 import { PrismaService } from '../src/prisma/prisma.service';
 import { setupApp } from '../src/setup-app';
 import { resetDb } from './helpers/reset-db';
+import { registerAndLogin, authHeader } from './helpers/auth';
+import { JwtService } from '@nestjs/jwt';
 
 interface AuthRegisterBody {
   id: string;
@@ -290,6 +292,49 @@ describe('Auth (e2e)', () => {
 
       const body = res.body as ErrorBody;
       expect(body.error.code).toBe('VALIDATION_FAILED');
+    });
+  });
+
+  describe('GET /auth/me', () => {
+    it('帶合法 token → 200，回傳 id、email、createdAt、updatedAt', async () => {
+      const authToken = await registerAndLogin(app);
+      const { sub } = app.get(JwtService).decode<{ sub: string }>(authToken);
+
+      const res = await request(app.getHttpServer())
+        .get('/auth/me')
+        .set(...authHeader(authToken))
+        .expect(200);
+
+      const body = res.body as AuthRegisterBody;
+      expect(Object.keys(body).sort()).toEqual([
+        'createdAt',
+        'email',
+        'id',
+        'updatedAt',
+      ]);
+      expect(body.id).toBe(sub);
+    });
+
+    it('不帶 token → 401', async () => {
+      const res = await request(app.getHttpServer())
+        .get('/auth/me')
+        .expect(401);
+
+      const body = res.body as ErrorBody;
+      expect(body.error.code).toBe('UNAUTHORIZED');
+    });
+
+    it('token 的 sub 指向已被刪除的使用者 → 401', async () => {
+      const authToken = await registerAndLogin(app);
+      await prisma.user.deleteMany();
+
+      const res = await request(app.getHttpServer())
+        .get('/auth/me')
+        .set(...authHeader(authToken))
+        .expect(401);
+
+      const body = res.body as ErrorBody;
+      expect(body.error.code).toBe('UNAUTHORIZED');
     });
   });
 });

@@ -22,10 +22,18 @@
 // 漏標任何一支的後果是服務把自己鎖死：沒有人能註冊、或沒有人能登入，
 // 而且**你連修復用的請求都發不出去**。
 //
+// **Ch10 輪 3 多了第三支：GET /auth/me。** 它是這裡唯一需要登入的端點，
+// 所以 @ApiBearerAuth() 標在**方法上**而不是 class 上 ——
+// 標在 class 上的話 register / login 也會被標成需要認證，那是文件說謊。
+//
+// 它的 401 有三種來源（沒帶票、票是假的、票上的人已經不存在），
+// 而三者對外的 code 完全相同 —— 所以 @ApiUnauthorizedResponse 的 description
+// 是唯一能說明「這個 401 有幾種來源」的地方。
+//
 // 下一站：src/auth/dto/register.dto.ts（body 進來之前先被誰檢查）
 // ============================================================
 
-import { Body, Controller, Post } from '@nestjs/common';
+import { Body, Controller, Post, Get } from '@nestjs/common';
 import {
   ApiTags,
   ApiOperation,
@@ -34,6 +42,7 @@ import {
   ApiConflictResponse,
   ApiOkResponse,
   ApiUnauthorizedResponse,
+  ApiBearerAuth,
 } from '@nestjs/swagger';
 import { HttpCode, HttpStatus } from '@nestjs/common';
 import { AuthService } from './auth.service';
@@ -43,6 +52,8 @@ import { UserEntity } from './entities/user.entity';
 import { LoginEntity } from './entities/login.entity';
 import { ErrorResponseEntity } from '../common/entities/error-response.entity';
 import { Public } from './decorators/public.decorator';
+import { CurrentUser } from './decorators/current-user.decorator';
+import type { AuthUser } from '../auth/guards/jwt-auth.guard';
 
 @ApiTags('auth')
 @Controller('auth')
@@ -74,5 +85,17 @@ export class AuthController {
   @Post('login')
   login(@Body() loginDto: LoginDto) {
     return this.authService.login(loginDto);
+  }
+
+  @ApiOperation({ summary: '查詢用戶資訊' })
+  @ApiBearerAuth()
+  @ApiOkResponse({ description: '查詢成功', type: UserEntity })
+  @ApiUnauthorizedResponse({
+    description: '未登入、權杖無效，或該使用者已不存在',
+    type: ErrorResponseEntity,
+  })
+  @Get('me')
+  findMe(@CurrentUser() user: AuthUser) {
+    return this.authService.findMe(user.id);
   }
 }

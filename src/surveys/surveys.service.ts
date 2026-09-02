@@ -33,6 +33,13 @@
 // 那種判斷需要一個能被單元測試、且不必假裝發 HTTP 請求的地方。
 // Ch2 的方法確實只是薄薄一層轉發，但位置先擺對，之後才有地方放東西。
 //
+// **Ch10 輪 3：create 多收一個 ownerId，而它不來自 DTO。**
+// 判準是「這個值是**使用者說的**，還是**伺服器知道的**」——
+// 前者才該進 DTO。ownerId 若寫進 CreateSurveyDto，whitelist 就不會擋它
+// （它的規則是「DTO 沒宣告的欄位丟掉」），於是任何人都能建立一份掛在
+// 別人名下的問卷。這是 Ch2 把 status 留在 DTO 外面的同一個決定，
+// 但後果嚴重得多。
+//
 // 下一站：src/surveys/survey.rules.ts（publish / unpublish 借去問「可以嗎」的那兩條規則）
 // ============================================================
 
@@ -342,14 +349,14 @@ export class SurveysService {
   }
 
   /** 建立一份新問卷。狀態一律是 DRAFT（由 schema 的預設值決定）。 */
-  create(dto: CreateSurveyDto) {
+  create(dto: CreateSurveyDto, ownerId: string) {
     // [教學] data 裡明確只寫 title，不是 `data: dto`。
     //
     // 就算 whitelist 已經擋過一層，這裡再寫一次「我只接受這個欄位」——
     // 兩道防線的成本很低，而漏掉的代價是有人能直接寫入任意欄位。
     // 之後 dto 多了欄位時，這裡也會逼你想一次「這個該不該進資料庫」。
     return this.prisma.survey.create({
-      data: { title: dto.title },
+      data: { title: dto.title, ownerId },
     });
   }
 

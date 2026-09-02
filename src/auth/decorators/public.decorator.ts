@@ -17,7 +17,7 @@
 // 症狀只有「那條路由變成需要登入」。這跟 findAll 把 where 抽成變數
 // 是同一個形狀的對策：讓「兩邊不一致」在結構上不可能發生。
 //
-// 下一站：src/auth/guards/jwt-auth.guard.ts（誰在讀這張便利貼）
+// 下一站：src/auth/decorators/current-user.decorator.ts（另一種裝飾器：取值而不是貼資料）
 // ============================================================
 
 import { CustomDecorator, SetMetadata } from '@nestjs/common';

@@ -80,13 +80,14 @@ describe('Swagger 契約（buildSwaggerDocument）', () => {
   // [教學] 這三條是便宜的煙霧測試：spec 根本產不出來的時候，
   // 下面兩條主角的失敗訊息會變成「Cannot read properties of undefined」，
   // 完全看不出發生什麼事。先讓最基本的假設各自有一條測試守著。
-  it('spec 產得出來：openapi 是 3 開頭，paths 共 11 條路徑', () => {
+  it('spec 產得出來：openapi 是 3 開頭，paths 共 12 條路徑', () => {
     const doc = buildSwaggerDocument(app);
 
     expect(doc.openapi.startsWith('3')).toBe(true);
-    // Ch9 加了 /auth/register（輪 2）與 /auth/login（輪 3），9 → 11。
+    // Ch9 加了 /auth/register 與 /auth/login（9 → 11），Ch10 輪 3 加了
+    // /auth/me（11 → 12）。
     // 這條會因為新增端點而紅是刻意的：它強迫你回頭確認新端點的契約標齊了。
-    expect(Object.keys(doc.paths)).toHaveLength(11);
+    expect(Object.keys(doc.paths)).toHaveLength(12);
   });
 
   it('POST /surveys 的 requestBody 指向 CreateSurveyDto，title 在 required 裡', () => {
@@ -110,7 +111,7 @@ describe('Swagger 契約（buildSwaggerDocument）', () => {
     const page = params.find((p) => p.name === 'page');
 
     // 兩條斷言各自抓不同的錯：不存在 = 整份 query DTO 沒被標到；
-    // required 是 true = @ApiProperty / @ApiPropertyOptional 用錯（輪 ② 踩過，11/11 全中）。
+    // required 是 true = @ApiProperty / @ApiPropertyOptional 用錯（輪 ② 踩過，12/12 全中）。
     expect(page).toBeDefined();
     expect(page?.required).toBe(false);
   });
