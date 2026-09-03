@@ -43,11 +43,20 @@ GET {{host}}/health
 
 
 ### ------------------------------------------------------------
-### Auth（Ch9）—— 註冊與登入
+### Auth（Ch9 註冊登入，Ch10 加上 JWT）
 ### ------------------------------------------------------------
 ###
-### 注意：這兩支端點**只驗證身分，不會讓你「保持登入」** ——
-### 沒有 token、沒有 session，回應完伺服器就忘了。Ch10 的 JWT 才會讓它有用。
+### **Ch10 之後這一段是必經之路。** 全域 AuthGuard 上線了，除了
+### /health、/auth/register、/auth/login 之外**每一支端點都要帶 token**，
+### 不帶就是 401。
+###
+### 用法：先送下面的「登入」（它有 `# @name login`），它後面那行
+###   @token = {{login.response.body.accessToken}}
+### 會把 token 存進變數，之後每個請求的 `Authorization: Bearer {{token}}`
+### 就自動帶上了 —— 你不必手動複製貼上那串 eyJ...。
+###
+### **token 一小時後過期**（JWT_EXPIRES_IN=1h）。過期的症狀是原本會動的請求
+### 突然全部 401 —— 這時候回來重送一次登入就好。
 
 ### 註冊。email 有唯一約束，同一個送第二次會回 409。
 ### 密碼會用 bcrypt 雜湊之後才存，回應裡不會有 passwordHash（全域 omit 擋掉的）。
@@ -62,6 +71,9 @@ Content-Type: application/json
 
 
 ### 登入。成功回 200（不是 201 —— 沒有建立任何資源）。
+### Ch10 之後回的是 { "accessToken": "eyJ..." }，不再是使用者資料 ——
+### 「你是誰」改由下面的 GET /auth/me 回答。
+# @name login
 POST {{host}}/auth/login
 Content-Type: application/json
 
@@ -69,6 +81,24 @@ Content-Type: application/json
   "email": "demo@example.com",
   "password": "zxcv1234"
 }
+
+### 上面那支送出後，這一行就會有值。底下所有請求都靠它。
+@token = {{login.response.body.accessToken}}
+
+
+### 我是誰。token 有效才回得了 —— 這是唯一「讀 token 內容」的端點。
+### 它會真的查一次資料庫，所以回的是最新的資料，不是簽 token 當下的快照。
+GET {{host}}/auth/me
+Authorization: Bearer {{token}}
+
+
+### 不帶 token 打受保護的端點 → 401（把上面那行 Authorization 拿掉的效果）。
+GET {{host}}/auth/me
+
+
+### token 是假的 → 一樣 401，訊息也一樣。
+GET {{host}}/auth/me
+Authorization: Bearer eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiJmYWtlIn0.not-a-real-signature
 
 
 ### 密碼錯誤 → 401，code 是 UNAUTHORIZED。
@@ -100,6 +130,7 @@ Content-Type: application/json
 ### 建立問卷。狀態一律是 DRAFT —— 送 status 進來也會被 whitelist 無聲丟掉，可以自己試
 # @name createSurvey
 POST {{host}}/surveys
+Authorization: Bearer {{token}}
 Content-Type: application/json
 
 {
@@ -112,6 +143,7 @@ Content-Type: application/json
 
 ### 列出問卷（最新的在前面）。Ch4 之後回的是 { data, meta }，不是裸陣列
 GET {{host}}/surveys
+Authorization: Bearer {{token}}
 
 
 ### ------------------------------------------------------------
@@ -120,28 +152,36 @@ GET {{host}}/surveys
 
 ### 第 1 頁，每頁 2 筆。看 meta 的 total 與 totalPages
 GET {{host}}/surveys?page=1&pageSize=2
+Authorization: Bearer {{token}}
 
 ### 第 2 頁。data 換了一批，meta 完全一樣（total 不隨頁碼改變）
 GET {{host}}/surveys?page=2&pageSize=2
+Authorization: Bearer {{token}}
 
 ### 超出範圍的頁碼 → 200 配空 data，不是 404。「查得到但沒有」不是錯誤
 GET {{host}}/surveys?page=999
+Authorization: Bearer {{token}}
 
 ### 以下四個都是 400 VALIDATION_FAILED，逐條規則寫在 error.details 裡
 GET {{host}}/surveys?page=0
+Authorization: Bearer {{token}}
 
 ### 非整數（@IsInt 擋）
 GET {{host}}/surveys?page=2.5
+Authorization: Bearer {{token}}
 
 ### 根本不是數字 → @Type 轉成 NaN，@IsInt 與 @Min 兩條都不過，
 ### 所以 error.details 會有**兩個**元素（message 仍然只有一句）
 GET {{host}}/surveys?page=abc
+Authorization: Bearer {{token}}
 
 ### 超過上限（@Max(100) 擋）—— 沒有這條就等於沒做分頁
 GET {{host}}/surveys?pageSize=999999
+Authorization: Bearer {{token}}
 
 ### DTO 沒宣告的參數會被 whitelist 無聲丟掉（不是 400），跟 POST body 同一套機制
 GET {{host}}/surveys?evil=1
+Authorization: Bearer {{token}}
 
 
 ### ------------------------------------------------------------
@@ -152,57 +192,72 @@ GET {{host}}/surveys?evil=1
 ### 依標題由小到大。字串的大小由資料庫的 collation 決定，不是中文的語義 ——
 ### 「第一份 / 第二份 / 第三份」排出來是 一、三、二（照 Unicode 碼位）
 GET {{host}}/surveys?sort=title&order=asc
+Authorization: Bearer {{token}}
 
 ### 只給 sort，order 吃 DTO 的預設值 desc。跟上一個請求的結果應該完全顛倒
 GET {{host}}/surveys?sort=title
+Authorization: Bearer {{token}}
 
 ### 只看草稿。log 裡會看到 status = CAST($1::text AS "SurveyStatus") —— enum 在資料庫裡是真的型別
 GET {{host}}/surveys?status=DRAFT
+Authorization: Bearer {{token}}
 
 ### 標題模糊搜尋。log 裡是 title ILIKE ('%' || $1 || '%')
 GET {{host}}/surveys?q=滿意度
+Authorization: Bearer {{token}}
 
 ### 大小寫不敏感（mode: 'insensitive'）。標題含 API 或 api 都找得到
 GET {{host}}/surveys?q=api
+Authorization: Bearer {{token}}
 
 ### 篩選 + 排序 + 分頁一起給。重點看 meta.total 是**篩選後**的筆數，不是全表筆數 ——
 ### count 與 findMany 共用同一個 where 變數，這件事在結構上就不可能寫錯
 GET {{host}}/surveys?status=DRAFT&q=滿意度&sort=title&order=asc&page=1&pageSize=2
+Authorization: Bearer {{token}}
 
 ### 什麼參數都不給。log 裡的 WHERE 是 1=1 —— undefined 的條件不是「跳過」，是整條沒被產生
 GET {{host}}/surveys
+Authorization: Bearer {{token}}
 
 ### 以下三個都是 400。
 
 ### 排序欄位不在白名單內。沒有 @IsIn 的話這裡會是 500（Prisma 執行期丟
 ### PrismaClientValidationError），不是 SQL injection —— 白名單擋的是「手誤打爆伺服器」
 GET {{host}}/surveys?sort=name
+Authorization: Bearer {{token}}
 
 ### order 只吃 asc / desc
 GET {{host}}/surveys?order=cac
+Authorization: Bearer {{token}}
 
 ### status 不是合法的 SurveyStatus（@IsEnum 擋）。
 ### 這個有兩道防線：擋不住的話 PostgreSQL 的 enum 型別還會再擋一次
 GET {{host}}/surveys?status=PPAP
+Authorization: Bearer {{token}}
 
 
 ### 查一份問卷。**Ch4 ③ 之後預設不帶題目**，回應裡沒有 questions 這個欄位
 GET {{host}}/surveys/{{surveyId}}
+Authorization: Bearer {{token}}
 
 ### 要題目就明說（先建幾題再回來送這兩個最有感）
 GET {{host}}/surveys/{{surveyId}}?includeQuestions=true
+Authorization: Bearer {{token}}
 
 ### 明說不要。**這個請求是 Ch4 ③ 的主題** ——
 ### 用 @Type(() => Boolean) 的話字串 'false' 會被轉成 true（非空字串一律 truthy），
 ### 於是這個請求會帶回題目。要親眼看到那個陷阱，就是送這一個
 GET {{host}}/surveys/{{surveyId}}?includeQuestions=false
+Authorization: Bearer {{token}}
 
 ### 非法值 → 400。@Transform 認不得就原封不動回傳，屬性還是 string，@IsBoolean() 擋下來。
 ### 少了那個 fallback（只比對 'true'），這裡會變成 200 配沒有題目 —— 手誤被安靜吞掉
 GET {{host}}/surveys/{{surveyId}}?includeQuestions=ture
+Authorization: Bearer {{token}}
 
 ### 更新標題。空 body（{}）什麼都不改，也可以試試 {"title": ""} 會被擋成 400
 PATCH {{host}}/surveys/{{surveyId}}
+Authorization: Bearer {{token}}
 Content-Type: application/json
 
 {
@@ -211,6 +266,7 @@ Content-Type: application/json
 
 ### 查一份不存在的問卷 → 404
 GET {{host}}/surveys/nonexistent-id
+Authorization: Bearer {{token}}
 
 
 ### ------------------------------------------------------------
@@ -221,6 +277,7 @@ GET {{host}}/surveys/nonexistent-id
 ### type 只吃 TEXT 或 SINGLE_CHOICE，改成別的會被 @IsEnum 擋成 400
 # @name createQuestion
 POST {{host}}/surveys/{{surveyId}}/questions
+Authorization: Bearer {{token}}
 Content-Type: application/json
 
 {
@@ -234,12 +291,15 @@ Content-Type: application/json
 
 ### 列出這份問卷的題目（依 order 排序）
 GET {{host}}/surveys/{{surveyId}}/questions
+Authorization: Bearer {{token}}
 
 ### 父問卷不存在 → 404（不是 200 配空陣列）
 GET {{host}}/surveys/nonexistent-id/questions
+Authorization: Bearer {{token}}
 
 ### 更新題目。這支是**扁平路由**，網址裡沒有 surveyId
 PATCH {{host}}/questions/{{questionId}}
+Authorization: Bearer {{token}}
 Content-Type: application/json
 
 {
@@ -249,6 +309,7 @@ Content-Type: application/json
 ### 刪除題目。回應 body 是**刪除前的快照**，不代表資料還在
 ### （要玩下面的 Responses 就先**跳過這一個**，題目刪掉就沒得填了）
 DELETE {{host}}/questions/{{questionId}}
+Authorization: Bearer {{token}}
 
 
 ### ------------------------------------------------------------
@@ -267,6 +328,7 @@ DELETE {{host}}/questions/{{questionId}}
 ### 再建第二題，讓提交時有兩筆 Answer（看 SQL 比較有感）
 # @name createQuestion2
 POST {{host}}/surveys/{{surveyId}}/questions
+Authorization: Bearer {{token}}
 Content-Type: application/json
 
 {
@@ -279,6 +341,7 @@ Content-Type: application/json
 
 ### 發布問卷。**沒有這一步，下面的提交會是 409**
 PATCH {{host}}/surveys/{{surveyId}}/publish
+Authorization: Bearer {{token}}
 
 ### 提交作答 → 201。
 ###
@@ -286,6 +349,7 @@ PATCH {{host}}/surveys/{{surveyId}}/publish
 ### 一次呼叫寫兩張表，看它送出幾句 SQL、BEGIN / COMMIT 在不在。
 ### 那個結果會直接回答「巢狀 write 需不需要自己包 $transaction」。
 POST {{host}}/surveys/{{surveyId}}/responses
+Authorization: Bearer {{token}}
 Content-Type: application/json
 
 {
@@ -297,6 +361,7 @@ Content-Type: application/json
 
 ### 問卷不存在 → 404（借 assertExists 丟的，跟 questions 那邊同一套）
 POST {{host}}/surveys/nonexistent-id/responses
+Authorization: Bearer {{token}}
 Content-Type: application/json
 
 {
@@ -307,6 +372,7 @@ Content-Type: application/json
 
 ### 空陣列 → 400（@ArrayNotEmpty）。交一份什麼都沒答的問卷不該是 201
 POST {{host}}/surveys/{{surveyId}}/responses
+Authorization: Bearer {{token}}
 Content-Type: application/json
 
 {
@@ -317,6 +383,7 @@ Content-Type: application/json
 ### 少了 @ValidateNested({ each: true })，陣列裡的物件一個都不會被檢查，
 ### 這個請求會一路送到 prisma 然後 500（而不是 400）
 POST {{host}}/surveys/{{surveyId}}/responses
+Authorization: Bearer {{token}}
 Content-Type: application/json
 
 {
@@ -328,9 +395,11 @@ Content-Type: application/json
 ### 撤回發布 → 409，因為上面已經有人填過了（canUnpublish）。
 ### 這是 Ch3 那條規則第一次真的被觸發 —— 在 Ch5 之前沒有辦法製造出「有填答」的狀態
 PATCH {{host}}/surveys/{{surveyId}}/unpublish
+Authorization: Bearer {{token}}
 
 ### 刪除問卷。它的題目、回覆、答案會一起消失（schema 的 onDelete: Cascade）
 DELETE {{host}}/surveys/{{surveyId}}
+Authorization: Bearer {{token}}
 
 ### Ch7：OpenAPI 規格本身。/docs 是給人看的網頁，這個是給機器讀的
 ### Ch13 的 openapi-typescript 吃的就是這一份 —— spec 裡缺什麼，前端那邊就是 any

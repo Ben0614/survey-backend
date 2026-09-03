@@ -12,10 +12,14 @@
 > 換機或開新對話時**先讀這一節**。對話歷史與 AI 記憶都在 `~/.claude/` 底下，不跟 git 走 ——
 > 這裡沒寫的東西，換一台機器就等於沒發生過。
 
-**進度：** Ch0 ~ Ch9 完成。階段一（含部署）結束，**階段二做完第一章**。
+**進度：** Ch0 ~ Ch10 完成。階段一（含部署）結束，**階段二做完兩章**。
 線上位址 `https://survey-backend-0dku.onrender.com`（Render 免費方案 + Neon 的 `production` branch）。
-`pnpm test:e2e` **95 passed**、`pnpm test` **6 passed**、`tsc --noEmit` 0 errors、`lint` 0 problems。
-下一步是 **Ch10（JWT 與全域 AuthGuard）**，接續點寫在下方「Ch10 接續點」。
+`pnpm test:e2e` **110 passed**、`pnpm test` **6 passed**、`tsc --noEmit` 0 errors、`lint` 0 problems。
+下一步是 **Ch11（RBAC：只有管理員能刪問卷）**，接續點寫在下方「Ch11 接續點」。
+
+**2026-09-03 —— 線上 API 已經上鎖。** Ch10 之前任何人都能對線上服務讀寫刪，
+現在除了 `/health`、註冊、登入之外每一支端點都要帶 JWT。`/docs` 仍然公開，
+但那**現在是一個重新評估過的決定**（理由見 `ch10`），不再是「反正門本來就開著」。
 
 **重要脈絡：** Ch0 的程式碼是 AI 產生的，因此進度表的 ✅ 起初**只代表環境可用**，
 不代表讀得懂 —— 為此補了一批 `[教學]` 註解當作理解鷹架（見 `docs/專案速查.md` 的「閱讀動線」）。
@@ -532,24 +536,63 @@ ts-jest 直接載入的 `AppModule`，跟 `nest build` 的產物、跟線上那�
 
 ---
 
-### Ch10 接續點（2026-09-01）
+### Ch10 完成（2026-09-03）—— 三輪
 
-**目前狀態**：`pnpm test:e2e` **95 passed**、`pnpm test` **6 passed**、
+**輪 1** 簽出 token（`login` 回應從 `UserEntity` 改成 `{ accessToken }`），
+**輪 2** 全域 AuthGuard 與 `@Public()`（80 條既有 e2e 一度全紅），
+**輪 3** `@CurrentUser()`、`ownerId` 終於有值、`GET /auth/me`。
+
+這一章有一個貫穿全部三輪的主題：**看得到內容 ≠ 內容可信**。
+JWT 的 payload 是 base64 不是加密，所以 `decode` 拿得到裡面每一個字 ——
+正因為它不需要 secret，它也不可能知道那張票是不是你簽的。
+guard 裡把 `verifyAsync` 寫成 `decode` 的話認證等於不存在，
+而 tsc、lint、110 條測試、手動打 API **全部正常**。
+抓得到它的只有一條刻意送假票的測試。
+
+七條坑裡最值得先看的三條（完整版在 [`ch10`](docs/chapters/ch10-JWT與全域AuthGuard.md)）：
+
+1. **`signAsync` 漏了 `await`**，回應是 `{"accessToken":{}}`，而
+   `no-floating-promises` 抓不到（有指派也有 return，不算浮空）。
+   更要記的是**比對欄位集合的那條測試也抓不到** —— key 仍然只有 `accessToken`。
+   **「形狀對」和「值對」是兩條測試，一條蓋不了另一條。**
+2. **語法錯誤讓 `tsc` 不報型別錯誤。** 測試檔裡的 `...` 佔位符讓整輪的語意檢查停擺，
+   `auth.controller.ts` 少傳一個參數（TS2554）完全沒被印出來。
+   卡住時的招式：**`pnpm exec tsc --noEmit -p tsconfig.build.json`**，只看 `src`。
+3. **`from 'src/auth/...'` —— `tsc` 綠、jest 整支跑不起來。**
+   `CLAUDE.md` 早就寫了這條規則，這是它第一次真的發生。
+
+還有一條不是這一章才有、但已經**第四次**出現的形狀：
+**測試名稱與斷言對不上**，而每一次的成因都是「從隔壁複製一段結構正確的程式碼，
+然後只改了一半」（Ch2 的動詞、輪 1 的變數名、輪 2 的兩條）。
+
+實測確認的一件事：**`/docs` 不經過 Nest 的請求管線**（`SwaggerModule.setup`
+直接跟 Express 註冊路由），所以 guard 攔不到它、也標不了 `@Public()`。
+Ch8 留下的「`/docs` 要不要公開」因此變成一個真正的選擇，
+**重新評估後仍然維持公開**，理由與代價寫在 `ch10`。
+
+---
+
+### Ch11 接續點（2026-09-03）
+
+**目前狀態**：`pnpm test:e2e` **110 passed**、`pnpm test` **6 passed**、
 `tsc --noEmit` 0 errors、`eslint` 0 problems。
-**Ch0 ~ Ch9 完成。階段一結束、後端已上線，階段二做完第一章。**
+**Ch0 ~ Ch10 完成。階段二做完兩章，線上 API 已上鎖。**
 
 #### 換機之後先做這四件事
 
 1. **一般的換機步驟**（`git pull` / `pnpm install` / `pnpm exec prisma generate` /
    重建 `.env`、`.env.test` / 重建 skills junction）—— 見
    [`docs/專案速查.md`](docs/專案速查.md) 的「換機接續」。
-2. **`.env` 要指向 `dev` branch**（Ch8 起 Neon 上有三條：`production` / `dev` / `test`，
-   host 前綴互不相同）。**`production` 那條本機不需要**，它只填在 Render 的環境變數裡。
-3. **跑四項驗收確認數字對得上**：`test:e2e` **95**、`test` **6**、`tsc` 0、`lint` 0。
+2. **`.env` 與 `.env.test` 各需要一組 `JWT_SECRET` / `JWT_EXPIRES_IN`**（Ch10 加的）。
+   **三個環境的 secret 必須互不相同** —— 知道 secret 的人可以偽造任何人的身分，
+   而「三條資料庫是分開的」完全擋不住這件事。產生方式：
+   `node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"`。
+   ⚠️ `getOrThrow` **只擋 undefined**：寫成 `JWT_SECRET=` 時 dotenv 給空字串，
+   應用起得來、`/health` 是綠的，**只有登入會 500**。
+3. **跑四項驗收確認數字對得上**：`test:e2e` **110**、`test` **6**、`tsc` 0、`lint` 0。
    對不上就先修環境，別開始寫程式。
 4. **確認 `core.autocrlf`**：`git config --get core.autocrlf`。
-   本機設定、不跟著 git 走（兩台機器實測是不同的值），
-   查換行**只信 `git ls-files --eol` 的 `i/` 欄**。
+   本機設定、不跟著 git 走，查換行**只信 `git ls-files --eol` 的 `i/` 欄**。
 
 #### 線上環境
 
@@ -558,44 +601,44 @@ ts-jest 直接載入的 `AppModule`，跟 `nest build` 的產物、跟線上那�
 | 網址 | `https://survey-backend-0dku.onrender.com` |
 | 平台 | Render 免費方案，Region Singapore，接 GitHub `main`（push 就自動重新部署） |
 | 資料庫 | Neon 的 `production` branch |
-| `/docs` | 公開（刻意的，理由見 `ch08`） |
-| 認證 | **註冊登入有了（Ch9），但還沒有保護任何端點** —— 任何人仍然能讀寫刪。網址先不要公開貼 |
-
-設定值與維運細節在 [`docs/專案速查.md`](docs/專案速查.md) 的「部署與正式環境」。
+| 環境變數 | `DATABASE_URL` + **`JWT_SECRET` / `JWT_EXPIRES_IN`**（Ch10 加的第三組 secret） |
+| `/docs` | 公開（Ch10 重新評估後維持，理由見 `ch10`） |
+| 認證 | **除了 `/health`、註冊、登入之外全部要帶 JWT**。網址可以貼了 |
 
 #### 改完 schema 之後，三條 branch 各自怎麼套用
 
 | branch | 誰套用 |
 | --- | --- |
 | dev | `prisma migrate dev` 當下就套用了 |
-| **test** | **只有這條要你動手：`pnpm migrate:test`**（Ch9 收尾加的腳本） |
+| **test** | **只有這條要你動手：`pnpm migrate:test`** |
 | production | `git push` 之後 Render 的 Build Command 自動跑 |
 
 忘記 test 的症狀有誤導性：e2e 突然 500、訊息是 `The table public.X does not exist`
-而且指著你剛寫的 service（Ch9 輪 2 實際踩過）。
+而且指著你剛寫的 service。
 
-#### Ch10 要做什麼
+#### Ch11 要做什麼
 
-**主題：JWT 與全域 AuthGuard。** Ch9 把「驗證身分」做完了，但那一刻之後伺服器就忘了 ——
-Ch10 要讓它記得。
+**主題：RBAC —— 只有管理員能刪問卷。** Ch10 讓伺服器知道「你是誰」，
+Ch11 要讓它知道「你能做什麼」。
 
 幾個已經知道會碰到的點，開工前一輪再定細節：
 
-- **`POST /auth/login` 的回應要改**：目前回 `UserEntity`，之後要帶 token。
-  這是這個專案第一次**改掉一支已經有測試的端點的回應形狀** —— Ch4 那次
-  「改共用型別的意思，炸掉六個無關的地方」的教訓要拿出來用
-- **全域 AuthGuard 與 `@Public()`**：預設全部要登入、例外明確標出來。
-  這跟全域 `omit`、`@unique`、`prebuild` 是同一條原則：**預設拒絕，例外明說**。
-  而 `/health`、`/docs`、註冊、登入四處一定是例外 —— 漏掉任何一個，服務就自己鎖死了
-- **`Survey.ownerId` 終於有值可以填**：Ch9 加了欄位卻沒有人填它（伺服器不知道請求是誰發的），
-  Ch10 之後 `POST /surveys` 才有辦法知道建立者是誰
-- **token 放哪、活多久**：這一章的取捨集中在這裡，跟 Ch14 的前端存放方式互相牽制
+- **`User` 要加 `role` 欄位**，而這次跟 Ch9 的 `ownerId` 不同 —— 可以給預設值
+  （`USER`），所以 `NOT NULL` 的 migration 加得上去。順便回顧 Ch9 那一課：
+  **能不能加 `NOT NULL` 是資料逼的，不是風格選擇**
+- **`role` 該不該放進 JWT payload？** Ch10 的判準是「只有『每個請求都需要、
+  不查就拿不到』的東西才值得放」。`role` 剛好是第一個真正的候選 ——
+  但它也帶來 Ch10 沒有的問題：**payload 是簽發當下的快照**，
+  管理員被降權之後，那張票在過期前仍然是管理員
+- **`@Roles()` 與第二個 guard**：`RolesGuard` 要在 `JwtAuthGuard` **之後**跑
+  （沒有身分就談不上角色），而 `getAllAndOverride` 的 `[handler, class]`
+  這次真的會用到 class 那一層
+- **403 而不是 401**：Ch10 全部都是 401，Ch11 是第一次出現 403。
+  判準已經寫在 [`docs/錯誤處理與狀態碼.md`](docs/錯誤處理與狀態碼.md)
 
-> **Ch8 留下、Ch10 之後要重新評估的一件事**：`/docs` 目前公開。
-> 等 AuthGuard 上線、API 不再對全世界開放讀寫之後，這個決定的前提就變了 ——
-> 到時候「公開契約」才是一個真正可以獨立討論的選擇，而不是「反正門本來就開著」。
-
----
+> **Ch10 留下、Ch12 之後要重新評估的一件事**：guard 目前**不查資料庫**。
+> 代價是帳號被刪掉之後那張票在過期前仍然通行。Ch11 若把 `role` 放進 payload，
+> 這個代價會從「已刪帳號」擴大到「已降權的管理員」—— 到時候要一起討論。
 
 ## 進度表
 
@@ -621,7 +664,7 @@ Ch10 要讓它記得。
 | 章節 | 主題 | 這章的關鍵收穫 | 狀態 |
 | :---: | --- | --- | :---: |
 | Ch9 | User model、bcrypt、註冊登入 | 密碼雜湊；預設拒絕比逐一排除可靠；**對已有資料的表加 `ownerId`** | ✅ |
-| Ch10 | JWT 與全域 AuthGuard | 認證流程、`@Public()` 的例外機制 | ⬜ |
+| Ch10 | JWT 與全域 AuthGuard | 認證流程、`@Public()` 的例外機制；**看得到內容 ≠ 內容可信** | ✅ |
 | Ch11 | RBAC：只有管理員能刪問卷 | 角色權限、`@Roles()` 自訂裝飾器 | ⬜ |
 | Ch12 | 資源層授權：只能改自己的問卷 | Guard 層 vs Service 層判斷的取捨 | ⬜ |
 
@@ -682,6 +725,7 @@ Ch10 要讓它記得。
 | Ch7 — Swagger API 文件 | [`docs/chapters/ch07-swagger-api文件.md`](docs/chapters/ch07-swagger-api文件.md) |
 | Ch8 — 第一次部署 | [`docs/chapters/ch08-第一次部署.md`](docs/chapters/ch08-第一次部署.md) |
 | Ch9 — 認證基礎 | [`docs/chapters/ch09-認證基礎.md`](docs/chapters/ch09-認證基礎.md) |
+| Ch10 — JWT 與全域 AuthGuard | [`docs/chapters/ch10-JWT與全域AuthGuard.md`](docs/chapters/ch10-JWT與全域AuthGuard.md) |
 
 ## 跨章節文件
 
