@@ -18,10 +18,14 @@
 //
 // 判準：**先決定 service 實際回什麼，再讓 entity 如實描述它。**
 //
+// Ch11 多了一個 role。加欄位時會發現三條測試自己紅了（它們比對整個欄位集合）——
+// 那正是「列該有的、不要列不該有的」換來的：**加欄位這件事無法悄悄發生。**
+//
 // 下一站：src/auth/entities/login.entity.ts（同一個 auth，為什麼要兩份 entity）
 // ============================================================
 
 import { ApiProperty } from '@nestjs/swagger';
+import { Role } from '../../generated/prisma/enums';
 
 export class UserEntity {
   @ApiProperty({
@@ -45,4 +49,10 @@ export class UserEntity {
     format: 'date-time',
   })
   updatedAt: Date;
+
+  @ApiProperty({
+    description: '角色',
+    enum: Role,
+  })
+  role: Role;
 }

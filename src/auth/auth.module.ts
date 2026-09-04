@@ -10,11 +10,15 @@
 //   JwtModule     —— 一般 module，而且**要帶設定**才借得到（見下面 registerAsync）
 //
 // Ch10 輪 2 又多了一件事：**全域 guard 在這裡註冊**（providers 裡的 APP_GUARD）。
-// 那個 token 很特別 —— 在任何 module 註冊都會變成全應用生效，
+// APP_GUARD 這個 token 很特別 —— 在任何 module 註冊都會變成全應用生效，
 // 所以「註冊在哪裡」純粹是看**它需要的零件在哪裡拿得到**：
 // JwtAuthGuard 要注入 JwtService，而 JwtModule 是在這裡被 import 的。
 // 寫在 AppModule 就找不到它（除非把 JwtModule 設成 @Global()，
-// 但那正好違反這一輪在教的東西 —— PrismaModule 的 @Global() 是例外，不是模式）。
+// 但那正好違反 Ch10 在教的東西 —— PrismaModule 的 @Global() 是例外，不是模式）。
+//
+// **Ch11 加了第二個 guard，而順序就是陣列的順序**：JwtAuthGuard 必須排在
+// RolesGuard 前面 —— 後者要用前者放上去的 request.user，沒有身分就談不上角色。
+// 寫反的症狀是管理員也被擋（403），很吵、找得到，但白花時間。
 //
 // 下一站：src/auth/auth.controller.ts（兩支端點，狀態碼卻不一樣）
 // ============================================================
@@ -26,10 +30,15 @@ import { ConfigService } from '@nestjs/config';
 import { AuthService } from './auth.service';
 import { AuthController } from './auth.controller';
 import { JwtAuthGuard } from './guards/jwt-auth.guard';
+import { RolesGuard } from './guards/roles.guard';
 
 @Module({
   controllers: [AuthController],
-  providers: [AuthService, { provide: APP_GUARD, useClass: JwtAuthGuard }],
+  providers: [
+    AuthService,
+    { provide: APP_GUARD, useClass: JwtAuthGuard },
+    { provide: APP_GUARD, useClass: RolesGuard },
+  ],
   imports: [
     // [教學] JwtModule 的 providers / exports 裡有一個 JwtService（同 prisma.module.ts
     // 那段對照）。**imports 寫下去的那一刻**，AuthService 才注入得到它。

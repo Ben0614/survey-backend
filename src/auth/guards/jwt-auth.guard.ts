@@ -11,6 +11,12 @@
 //   Pipe   —— 請求進來的路上，負責「參數對不對」（→ 400）
 //   Guard  —— 更前面一站，負責「你能不能進來」（→ 401 / 403）
 //   Filter —— 回應出去的路上，只有例外被丟出來時才跑
+//
+// **Ch11 之後 guard 有兩支**，而且分工要記清楚：
+//   JwtAuthGuard（這一支）驗票   —— 你是誰？票是真的嗎？→ 401
+//   RolesGuard            看職稱 —— 你的角色能做這件事嗎？→ 403
+// 這一支排在前面（auth.module.ts 的 providers 順序），因為 RolesGuard
+// 要用它放上去的 request.user —— 沒有身分就談不上角色。
 // 三者都在 setup-app.ts 那段註解畫的那條路上，只是位置不同。
 //
 // **Guard 比 Pipe 更早跑**，所以沒帶 token 的請求連 DTO 驗證都到不了。
@@ -19,7 +25,7 @@
 // 為什麼放 src/auth/ 而不是 src/common/：common/ 裡的 filter 與 error entity
 // 不認識任何 feature，這一支認識 JwtService 和 @Public() —— 它是 auth 的東西。
 //
-// 下一站：test/setup-env.ts（上面這些怎麼被自動驗證）
+// 下一站：src/auth/guards/roles.guard.ts（第二個驗票口，看的是職稱）
 // ============================================================
 
 import {
@@ -32,6 +38,7 @@ import { Reflector } from '@nestjs/core';
 import { JwtService } from '@nestjs/jwt';
 import { Request } from 'express';
 import { IS_PUBLIC_KEY } from '../decorators/public.decorator';
+import { Role } from '../../generated/prisma/enums';
 
 /**
  * token 解開之後長什麼樣。auth.service.ts 只放了 sub，
@@ -41,11 +48,13 @@ export interface JwtPayload {
   sub: string;
   iat: number;
   exp: number;
+  role: Role;
 }
 
 /** 通過驗票之後掛在 request 上的東西。輪 3 的 @CurrentUser() 會來拿它。 */
 export interface AuthUser {
   id: string;
+  role: Role;
 }
 
 // [教學] Express 原本的 Request 沒有 user 這個屬性，所以自己擴一個型別出來。
@@ -68,8 +77,9 @@ export class JwtAuthGuard implements CanActivate {
   // [教學] implements CanActivate 的意思是「我承諾提供 canActivate 這個方法」，
   // 形狀跟 PrismaService 的 implements OnModuleInit 一樣 —— 都是跟框架的約定。
   //
-  // 回傳 true 就放行、false 就 403。這裡一律用 throw 而不是 return false，
-  // 因為 throw 才給得出**訊息**；return false 只會得到一句框架預設的 Forbidden。
+  // 回傳 true 就放行、false 就擋下。這裡一律用 throw 而不是 return false，
+  // 因為 throw 才給得出**訊息**、也才選得了狀態碼 ——
+  // return false 一律變成框架預設的 403，而這一支要的是 401。
   async canActivate(context: ExecutionContext): Promise<boolean> {
     // [教學] ExecutionContext 是「這次請求的上下文」。它刻意不綁死 HTTP ——
     // 同一個 guard 也可以用在 WebSocket、gRPC 上，所以要拿 HTTP 的東西
@@ -114,9 +124,15 @@ export class JwtAuthGuard implements CanActivate {
 
       // ── ④ 把「這是誰」掛到 request 上，交給後面的人用
       //
-      // 只放 id，不放整個 payload：iat / exp 是 token 的事，
-      // 業務程式碼不該碰。輪 3 的 @CurrentUser() 只會讀這裡。
-      request.user = { id: payload.sub };
+      // 只挑要用的欄位，不放整個 payload：iat / exp 是 token 的事，
+      // 業務程式碼不該碰。讀這裡的有兩個人 ——
+      // @CurrentUser()（Ch10 輪 3）拿 id，RolesGuard（Ch11）拿 role。
+      //
+      // role 是 Ch11 加的。**它的值是簽 token 那一刻的快照**，
+      // 不會跟著資料庫更新 —— 管理員被降權之後，那張票在過期前仍然是管理員。
+      // 這是「role 放進 payload」換掉「每個請求查一次資料庫」的代價，
+      // 已知並接受（見 ch11 的決策取捨）。
+      request.user = { id: payload.sub, role: payload.role };
     } catch {
       // [教學] 這個 catch 不是裝飾用的。verifyAsync 遇到簽章不符、已過期、
       // 或根本不是三段式的字串，都會 throw；沒接住的話那些例外會冒到

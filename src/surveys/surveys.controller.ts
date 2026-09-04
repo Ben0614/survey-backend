@@ -28,6 +28,7 @@ import {
   ApiBadRequestResponse,
   ApiConflictResponse,
   ApiBearerAuth,
+  ApiForbiddenResponse,
 } from '@nestjs/swagger';
 import { CreateSurveyDto } from './dto/create-survey.dto';
 import { UpdateSurveyDto } from './dto/update-survey.dto';
@@ -37,7 +38,9 @@ import { SurveysService } from './surveys.service';
 import { SurveyEntity, PaginatedSurveysEntity } from './entities/survey.entity';
 import { ErrorResponseEntity } from '../common/entities/error-response.entity';
 import { CurrentUser } from '../auth/decorators/current-user.decorator';
+import { Roles } from '../auth/decorators/roles.decorator';
 import type { AuthUser } from '../auth/guards/jwt-auth.guard';
+import { Role } from '../generated/prisma/enums';
 
 // [教學] @Controller('surveys') 是這個 class 所有路由的共同前綴。
 // 下面的 @Get() 因此是 GET /surveys，不是 GET /。
@@ -194,9 +197,23 @@ export class SurveysController {
   //
   // 但要記得那個 body 是**刪除前的快照** —— 它有內容，不代表資料還在。
   // 所以 e2e 除了看 body，還要再查一次資料庫確認真的沒了。
-  @ApiOperation({ summary: '刪除問卷' })
+  // [教學] **Ch11 起這支只有 ADMIN 能呼叫**（@Roles(Role.ADMIN)）。
+  //
+  // 那個裝飾器本身不擋任何人 —— 它只在這個方法上貼一張寫著 ['ADMIN'] 的紙條，
+  // 真正擋人的是 roles.guard.ts。只貼紙條卻沒註冊 guard 的話效果是零，
+  // 而且完全無聲（判準：新 guard 沒讓既有測試變紅，代表它根本沒生效）。
+  //
+  // 為什麼只有刪除要管理員、改跟發布不用：這一章的範圍就是「刪除是不可逆的」。
+  // Ch12 會補上另一種授權 —— 「只能改**自己的**問卷」，那是看資料的歸屬，
+  // guard 看不到資料，所以判斷位置會不一樣。
+  @ApiOperation({ summary: '刪除問卷（僅限管理員）' })
   @ApiOkResponse({ description: '刪除前的那一筆問卷', type: SurveyEntity })
   @ApiNotFoundResponse({ description: '問卷不存在', type: ErrorResponseEntity })
+  @ApiForbiddenResponse({
+    description: '無此權限',
+    type: ErrorResponseEntity,
+  })
+  @Roles(Role.ADMIN)
   @Delete(':id')
   remove(@Param('id') id: string) {
     // [教學] 只吃網址、不吃 body —— DELETE 依規範不帶 body，

@@ -12,10 +12,10 @@
 > 換機或開新對話時**先讀這一節**。對話歷史與 AI 記憶都在 `~/.claude/` 底下，不跟 git 走 ——
 > 這裡沒寫的東西，換一台機器就等於沒發生過。
 
-**進度：** Ch0 ~ Ch10 完成。階段一（含部署）結束，**階段二做完兩章**。
+**進度：** Ch0 ~ Ch11 完成。階段一（含部署）結束，**階段二做完三章**。
 線上位址 `https://survey-backend-0dku.onrender.com`（Render 免費方案 + Neon 的 `production` branch）。
-`pnpm test:e2e` **110 passed**、`pnpm test` **6 passed**、`tsc --noEmit` 0 errors、`lint` 0 problems。
-下一步是 **Ch11（RBAC：只有管理員能刪問卷）**，接續點寫在下方「Ch11 接續點」。
+`pnpm test:e2e` **114 passed**、`pnpm test` **6 passed**、`tsc --noEmit` 0 errors、`lint` 0 problems。
+下一步是 **Ch12（資源層授權：只能改自己的問卷）**，接續點寫在下方「Ch12 接續點」。
 
 **2026-09-03 —— 線上 API 已經上鎖。** Ch10 之前任何人都能對線上服務讀寫刪，
 現在除了 `/health`、註冊、登入之外每一支端點都要帶 JWT。`/docs` 仍然公開，
@@ -572,11 +572,42 @@ Ch8 留下的「`/docs` 要不要公開」因此變成一個真正的選擇，
 
 ---
 
-### Ch11 接續點（2026-09-03）
+### Ch11 完成（2026-09-03）—— 兩輪
 
-**目前狀態**：`pnpm test:e2e` **110 passed**、`pnpm test` **6 passed**、
+**輪 1** 讓 `role` 這個欄位存在並進得了 token，**輪 2** 讓 `@Roles()` + `RolesGuard`
+去讀它並據此擋人。功能只有一句話：**只有 `ADMIN` 能刪問卷**。
+
+這一章的主題是**裝飾器只是紙條，擋人的是讀紙條的那支 guard**。
+`@Roles(Role.ADMIN)` 本身不會攔任何人 —— 只貼紙條卻忘了註冊 guard 的話，
+效果是零，而且 tsc / lint / 既有測試全綠。
+
+> **判準：新 guard 沒讓既有測試變紅，代表它根本沒生效。**
+
+六條坑裡最值得先看的三條（完整版在 [`ch11`](docs/chapters/ch11-RBAC與角色權限.md)）：
+
+1. **`roles.guard.ts` 整支複製了 `jwt-auth.guard.ts`** —— 「複製結構正確的程式碼、
+   只改了一半」的**第五次**，前四次都是一行，這次是整個檔案。邏輯完全反過來
+   （照抄 `@Public()` 的「有紙條就放行」），零保護，而 3 條既有的 DELETE 測試繼續綠。
+2. **`code` 的合法值活在三個地方，兩份漂移了兩章。** Ch9 加 `UNAUTHORIZED`、
+   Ch11 加 `FORBIDDEN`，兩次都只改了 filter。`error-response.entity.ts` 的註解
+   本來寫著「刻意接受的第二份真相，**偵測器是 e2e**」—— 那句話是錯的，偵測器並不存在。
+   **判準更新：「刻意接受第二份真相」的前提是有偵測器；沒有的話那不是取捨，是破口。**
+3. **`import { PrismaClient } from '@prisma/client/extension'`** —— 它解析得到、
+   但解析到**錯的東西**。實測寫 `p.user.update({ where: { emailTYPO }, ... })`
+   和 `p.這個方法不存在()`，`tsc` 一句話都沒說。
+   **比「解析不到」更陰險**：解析不到會有紅線（很吵），解析到錯的東西完全安靜。
+
+另外記一個工具面的判準：`@typescript-eslint/...` 那一族的紅線是 **ESLint 行程**報的，
+不是 TS server —— 重開 TS server 沒用，要 `ESLint: Restart ESLint Server`。
+**看訊息的來源決定該重啟誰。**
+
+---
+
+### Ch12 接續點（2026-09-03）
+
+**目前狀態**：`pnpm test:e2e` **114 passed**、`pnpm test` **6 passed**、
 `tsc --noEmit` 0 errors、`eslint` 0 problems。
-**Ch0 ~ Ch10 完成。階段二做完兩章，線上 API 已上鎖。**
+**Ch0 ~ Ch11 完成。階段二做完三章。**
 
 #### 換機之後先做這四件事
 
@@ -584,15 +615,10 @@ Ch8 留下的「`/docs` 要不要公開」因此變成一個真正的選擇，
    重建 `.env`、`.env.test` / 重建 skills junction）—— 見
    [`docs/專案速查.md`](docs/專案速查.md) 的「換機接續」。
 2. **`.env` 與 `.env.test` 各需要一組 `JWT_SECRET` / `JWT_EXPIRES_IN`**（Ch10 加的）。
-   **三個環境的 secret 必須互不相同** —— 知道 secret 的人可以偽造任何人的身分，
-   而「三條資料庫是分開的」完全擋不住這件事。產生方式：
-   `node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"`。
-   ⚠️ `getOrThrow` **只擋 undefined**：寫成 `JWT_SECRET=` 時 dotenv 給空字串，
-   應用起得來、`/health` 是綠的，**只有登入會 500**。
-3. **跑四項驗收確認數字對得上**：`test:e2e` **110**、`test` **6**、`tsc` 0、`lint` 0。
-   對不上就先修環境，別開始寫程式。
-4. **確認 `core.autocrlf`**：`git config --get core.autocrlf`。
-   本機設定、不跟著 git 走，查換行**只信 `git ls-files --eol` 的 `i/` 欄**。
+   **三個環境的 secret 必須互不相同**。⚠️ `getOrThrow` 只擋 undefined：
+   寫成 `JWT_SECRET=` 時應用起得來、`/health` 是綠的，**只有登入會 500**。
+3. **跑四項驗收確認數字對得上**：`test:e2e` **114**、`test` **6**、`tsc` 0、`lint` 0。
+4. **確認 `core.autocrlf`**：查換行**只信 `git ls-files --eol` 的 `i/` 欄**。
 
 #### 線上環境
 
@@ -601,9 +627,10 @@ Ch8 留下的「`/docs` 要不要公開」因此變成一個真正的選擇，
 | 網址 | `https://survey-backend-0dku.onrender.com` |
 | 平台 | Render 免費方案，Region Singapore，接 GitHub `main`（push 就自動重新部署） |
 | 資料庫 | Neon 的 `production` branch |
-| 環境變數 | `DATABASE_URL` + **`JWT_SECRET` / `JWT_EXPIRES_IN`**（Ch10 加的第三組 secret） |
+| 環境變數 | `DATABASE_URL` + `JWT_SECRET` / `JWT_EXPIRES_IN` |
 | `/docs` | 公開（Ch10 重新評估後維持，理由見 `ch10`） |
-| 認證 | **除了 `/health`、註冊、登入之外全部要帶 JWT**。網址可以貼了 |
+| 認證 | 除了 `/health`、註冊、登入之外全部要帶 JWT |
+| 授權 | **`DELETE /surveys/:id` 只有 `ADMIN`**（Ch11）。線上還沒有任何 admin —— 要的話得直接改資料庫 |
 
 #### 改完 schema 之後，三條 branch 各自怎麼套用
 
@@ -613,32 +640,35 @@ Ch8 留下的「`/docs` 要不要公開」因此變成一個真正的選擇，
 | **test** | **只有這條要你動手：`pnpm migrate:test`** |
 | production | `git push` 之後 Render 的 Build Command 自動跑 |
 
-忘記 test 的症狀有誤導性：e2e 突然 500、訊息是 `The table public.X does not exist`
-而且指著你剛寫的 service。
+`migrate dev` **不會順帶 `generate`**，改完 schema 直接查產物：`ls src/generated/prisma/models/`。
 
-#### Ch11 要做什麼
+#### Ch12 要做什麼
 
-**主題：RBAC —— 只有管理員能刪問卷。** Ch10 讓伺服器知道「你是誰」，
-Ch11 要讓它知道「你能做什麼」。
+**主題：資源層授權 —— 只能改自己的問卷。** Ch11 判斷的是「你是什麼角色」，
+Ch12 判斷的是「**這筆資料是不是你的**」。這兩者的位置不一樣，那正是這一章的重點。
 
 幾個已經知道會碰到的點，開工前一輪再定細節：
 
-- **`User` 要加 `role` 欄位**，而這次跟 Ch9 的 `ownerId` 不同 —— 可以給預設值
-  （`USER`），所以 `NOT NULL` 的 migration 加得上去。順便回顧 Ch9 那一課：
-  **能不能加 `NOT NULL` 是資料逼的，不是風格選擇**
-- **`role` 該不該放進 JWT payload？** Ch10 的判準是「只有『每個請求都需要、
-  不查就拿不到』的東西才值得放」。`role` 剛好是第一個真正的候選 ——
-  但它也帶來 Ch10 沒有的問題：**payload 是簽發當下的快照**，
-  管理員被降權之後，那張票在過期前仍然是管理員
-- **`@Roles()` 與第二個 guard**：`RolesGuard` 要在 `JwtAuthGuard` **之後**跑
-  （沒有身分就談不上角色），而 `getAllAndOverride` 的 `[handler, class]`
-  這次真的會用到 class 那一層
-- **403 而不是 401**：Ch10 全部都是 401，Ch11 是第一次出現 403。
-  判準已經寫在 [`docs/錯誤處理與狀態碼.md`](docs/錯誤處理與狀態碼.md)
+- **guard 看不到資料。** `RolesGuard` 只需要 `request.user`，但「這份問卷是誰的」
+  要先去資料庫查一次 —— 而 guard 跑在 controller 之前，那時還沒有人查過。
+  所以判斷該放 guard 還是 service？這是 `LEARNING.md` 課綱寫的
+  「**Guard 層 vs Service 層判斷的取捨**」
+- **`Survey.ownerId` 終於被讀。** Ch10 輪 3 填進去的值，到 Ch12 才第一次
+  拿來做判斷。中間隔了一整章 —— 這正是當初那條「比對到 `sub` 而不是 `not.toBeNull()`」
+  的測試在保護的東西
+- **ADMIN 要不要能改別人的問卷？** 兩條規則相遇時的優先順序，是這一章的設計題
+- **測試要一次生出兩個使用者**：`registerAndLoginAsAdmin` 的 `email` 參數
+  （Ch11 加的）到這裡才真的派上用場
 
-> **Ch10 留下、Ch12 之後要重新評估的一件事**：guard 目前**不查資料庫**。
-> 代價是帳號被刪掉之後那張票在過期前仍然通行。Ch11 若把 `role` 放進 payload，
-> 這個代價會從「已刪帳號」擴大到「已降權的管理員」—— 到時候要一起討論。
+> **Ch11 留下的觀察**：`pnpm test:e2e` 大約三次會有一次**只失敗 1 條，而且每次
+> 不一樣**（跟改動無關、單獨跑都綠）。照 `docs/專案速查.md` 的判準這是環境問題，
+> 而且使用者確認**之前就發生過**、不是 Ch11 引入的。刻意不追（1/114、每次 80 秒），
+> 但**下次遇到請先把錯誤訊息存下來** —— 要分辨是 `ECONNRESET` 還是斷言失敗，
+> 那一步這次漏了。完整紀錄在 `docs/專案速查.md` 的「e2e 測試連線問題怎麼查」。
+>
+> **Ch11 留下、Ch12 之後要處理的一件事**：`code` 的合法值有三份，
+> 而它們之間**沒有任何偵測器**。要補的話得寫一條測試比對
+> 「filter 產得出來的 code 集合」與 `error-response.entity.ts` 的 `enum`。
 
 ## 進度表
 
@@ -665,7 +695,7 @@ Ch11 要讓它知道「你能做什麼」。
 | :---: | --- | --- | :---: |
 | Ch9 | User model、bcrypt、註冊登入 | 密碼雜湊；預設拒絕比逐一排除可靠；**對已有資料的表加 `ownerId`** | ✅ |
 | Ch10 | JWT 與全域 AuthGuard | 認證流程、`@Public()` 的例外機制；**看得到內容 ≠ 內容可信** | ✅ |
-| Ch11 | RBAC：只有管理員能刪問卷 | 角色權限、`@Roles()` 自訂裝飾器 | ⬜ |
+| Ch11 | RBAC：只有管理員能刪問卷 | 角色權限、`@Roles()` 自訂裝飾器；**裝飾器只是紙條，擋人的是 guard** | ✅ |
 | Ch12 | 資源層授權：只能改自己的問卷 | Guard 層 vs Service 層判斷的取捨 | ⬜ |
 
 ### 階段三：前端串接與部署
@@ -726,6 +756,7 @@ Ch11 要讓它知道「你能做什麼」。
 | Ch8 — 第一次部署 | [`docs/chapters/ch08-第一次部署.md`](docs/chapters/ch08-第一次部署.md) |
 | Ch9 — 認證基礎 | [`docs/chapters/ch09-認證基礎.md`](docs/chapters/ch09-認證基礎.md) |
 | Ch10 — JWT 與全域 AuthGuard | [`docs/chapters/ch10-JWT與全域AuthGuard.md`](docs/chapters/ch10-JWT與全域AuthGuard.md) |
+| Ch11 — RBAC 與角色權限 | [`docs/chapters/ch11-RBAC與角色權限.md`](docs/chapters/ch11-RBAC與角色權限.md) |
 
 ## 跨章節文件
 

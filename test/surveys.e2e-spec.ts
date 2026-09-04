@@ -18,12 +18,25 @@ import { PrismaService } from '../src/prisma/prisma.service';
 import { setupApp } from '../src/setup-app';
 import { resetDb } from './helpers/reset-db';
 import { SurveyStatus } from '../src/generated/prisma/enums';
-import { registerAndLogin, authHeader } from './helpers/auth';
+import {
+  registerAndLogin,
+  authHeader,
+  registerAndLoginAsAdmin,
+} from './helpers/auth';
 import { JwtService } from '@nestjs/jwt';
 
 // [教學] supertest 的 res.body 型別是 any（它不可能知道你的 API 回什麼）。
 // 專案的 ESLint 規則禁止在 any 上直接取欄位，所以宣告一個形狀轉一次。
 // 這個型別只是測試自己的斷言用，不是 API 契約 —— 真正的契約 Ch7 用 Swagger 產生。
+/** 錯誤回應的形狀（對應 src/common/entities/error-response.entity.ts）。 */
+interface ErrorBody {
+  error: {
+    code: string;
+    message: string;
+    details?: string[];
+  };
+}
+
 interface SurveyBody {
   id: string;
   title: string;
@@ -710,20 +723,26 @@ describe('Surveys (e2e)', () => {
   });
 
   describe('DELETE /surveys/:id', () => {
+    let adminToken: string;
+
+    beforeEach(async () => {
+      adminToken = await registerAndLoginAsAdmin(app, prisma);
+    });
+
     // [教學] 這一條的兩段斷言不是重複，它們各自證明不同的事：
     //   res.body   —— 「API 說它刪掉了這一筆」
     //   findUnique —— 「它真的不在資料庫裡了」
     //
     // DELETE 特別需要第二段。因為回應 body 就是刪除前的快照，
     // 一支「只把資料回吐、根本沒執行 DELETE」的爛實作，第一段照樣會過。
-    it('刪除問卷', async () => {
+    it('ADMIN 刪除問卷 → 200，回傳被刪掉的那一筆', async () => {
       const survey = await prisma.survey.create({
         data: { title: '要刪掉的問卷' },
       });
 
       const res = await request(app.getHttpServer())
         .delete(`/surveys/${survey.id}`)
-        .set(...authHeader(authToken))
+        .set(...authHeader(adminToken))
         .expect(200);
 
       expect(res.body).toMatchObject({
@@ -737,10 +756,10 @@ describe('Surveys (e2e)', () => {
       expect(deleted).toBeNull();
     });
 
-    it('id 不存在時回 404', async () => {
+    it('ADMIN 刪除不存在的 id → 404', async () => {
       await request(app.getHttpServer())
         .delete('/surveys/nonexistent-id')
-        .set(...authHeader(authToken))
+        .set(...authHeader(adminToken))
         .expect(404);
     });
 
@@ -758,7 +777,7 @@ describe('Surveys (e2e)', () => {
     // Answer 是三張裡最不能省的：它**沒有直接掛在 Survey 上**（見 schema.prisma），
     // 能被清掉是因為 Question（或 Response）先被清掉、再連鎖一次。
     // 少了它，驗到的只有第一層，多層連鎖哪天壞了不會有人發現。
-    it('刪除問卷會連帶刪掉題目、回覆與答案（cascade）', async () => {
+    it('ADMIN 刪除問卷會連帶刪掉題目、回覆與答案（cascade）', async () => {
       const survey = await prisma.survey.create({
         data: { title: '有題目也有人填過的問卷' },
       });
@@ -789,7 +808,7 @@ describe('Surveys (e2e)', () => {
 
       await request(app.getHttpServer())
         .delete(`/surveys/${survey.id}`)
-        .set(...authHeader(authToken))
+        .set(...authHeader(adminToken))
         .expect(200);
 
       // [教學] 這三行**必須用 prisma 直接查、不能改用 API**。
@@ -806,6 +825,56 @@ describe('Surveys (e2e)', () => {
       expect(await prisma.question.count()).toBe(0);
       expect(await prisma.response.count()).toBe(0);
       expect(await prisma.answer.count()).toBe(0);
+    });
+
+    // [教學] 這一條的主角是 **code**，不是狀態碼。
+    //
+    // 只寫 .expect(403) 的話，all-exceptions.filter.ts 的 STATUS_TO_CODE
+    // 少一筆 403 完全抓不到 —— 那時回應會是「狀態碼 403、code 卻是
+    // INTERNAL_ERROR」，格式完全合法、tsc 綠、lint 綠。
+    // 而 /docs 的說明白紙黑字要前端「用 code 分支處理，不要解析 message」，
+    // 所以前端會顯示「伺服器發生錯誤」，使用者一直重試一個永遠不會成功的操作。
+    //
+    // 用外層那個 authToken（USER）打就好 —— 這一條要的正是「登入了、
+    // 但職稱不夠」。
+    it('USER 刪除問卷 → 403，code 是 FORBIDDEN', async () => {
+      const created = await request(app.getHttpServer())
+        .post('/surveys')
+        .set(...authHeader(authToken))
+        .send({ title: '員工滿意度調查' })
+        .expect(201);
+
+      const id = (created.body as SurveyBody).id;
+
+      const res = await request(app.getHttpServer())
+        .delete(`/surveys/${id}`)
+        .set(...authHeader(authToken))
+        .expect(403);
+
+      expect((res.body as ErrorBody).error.code).toBe('FORBIDDEN');
+    });
+
+    // [教學] 這一條驗的是**兩個 guard 的順序**（auth.module.ts 的 providers
+    // 陣列決定的）：不帶 token 時該由 JwtAuthGuard 先擋下，RolesGuard
+    // 根本不會跑。
+    //
+    // 順序反了會拿到 403 —— 等於對一個陌生人說「你只是職稱不夠」，
+    // 而事實是「我根本不知道你是誰」。兩者對前端的意義完全不同：
+    // 401 該導去登入頁，403 該顯示「權限不足」。
+    it('不帶 token 刪除問卷 → 401 而不是 403', async () => {
+      const created = await request(app.getHttpServer())
+        .post('/surveys')
+        .set(...authHeader(adminToken))
+        .send({ title: '員工滿意度調查' })
+        .expect(201);
+
+      const id = (created.body as SurveyBody).id;
+
+      const res = await request(app.getHttpServer())
+        .delete(`/surveys/${id}`)
+        .expect(401);
+
+      expect((res.body as ErrorBody).error.code).toBe('UNAUTHORIZED');
     });
   });
 

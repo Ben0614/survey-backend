@@ -43,7 +43,7 @@ export function buildSwaggerDocument(app: INestApplication): OpenAPIObject {
         '建立問卷、發布、填答與查詢結果。',
         '',
         '**錯誤格式**：所有端點的錯誤回應都是 `{ error: { code, message, details? } }`，',
-        '`code` 是 `BAD_REQUEST` / `NOT_FOUND` / `CONFLICT` / `VALIDATION_FAILED` / `INTERNAL_ERROR` 其中之一。',
+        '`code` 是 `BAD_REQUEST` / `NOT_FOUND` / `CONFLICT` / `VALIDATION_FAILED` / `INTERNAL_ERROR` / `UNAUTHORIZED` / `FORBIDDEN` 其中之一。',
         '請用 `code` 分支處理，不要解析 `message`（它的內容會隨版本變動）。',
         '`details` 只有欄位驗證失敗（`VALIDATION_FAILED`）時才會出現。',
         '',

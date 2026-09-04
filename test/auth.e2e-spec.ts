@@ -39,12 +39,14 @@ import { setupApp } from '../src/setup-app';
 import { resetDb } from './helpers/reset-db';
 import { registerAndLogin, authHeader } from './helpers/auth';
 import { JwtService } from '@nestjs/jwt';
+import { Role } from '../src/generated/prisma/enums';
 
 interface AuthRegisterBody {
   id: string;
   email: string;
   createdAt: string;
   updatedAt: string;
+  role: Role;
 }
 
 interface AuthLoginBody {
@@ -91,7 +93,7 @@ describe('Auth (e2e)', () => {
   });
 
   describe('POST /auth/register', () => {
-    it('合法的 email 與密碼 → 201，回傳 id、email、createdAt、updatedAt', async () => {
+    it('合法的 email 與密碼 → 201，回傳 id、email、createdAt、updatedAt、role', async () => {
       const res = await request(app.getHttpServer())
         .post('/auth/register')
         .send({
@@ -105,6 +107,7 @@ describe('Auth (e2e)', () => {
         'createdAt',
         'email',
         'id',
+        'role',
         'updatedAt',
       ]);
       expect(body.email).toBe('user@example.com');
@@ -126,6 +129,7 @@ describe('Auth (e2e)', () => {
         'createdAt',
         'email',
         'id',
+        'role',
         'updatedAt',
       ]);
       expect(body).not.toHaveProperty('passwordHash');
@@ -183,6 +187,26 @@ describe('Auth (e2e)', () => {
 
       expect(body.error.code).toBe('VALIDATION_FAILED');
     });
+
+    it('沒指定角色時，新使用者的 role 是 USER', async () => {
+      const res = await request(app.getHttpServer())
+        .post('/auth/register')
+        .send({ email: 'user@example.com', password: 'zxcv1234' })
+        .expect(201);
+
+      const body = res.body as AuthRegisterBody;
+      expect(body.role).toBe(Role.USER);
+    });
+
+    it('body 硬送 role: ADMIN 會被忽略，存進去的仍是 USER', async () => {
+      const res = await request(app.getHttpServer())
+        .post('/auth/register')
+        .send({ email: 'user@example.com', password: 'zxcv1234', role: 'ADMIN' })
+        .expect(201);
+
+      const body = res.body as AuthRegisterBody;
+      expect(body.role).toBe(Role.USER);
+    });
   });
 
   describe('POST /auth/login', () => {
@@ -233,7 +257,12 @@ describe('Auth (e2e)', () => {
 
       const body = res.body as AuthLoginBody;
       const payload = decodeFunc(body);
-      expect(Object.keys(payload).sort()).toEqual(['exp', 'iat', 'sub']);
+      expect(Object.keys(payload).sort()).toEqual([
+        'exp',
+        'iat',
+        'role',
+        'sub',
+      ]);
     });
 
     it('密碼錯誤 → 401，code 是 UNAUTHORIZED，且不回 accessToken', async () => {
@@ -296,7 +325,7 @@ describe('Auth (e2e)', () => {
   });
 
   describe('GET /auth/me', () => {
-    it('帶合法 token → 200，回傳 id、email、createdAt、updatedAt', async () => {
+    it('帶合法 token → 200，回傳 id、email、createdAt、updatedAt、role', async () => {
       const authToken = await registerAndLogin(app);
       const { sub } = app.get(JwtService).decode<{ sub: string }>(authToken);
 
@@ -310,6 +339,7 @@ describe('Auth (e2e)', () => {
         'createdAt',
         'email',
         'id',
+        'role',
         'updatedAt',
       ]);
       expect(body.id).toBe(sub);

@@ -20,6 +20,7 @@
 // ============================================================
 
 import { INestApplication } from '@nestjs/common';
+import { PrismaClient } from '../../src/generated/prisma/client';
 import request from 'supertest';
 import { App } from 'supertest/types';
 
@@ -49,6 +50,53 @@ export async function registerAndLogin(
     .post('/auth/register')
     .send({ email, password })
     .expect(201);
+
+  const res = await request(app.getHttpServer())
+    .post('/auth/login')
+    .send({ email, password })
+    .expect(200);
+
+  return (res.body as LoginBody).accessToken;
+}
+
+/**
+ * 造一個管理員並登入，回傳它的 token。
+ *
+ * 預設 email 跟 registerAndLogin **必須不同** —— 兩者常常在同一個測試裡
+ * 各被呼叫一次（外層 beforeEach 拿 USER、內層拿 ADMIN），撞名就是
+ * email 的 @unique 擋下來、註冊回 409。
+ */
+export async function registerAndLoginAsAdmin(
+  app: INestApplication<App>,
+  prisma: PrismaClient,
+  email = 'e2e-admin@example.com',
+  password = 'zxcv1234',
+): Promise<string> {
+  // [教學] 三步的順序不能換，而換錯了症狀會騙人。
+  //
+  // role 是**簽 token 那一刻**寫進 payload 的（Ch10 的「payload 是快照」
+  // 在這裡第一次有實際後果）。先登入再升權的話，資料庫查出來是 ADMIN、
+  // /auth/me 也回 ADMIN，但那張票上寫的仍然是 USER —— 於是刪問卷還是 403，
+  // 而你會跑去 RolesGuard 裡找一個不存在的 bug。
+  //
+  // ① 註冊（一定是 USER —— 那正是 register 不收 role 的結果）
+  await request(app.getHttpServer())
+    .post('/auth/register')
+    .send({ email, password })
+    .expect(201);
+
+  // ② 升權。**這是繼「刪掉使用者」之後第二個適合繞過 HTTP 的場合** ——
+  // 沒有任何 API 能給人升權，而那是刻意的：能發放權力的端點是整個系統
+  // 最有價值的攻擊目標，而且它保護不了自己（第一個管理員存在之前，
+  // 沒有人有資格呼叫它）。真實專案的第一個 admin 也是這樣來的。
+  await prisma.user.update({
+    where: { email },
+    data: {
+      role: 'ADMIN',
+    },
+  });
+
+  // ③ 現在登入，票上才會寫著 ADMIN
 
   const res = await request(app.getHttpServer())
     .post('/auth/login')

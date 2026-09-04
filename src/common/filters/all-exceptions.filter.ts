@@ -34,9 +34,17 @@ import { Prisma } from '../../generated/prisma/client';
 //
 // 型別寫成 `string | undefined` 而不是 `string`：查不到時真的會拿到 undefined，
 // 型別要說實話，下面的 ?? 才不會被當成多餘的判斷。
+//
+// FORBIDDEN 是 Ch11 加的。少了它的症狀值得記住：ForbiddenException 丟出去
+// 之後查表查不到 → 落到 ?? FALLBACK_CODE → 回應變成「狀態碼 403、
+// code 卻是 INTERNAL_ERROR」。JSON 完全合法、tsc 綠、lint 綠，
+// 而 e2e 只寫 .expect(403) 的話也綠 —— 但 /docs 要前端「用 code 分支處理」，
+// 於是前端顯示「伺服器發生錯誤」，使用者一直重試一個永遠不會成功的操作。
+// **新增一種狀態碼時，這張表是第一個要回來的地方。**
 const STATUS_TO_CODE: Record<number, string | undefined> = {
   [HttpStatus.BAD_REQUEST]: 'BAD_REQUEST',
   [HttpStatus.UNAUTHORIZED]: 'UNAUTHORIZED',
+  [HttpStatus.FORBIDDEN]: 'FORBIDDEN',
   [HttpStatus.NOT_FOUND]: 'NOT_FOUND',
   [HttpStatus.CONFLICT]: 'CONFLICT',
 };

@@ -20,14 +20,28 @@ import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 
 export class ErrorBodyEntity {
   // enum 用寫死的清單，不是從 filter import 常數過來 ——
-  // 那五個常數在 filter 裡是四個獨立的變數（STATUS_TO_CODE 的三個值、
+  // 那些常數在 filter 裡是幾個獨立的變數（STATUS_TO_CODE 的值、
   // VALIDATION_CODE、FALLBACK_CODE），沒有一份現成的「全部合法值」清單可以借。
   // 硬要共用得先在 filter 那邊多開一個 as const 陣列，而那會為了文件去改錯誤處理，
-  // 代價比收益大。這是刻意接受的第二份真相，偵測器是 e2e。
+  // 代價比收益大。這是刻意接受的第二份真相。
+  //
+  // **而它在 Ch11 收尾時被發現漂移了兩章**：Ch9 加了 UNAUTHORIZED、
+  // Ch11 加了 FORBIDDEN，兩次都只改了 filter，這裡都沒跟上。
+  // 沒有任何工具會叫 —— swagger 的一致性測試只比對**欄位名**
+  // （code / message / details），不看 enum 裡列了哪些值。
+  //
+  // 判準：**「刻意接受第二份真相」的前提是有偵測器。** 這裡實際上沒有，
+  // 所以它不是取捨，是一個已知的破口。要補得寫一條測試比對
+  // 「filter 產得出來的 code 集合」與「這份 enum」—— Ch12 有機會時再處理。
+  //
+  // 順帶：同一份清單其實有**三個**地方（第三個是 src/swagger.ts 的
+  // description 字串），而那一份也一起漏了同樣兩個值。
   @ApiProperty({
     description: '錯誤代碼，前端用它分支處理（不要解析 message）',
     enum: [
       'BAD_REQUEST',
+      'UNAUTHORIZED',
+      'FORBIDDEN',
       'NOT_FOUND',
       'CONFLICT',
       'VALIDATION_FAILED',

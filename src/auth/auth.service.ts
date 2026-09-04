@@ -27,7 +27,8 @@
 //    但風險只是換了位置：現在要小心的是別把它放進 payload（見下一點）。
 //    register 兩種情況都不必處理，因為它從來沒把雜湊撈出來。
 //
-// 4. **payload 只放 sub（Ch10）。** 兩個理由，都跟「payload 是什麼」有關：
+// 4. **payload 放 sub 與 role（Ch10 放 sub，Ch11 加 role）。**
+//    兩個理由，都跟「payload 是什麼」有關：
 //    它是 **base64 編碼、不是加密**，任何拿到 token 的人都看得見裡面每個字；
 //    而且它是**簽發當下的快照**，不會跟著資料庫更新（exp 也是同一個道理）。
 //
@@ -36,6 +37,15 @@
 //    id 兩條都安全。輪 3 的 Survey.ownerId 直接拿 sub 來填，不必再查一次資料庫。
 //
 //    iat / exp 不是我們寫的，是 auth.module.ts 的 signOptions 自動塞進去的。
+//
+//    **role 是 Ch11 加的，而它剛好是這條判準的第一個真正候選**：
+//    每個請求都要用（RolesGuard 靠它），不放就得每次查一次資料庫。
+//    代價是快照會過期 —— 管理員被降權之後，那張票在過期前仍然是管理員。
+//    這個專案接受（1 小時的窗口），但要知道洞在哪。
+//
+//    email 仍然不放：它是個資、而且使用者可以改。**看得見不等於改得了
+//    （簽章擋住了），但看得見本身就是代價** —— 拿到一批 token 的人
+//    光看 role 就知道該優先偷哪一張。
 //
 // 4.5 **findMe 查不到時丟 401 而不是 404（Ch10 輪 3）。**
 //    判準是「這個『找不到』找的是資源，還是身分」：
@@ -93,7 +103,7 @@ export class AuthService {
       throw new UnauthorizedException(unauthorizedExceptionDescription);
     }
 
-    const payload = { sub: user.id };
+    const payload = { sub: user.id, role: user.role };
     const token = await this.jwtService.signAsync(payload);
 
     return { accessToken: token };

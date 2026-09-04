@@ -397,7 +397,31 @@ Content-Type: application/json
 PATCH {{host}}/surveys/{{surveyId}}/unpublish
 Authorization: Bearer {{token}}
 
-### 刪除問卷。它的題目、回覆、答案會一起消失（schema 的 onDelete: Cascade）
+### ------------------------------------------------------------
+### 刪除問卷（Ch11 起**只有 ADMIN** 能做）
+### ------------------------------------------------------------
+###
+### 上面那張票是 USER 的，直接送下面這支會回 403（code 是 FORBIDDEN）——
+### 那是預期行為，可以先送一次看看。
+###
+### 要真的刪掉的話，得先把自己升成管理員。**沒有任何 API 能做這件事**，
+### 那是刻意的：能發放權力的端點是整個系統最有價值的攻擊目標，
+### 而且它保護不了自己（第一個管理員存在之前，沒有人有資格呼叫它）。
+### 真實專案的第一個 admin 也是這樣來的。
+###
+### 三步，順序不能換：
+###
+###   1. 開 GUI 改：`pnpm exec prisma studio` → User 表 → 把你的 role 改成 ADMIN
+###      （或下一句 SQL：UPDATE "User" SET role='ADMIN' WHERE email='demo@example.com';）
+###
+###   2. **回到上面重送一次「登入」**。這一步最容易漏 ——
+###      role 是**簽 token 那一刻**寫進 payload 的，不重新登入的話，
+###      你手上那張票仍然寫著 USER。症狀會騙人：資料庫查出來是 ADMIN、
+###      GET /auth/me 也回 ADMIN，但刪問卷還是 403。
+###
+###   3. 再送下面這支，就會成功了。
+###
+### 它的題目、回覆、答案會一起消失（schema 的 onDelete: Cascade）
 DELETE {{host}}/surveys/{{surveyId}}
 Authorization: Bearer {{token}}
 
