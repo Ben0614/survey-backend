@@ -6,6 +6,11 @@
 // controller 的職責與 @Param / @Body 的基本用法見 surveys.controller.ts 檔頭，
 // 這裡只講新的東西：**巢狀路由**，也就是網址裡出現「父資源」的那一層。
 //
+// **Ch12 的分工在這個檔案裡看得最清楚**：同樣掛在 /surveys/:surveyId 底下，
+//   POST（新增題目）—— 加了 @CurrentUser()，只有問卷的主人能加
+//   GET （列出題目）—— **刻意不保護**，填答的人要看得到題目
+// 「都在同一個 controller、都吃同一個 surveyId」不代表權限一樣。
+//
 // 下一站：src/questions/questions.controller.ts（同一個功能的另一半路由，形狀不一樣）
 // ============================================================
 
@@ -18,12 +23,15 @@ import {
   ApiBadRequestResponse,
   ApiConflictResponse,
   ApiBearerAuth,
+  ApiForbiddenResponse,
 } from '@nestjs/swagger';
 import { Controller, Get, Post, Param, Body } from '@nestjs/common';
 import { QuestionsService } from './questions.service';
 import { CreateQuestionDto } from './dto/create-question.dto';
 import { QuestionEntity } from './entities/question.entity';
 import { ErrorResponseEntity } from '../common/entities/error-response.entity';
+import { CurrentUser } from '../auth/decorators/current-user.decorator';
+import type { AuthUser } from 'src/auth/guards/jwt-auth.guard';
 
 // [教學] 前綴裡可以放**路徑參數**（:surveyId），不是只能放固定文字。
 // 底下每一支路由都自動帶著這一段，@Param('surveyId') 照樣抓得到。
@@ -63,6 +71,10 @@ export class SurveysQuestionsController {
     type: ErrorResponseEntity,
   })
   @ApiNotFoundResponse({ description: '問卷不存在', type: ErrorResponseEntity })
+  @ApiForbiddenResponse({
+    description: '無此權限',
+    type: ErrorResponseEntity,
+  })
   @Post()
   create(
     // [教學] 第一次出現「兩個來源」的巢狀版本：
@@ -73,7 +85,8 @@ export class SurveysQuestionsController {
     // 只是這裡的識別指的是**父資源**而不是自己。
     @Param('surveyId') surveyId: string,
     @Body() createQuestionDto: CreateQuestionDto,
+    @CurrentUser() user: AuthUser,
   ) {
-    return this.questionsService.create(surveyId, createQuestionDto);
+    return this.questionsService.create(surveyId, createQuestionDto, user);
   }
 }

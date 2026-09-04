@@ -7,6 +7,11 @@
 // 差別在每個案例都要先建一份**父問卷** —— 題目不能單獨存在。
 // 這件小事帶出這一段最貴的一課，寫在下面 PATCH 那組的註解裡。
 //
+// **Ch12 之後前提資料多了一件事：問卷要有 ownerId。**
+// prisma.survey.create 不會填它（填的是 POST /surveys，從 token 拿），
+// 所以繞過 HTTP 建出來的是「無主問卷」，而擁有權檢查會正確地擋下它 ——
+// 症狀是一批測試突然 403，而程式碼是對的（ch12 坑 1）。
+//
 // 下一站：test/responses.e2e-spec.ts（前提資料疊到三層時長什麼樣）
 // ============================================================
 
@@ -21,9 +26,18 @@ import { resetDb } from './helpers/reset-db';
 import { QuestionType } from '../src/generated/prisma/enums';
 import { SurveyStatus } from '../src/generated/prisma/enums';
 import { registerAndLogin, authHeader } from './helpers/auth';
+import { JwtService } from '@nestjs/jwt';
 
 // [教學] supertest 的 res.body 是 any，專案的 ESLint 禁止在 any 上直接取欄位，
 // 所以宣告一個形狀轉一次（同 surveys.e2e-spec.ts 的 SurveyBody）。
+interface ErrorBody {
+  error: {
+    code: string;
+    message: string;
+    details?: string[];
+  };
+}
+
 interface QuestionBody {
   id: string;
   surveyId: string;
@@ -32,10 +46,15 @@ interface QuestionBody {
   type: QuestionType;
 }
 
+interface LoginBody {
+  accessToken: string;
+}
+
 describe('Questions (e2e)', () => {
   let app: INestApplication<App>;
   let prisma: PrismaService;
   let authToken: string;
+  let userId: string;
 
   beforeAll(async () => {
     const moduleFixture: TestingModule = await Test.createTestingModule({
@@ -57,6 +76,7 @@ describe('Questions (e2e)', () => {
   beforeEach(async () => {
     await resetDb(prisma);
     authToken = await registerAndLogin(app);
+    userId = app.get(JwtService).decode<{ sub: string }>(authToken).sub;
   });
 
   describe('GET /surveys/:surveyId/questions', () => {
@@ -65,7 +85,7 @@ describe('Questions (e2e)', () => {
       // 子資源的測試比 surveys 多一步：要先有問卷才建得出題目 ——
       // question.surveyId 是外鍵，指向不存在的問卷會被資料庫直接擋下。
       const survey = await prisma.survey.create({
-        data: { title: '指定問卷' },
+        data: { title: '指定問卷', ownerId: userId },
       });
 
       // [教學] 故意**倒著建**（先 order: 1 再 order: 0）。
@@ -117,6 +137,7 @@ describe('Questions (e2e)', () => {
       const survey = await prisma.survey.create({
         data: {
           title: '指定問卷',
+          ownerId: userId,
         },
       });
 
@@ -166,6 +187,7 @@ describe('Questions (e2e)', () => {
       const survey = await prisma.survey.create({
         data: {
           title: '指定問卷',
+          ownerId: userId,
         },
       });
 
@@ -184,6 +206,7 @@ describe('Questions (e2e)', () => {
       const survey = await prisma.survey.create({
         data: {
           title: '指定問卷',
+          ownerId: userId,
         },
       });
 
@@ -200,7 +223,11 @@ describe('Questions (e2e)', () => {
 
     it('問卷已發布時新增題目回 409', async () => {
       const survey = await prisma.survey.create({
-        data: { title: '已發布問卷', status: SurveyStatus.PUBLISHED },
+        data: {
+          title: '已發布問卷',
+          ownerId: userId,
+          status: SurveyStatus.PUBLISHED,
+        },
       });
 
       await request(app.getHttpServer())
@@ -221,7 +248,7 @@ describe('Questions (e2e)', () => {
 
     it('連續新增三題時 order 依序是 0、1、2', async () => {
       const survey = await prisma.survey.create({
-        data: { title: '普通問卷' },
+        data: { title: '普通問卷', ownerId: userId },
       });
 
       await request(app.getHttpServer())
@@ -264,7 +291,7 @@ describe('Questions (e2e)', () => {
 
     it('同時新增兩題時 order 不會重複', async () => {
       const survey = await prisma.survey.create({
-        data: { title: '普通問卷' },
+        data: { title: '普通問卷', ownerId: userId },
       });
 
       await Promise.all([
@@ -295,6 +322,44 @@ describe('Questions (e2e)', () => {
 
       expect(questions.map((q) => q.order)).toEqual([0, 1]);
     });
+
+    it('在別人的問卷新增題目 → 403，code 是 FORBIDDEN', async () => {
+      const survey = await prisma.survey.create({
+        data: {
+          title: '別人的問卷',
+          ownerId: userId,
+        },
+      });
+
+      const email = 'new-email@example.com';
+      const password = 'newpassword';
+
+      await request(app.getHttpServer())
+        .post('/auth/register')
+        .send({ email, password })
+        .expect(201);
+
+      const newUser = await request(app.getHttpServer())
+        .post('/auth/login')
+        .send({ email, password })
+        .expect(200);
+
+      const newUserBody = newUser.body as LoginBody;
+
+      const res = await request(app.getHttpServer())
+        .post(`/surveys/${survey.id}/questions`)
+        .set(...authHeader(newUserBody.accessToken))
+        .send({
+          title: '題目一',
+          type: 'SINGLE_CHOICE',
+          options: ['選項1', '選項2', '選項3'],
+        })
+        .expect(403);
+
+      const body = res.body as ErrorBody;
+
+      expect(body.error.code).toBe('FORBIDDEN');
+    });
   });
 
   // [教學] 這一組是整個 Ch3 第一段最貴的一課，值得停下來看。
@@ -312,6 +377,7 @@ describe('Questions (e2e)', () => {
       const survey = await prisma.survey.create({
         data: {
           title: '指定問卷',
+          ownerId: userId,
         },
       });
 
@@ -364,6 +430,7 @@ describe('Questions (e2e)', () => {
       const survey = await prisma.survey.create({
         data: {
           title: '指定問卷',
+          ownerId: userId,
         },
       });
 
@@ -399,6 +466,7 @@ describe('Questions (e2e)', () => {
       const survey = await prisma.survey.create({
         data: {
           title: '指定問卷',
+          ownerId: userId,
         },
       });
 
@@ -428,7 +496,7 @@ describe('Questions (e2e)', () => {
 
     it('問卷已發布時修改題目回 409', async () => {
       const survey = await prisma.survey.create({
-        data: { title: '未發布問卷' },
+        data: { title: '未發布問卷', ownerId: userId },
       });
 
       const question = await prisma.question.create({
@@ -460,6 +528,98 @@ describe('Questions (e2e)', () => {
       });
       expect(unchanged?.title).toBe('題目一');
     });
+
+    it('改別人問卷的題目 → 403', async () => {
+      const survey = await prisma.survey.create({
+        data: {
+          title: '別人的問卷',
+          ownerId: userId,
+        },
+      });
+
+      const question = await prisma.question.create({
+        data: {
+          surveyId: survey.id,
+          title: '題目一',
+          type: 'SINGLE_CHOICE',
+          order: 0,
+          options: ['選項1', '選項2', '選項3'],
+        },
+      });
+
+      const email = 'new-email@example.com';
+      const password = 'newpassword';
+
+      await request(app.getHttpServer())
+        .post('/auth/register')
+        .send({ email, password })
+        .expect(201);
+
+      const newUser = await request(app.getHttpServer())
+        .post('/auth/login')
+        .send({ email, password })
+        .expect(200);
+
+      const newUserBody = newUser.body as LoginBody;
+
+      const res = await request(app.getHttpServer())
+        .patch(`/questions/${question.id}`)
+        .set(...authHeader(newUserBody.accessToken))
+        .send({
+          title: '修改後的題目一',
+          options: ['修改後的選項1', '修改後的選項2', '修改後的選項3'],
+        })
+        .expect(403);
+
+      const body = res.body as ErrorBody;
+
+      expect(body.error.code).toBe('FORBIDDEN');
+    });
+
+    it('改別人「已發布」問卷的題目 → 403 而不是 409', async () => {
+      const survey = await prisma.survey.create({
+        data: { title: '未發布問卷', ownerId: userId },
+      });
+
+      const question = await prisma.question.create({
+        data: {
+          surveyId: survey.id,
+          title: '題目一',
+          type: 'SINGLE_CHOICE',
+          order: 0,
+          options: ['選項1', '選項2', '選項3'],
+        },
+      });
+
+      await prisma.survey.update({
+        where: { id: survey.id },
+        data: { title: '已發布問卷', status: SurveyStatus.PUBLISHED },
+      });
+
+      const email = 'new-email@example.com';
+      const password = 'newpassword';
+
+      await request(app.getHttpServer())
+        .post('/auth/register')
+        .send({ email, password })
+        .expect(201);
+
+      const newUser = await request(app.getHttpServer())
+        .post('/auth/login')
+        .send({ email, password })
+        .expect(200);
+
+      const newUserBody = newUser.body as LoginBody;
+
+      const res = await request(app.getHttpServer())
+        .delete(`/questions/${question.id}`)
+        .set(...authHeader(newUserBody.accessToken))
+        .expect(403);
+
+      const body = res.body as ErrorBody;
+
+      expect(body.error.code).toBe('FORBIDDEN');
+    });
   });
 
   describe('DELETE /questions/:id', () => {
@@ -467,6 +627,7 @@ describe('Questions (e2e)', () => {
       const survey = await prisma.survey.create({
         data: {
           title: '指定問卷',
+          ownerId: userId,
         },
       });
 
@@ -517,7 +678,7 @@ describe('Questions (e2e)', () => {
 
     it('問卷已發布時刪除題目回 409', async () => {
       const survey = await prisma.survey.create({
-        data: { title: '未發布問卷' },
+        data: { title: '未發布問卷', ownerId: userId },
       });
 
       const question = await prisma.question.create({
@@ -544,6 +705,49 @@ describe('Questions (e2e)', () => {
         where: { id: question.id },
       });
       expect(still).not.toBeNull();
+    });
+
+    it('刪別人問卷的題目 → 403', async () => {
+      const survey = await prisma.survey.create({
+        data: {
+          title: '指定問卷',
+          ownerId: userId,
+        },
+      });
+
+      const question = await prisma.question.create({
+        data: {
+          surveyId: survey.id,
+          title: '題目一',
+          type: 'SINGLE_CHOICE',
+          order: 0,
+          options: ['選項1', '選項2', '選項3'],
+        },
+      });
+
+      const email = 'new-email@example.com';
+      const password = 'newpassword';
+
+      await request(app.getHttpServer())
+        .post('/auth/register')
+        .send({ email, password })
+        .expect(201);
+
+      const newUser = await request(app.getHttpServer())
+        .post('/auth/login')
+        .send({ email, password })
+        .expect(200);
+
+      const newUserBody = newUser.body as LoginBody;
+
+      const res = await request(app.getHttpServer())
+        .delete(`/questions/${question.id}`)
+        .set(...authHeader(newUserBody.accessToken))
+        .expect(403);
+
+      const body = res.body as ErrorBody;
+
+      expect(body.error.code).toBe('FORBIDDEN');
     });
   });
 });

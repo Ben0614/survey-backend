@@ -176,15 +176,23 @@ export class SurveysController {
   @ApiOkResponse({ description: '更新後的問卷', type: SurveyEntity })
   @ApiNotFoundResponse({ description: '問卷不存在', type: ErrorResponseEntity })
   @ApiBadRequestResponse({ description: '參數錯誤', type: ErrorResponseEntity })
+  @ApiForbiddenResponse({
+    description: '無此權限',
+    type: ErrorResponseEntity,
+  })
   @Patch(':id')
-  update(@Param('id') id: string, @Body() updateSurveyDto: UpdateSurveyDto) {
+  update(
+    @Param('id') id: string,
+    @Body() updateSurveyDto: UpdateSurveyDto,
+    @CurrentUser() user: AuthUser,
+  ) {
     // [教學] 這是第一個同時吃兩個來源的方法：
     //   id    來自**網址**（@Param）—— 「要改哪一筆」
     //   title 來自 **body**（@Body）—— 「要改成什麼」
     //
     // 把 id 塞進 body 是很常見的直覺錯誤（照著 create 的形狀想就會這樣）。
     // 那樣路由就不需要 :id，等於整支 API 沒有辦法指定對象，資源識別會整個錯位。
-    return this.surveysService.update(id, updateSurveyDto);
+    return this.surveysService.update(id, updateSurveyDto, user);
   }
 
   // [教學] 狀態碼在這一支第一次是「可以選的」——前面四支都直接吃預設值。
@@ -238,17 +246,25 @@ export class SurveysController {
   @ApiOperation({ summary: '公開問卷' })
   @ApiOkResponse({ description: '發布後的問卷', type: SurveyEntity })
   @ApiNotFoundResponse({ description: '問卷不存在', type: ErrorResponseEntity })
+  @ApiForbiddenResponse({
+    description: '無此權限',
+    type: ErrorResponseEntity,
+  })
   @Patch(':id/publish')
-  publish(@Param('id') id: string) {
-    return this.surveysService.publish(id);
+  publish(@Param('id') id: string, @CurrentUser() user: AuthUser) {
+    return this.surveysService.publish(id, user);
   }
 
   @ApiOperation({ summary: '不公開問卷' })
   @ApiOkResponse({ description: '撤回後的問卷', type: SurveyEntity })
   @ApiNotFoundResponse({ description: '問卷不存在', type: ErrorResponseEntity })
   @ApiConflictResponse({ description: '已有人填答', type: ErrorResponseEntity })
+  @ApiForbiddenResponse({
+    description: '無此權限',
+    type: ErrorResponseEntity,
+  })
   @Patch(':id/unpublish')
-  unpublish(@Param('id') id: string) {
-    return this.surveysService.unpublish(id);
+  unpublish(@Param('id') id: string, @CurrentUser() user: AuthUser) {
+    return this.surveysService.unpublish(id, user);
   }
 }

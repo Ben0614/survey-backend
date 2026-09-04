@@ -40,21 +40,23 @@
 // 別人名下的問卷。這是 Ch2 把 status 留在 DTO 外面的同一個決定，
 // 但後果嚴重得多。
 //
-// 下一站：src/surveys/survey.rules.ts（publish / unpublish 借去問「可以嗎」的那兩條規則）
+// 下一站：src/surveys/survey.rules.ts（service 借去問「可以嗎」的那四條純函式）
 // ============================================================
 
 import {
   Injectable,
   NotFoundException,
   ConflictException,
+  ForbiddenException,
 } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { CreateSurveyDto } from './dto/create-survey.dto';
 import { UpdateSurveyDto } from './dto/update-survey.dto';
 import { FindSurveysQueryDto } from './dto/find-surveys-query.dto';
-import { canUnpublish } from './survey.rules';
+import { canUnpublish, canManageSurvey } from './survey.rules';
 import { SurveyStatus } from '../generated/prisma/enums';
 import { Prisma } from '../generated/prisma/client';
+import type { AuthUser } from '../auth/guards/jwt-auth.guard';
 
 @Injectable()
 export class SurveysService {
@@ -221,15 +223,20 @@ export class SurveysService {
       where: { id },
 
       // status 不是湊的 —— Ch3 第二段的「DRAFT 才能改題目」剛好需要它。
-      // 一個 select 同時滿足兩個需求，而且它便宜到不值得為此再查一次。
-      select: { id: true, status: true },
+      // ownerId 是 Ch12 加的，同樣不是湊的：update / publish / unpublish
+      // 與兩個子資源 service 都要拿它問擁有權。
+      //
+      // **加這一格是整個 Ch12 最划算的一行**：五個呼叫點因此都不必為了授權
+      // 再查一次資料庫。對照下面那段「同一批題目撈了兩次」的教訓 ——
+      // 授權需要的資料，跟業務資料在同一次查詢裡拿到。
+      select: { id: true, status: true, ownerId: true },
     });
 
     if (!survey) {
       throw new NotFoundException('問卷不存在');
     }
 
-    // [教學] 回傳型別是 `{ id: string; status: SurveyStatus }`，**不是 Survey**。
+    // [教學] 回傳型別是 `{ id, status, ownerId }`，**不是 Survey**。
     // 我們沒有寫任何型別註記，是 select 讓它自己變窄的。把游標移上去看一眼。
     //
     // 反方向（include 讓型別自己變寬）本來可以看下面的 findOne，
@@ -237,6 +244,22 @@ export class SurveysService {
     // 理由見 findOne 裡 include 那一段。**這種「型別自己跟著參數變」的能力
     // 只在參數寫死時才有。**
     return survey;
+  }
+
+  // [教學] 這支是 canManageSurvey（純規則）翻成 HTTP 的那一層，Ch12 抽的。
+  //
+  // **它收 ownerId 而不是 surveyId**，這是刻意的：八個呼叫點裡有七個
+  // 手上早就有 ownerId 了（assertExists 的回傳、questions.findOne 的 include）。
+  // 收 surveyId 的話那七處會為了授權再查一次資料庫 —— 正是 Ch3
+  // 「同一批題目撈了兩次」那個教訓的重演。
+  //
+  // 它是 QuestionsService / ResponsesService 也在用的第二個公開方法
+  // （第一個是 assertExists），所以命名跟著它走：assert 開頭代表
+  // 「呼叫我是為了讓不合格的情況直接中止」，不是為了取值。
+  assertCanManage(ownerId: string | null, user: AuthUser): void {
+    if (!canManageSurvey(ownerId, user)) {
+      throw new ForbiddenException('權限不足');
+    }
   }
 
   /** 查一份問卷。帶 includeQuestions 才連題目一起回。找不到就是 404，不會回 200 配一個空的 body。 */
@@ -361,7 +384,7 @@ export class SurveysService {
   }
 
   /** 更新一份問卷。只有 dto 裡實際出現的欄位會被改動。 */
-  async update(id: string, dto: UpdateSurveyDto) {
+  async update(id: string, dto: UpdateSurveyDto, user: AuthUser) {
     // [教學] 這行沒有接回傳值，看起來像白呼叫一次 ——
     // 它的作用不是取值，是**借 assertExists 丟例外**。
     //
@@ -383,7 +406,9 @@ export class SurveysService {
     // 它防的不是假想的情境，是 TOCTOU：assertExists 通過之後、update 執行之前，
     // 另一個請求把那筆刪掉了 → P2025 → 500。這跟 questions.service.ts 的
     // order race 是同一族的形狀（「讀 → 回到 Node 判斷 → 寫」中間那段空檔）。
-    await this.assertExists(id);
+    const survey = await this.assertExists(id);
+
+    this.assertCanManage(survey.ownerId, user);
 
     // [教學] dto.title 是 undefined 時（例如空 body），Prisma **完全不碰這個欄位** ——
     // 它把該欄位整個從 SQL 拿掉，而不是寫入空值。所以在 Prisma 眼中：
@@ -421,7 +446,7 @@ export class SurveysService {
   }
 
   /** 發布問卷。沒有任何前置條件，重複發布也不算錯誤。 */
-  async publish(id: string) {
+  async publish(id: string, user: AuthUser) {
     // [教學] 這裡沒有「已經是 PUBLISHED 就提早 return」的判斷，是刻意的。
     //
     // PATCH 應該是**冪等**的：送幾次結果都一樣，第二次不該被當成失敗。
@@ -431,7 +456,9 @@ export class SurveysService {
     //
     // 把已發布的問卷再設成已發布是無害的，代價只是那一句 UPDATE 照樣發出去。
     // 一個出口、一種形狀，換一句 SQL —— 這個交易划算。
-    await this.assertExists(id);
+    const survey = await this.assertExists(id);
+
+    this.assertCanManage(survey.ownerId, user);
 
     return this.prisma.survey.update({
       where: { id },
@@ -442,8 +469,10 @@ export class SurveysService {
   }
 
   /** 撤回發布。已經有人填答就不給撤回（409）。 */
-  async unpublish(id: string) {
-    await this.assertExists(id);
+  async unpublish(id: string, user: AuthUser) {
+    const survey = await this.assertExists(id);
+
+    this.assertCanManage(survey.ownerId, user);
 
     // [教學] 要的是「幾筆」，就用 count —— 不要撈出來再自己數 .length。
     //

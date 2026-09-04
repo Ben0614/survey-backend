@@ -124,8 +124,30 @@ Content-Type: application/json
 
 
 ### ------------------------------------------------------------
-### Surveys（Ch2）
+### Surveys（Ch2；Ch12 之後多了擁有權）
 ### ------------------------------------------------------------
+###
+### **為什麼你在這裡幾乎感覺不到 Ch12**：底下的問卷是你用上面那張票建的，
+### 所以 ownerId 就是你 —— 改它、發布它、加題目、看填答結果全部照舊。
+###
+### 擁有權在**別人**的問卷上才看得到。要親眼看到 403：
+###
+###   1. 用上面「註冊第二個人」那一段換一個 email 註冊、登入，把它的 accessToken
+###      複製下來（或加一個 `# @name login2` 再定義 `@token2`）
+###   2. 把下面任何一支 PATCH / POST 題目 / GET 填答結果的 Authorization
+###      換成那張票，重送一次 → **403，code 是 FORBIDDEN**
+###
+### 三種權限現在同時生效，分清楚它們：
+###
+###   沒帶票             → 401（JwtAuthGuard）
+###   票有效但角色不夠    → 403（RolesGuard，目前只有 DELETE /surveys/:id）
+###   票有效但不是你的資源 → 403（service 的 assertCanManage，Ch12 的八支端點）
+###
+### 後兩者的 code 都是 FORBIDDEN，**對外刻意分不出來**。
+###
+### 不受擁有權管的兩支（刻意的，見 ch12）：
+###   GET  /surveys/:surveyId/questions   填答的人要看得到題目
+###   POST /surveys/:surveyId/responses   任何登入的人都能填已發布的問卷
 
 ### 建立問卷。狀態一律是 DRAFT —— 送 status 進來也會被 whitelist 無聲丟掉，可以自己試
 # @name createSurvey

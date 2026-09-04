@@ -7,6 +7,9 @@
 // 而這兩支的前綴跟隔壁那個檔案不一樣，所以只能分家。
 // 兩個 class 注入的是同一個 QuestionsService（見 questions.module.ts）。
 //
+// **Ch12：這兩支都加了 @CurrentUser()**，因為改／刪題目要先問「這份問卷是你的嗎」。
+// 題目自己沒有 ownerId，所以判斷在 service 那一層追溯回問卷（見 questions.service.ts）。
+//
 // 下一站：src/questions/dto/create-question.dto.ts（body 進來之前先被誰檢查）
 // ============================================================
 
@@ -18,12 +21,15 @@ import {
   ApiBadRequestResponse,
   ApiConflictResponse,
   ApiBearerAuth,
+  ApiForbiddenResponse,
 } from '@nestjs/swagger';
 import { Controller, Patch, Delete, Param, Body } from '@nestjs/common';
 import { QuestionsService } from './questions.service';
 import { UpdateQuestionDto } from './dto/update-question.dto';
 import { QuestionEntity } from './entities/question.entity';
 import { ErrorResponseEntity } from '../common/entities/error-response.entity';
+import { CurrentUser } from '../auth/decorators/current-user.decorator';
+import type { AuthUser } from 'src/auth/guards/jwt-auth.guard';
 
 // [教學] 為什麼改與刪是扁平的、不寫成 /surveys/:surveyId/questions/:id：
 //
@@ -47,12 +53,17 @@ export class QuestionsController {
     description: '問卷已發布，無法編輯',
     type: ErrorResponseEntity,
   })
+  @ApiForbiddenResponse({
+    description: '無此權限',
+    type: ErrorResponseEntity,
+  })
   @Patch(':id')
   update(
     @Param('id') id: string,
     @Body() updateQuestionDto: UpdateQuestionDto,
+    @CurrentUser() user: AuthUser,
   ) {
-    return this.questionsService.update(id, updateQuestionDto);
+    return this.questionsService.update(id, updateQuestionDto, user);
   }
 
   @ApiOperation({ summary: '刪除題目' })
@@ -62,9 +73,13 @@ export class QuestionsController {
     description: '問卷已發布，無法刪除',
     type: ErrorResponseEntity,
   })
+  @ApiForbiddenResponse({
+    description: '無此權限',
+    type: ErrorResponseEntity,
+  })
   @Delete(':id')
-  remove(@Param('id') id: string) {
-    return this.questionsService.remove(id);
+  remove(@Param('id') id: string, @CurrentUser() user: AuthUser) {
+    return this.questionsService.remove(id, user);
   }
 
   // [教學] 這裡**刻意沒有** @Get(':id')。

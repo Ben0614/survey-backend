@@ -9,6 +9,10 @@
 // （/surveys/A/responses/屬於B的作答 該回什麼？404？403？）。
 // **不要在網址裡放兩份可能對不起來的資訊。**
 //
+// **Ch12：加了 @CurrentUser()** —— 別人問卷的填答內容不該給你看。
+// 追溯路徑是 作答 → 問卷 → ownerId，而那個 ownerId 撈進來之後**要剔除**
+// （這一支的回傳值就是 API 的回應本身，見 responses.service.ts 檔頭）。
+//
 // 下一站：src/responses/dto/create-response.dto.ts（提交的 body 進來之前先被誰檢查）
 // ============================================================
 import {
@@ -17,11 +21,14 @@ import {
   ApiOperation,
   ApiNotFoundResponse,
   ApiBearerAuth,
+  ApiForbiddenResponse,
 } from '@nestjs/swagger';
 import { Controller, Get, Param } from '@nestjs/common';
 import { ResponsesService } from './responses.service';
 import { ResponseDetailEntity } from './entities/response.entity';
 import { ErrorResponseEntity } from '../common/entities/error-response.entity';
+import { CurrentUser } from '../auth/decorators/current-user.decorator';
+import type { AuthUser } from 'src/auth/guards/jwt-auth.guard';
 
 // [教學] 前綴只寫 'responses'，`:id` 放在 @Get() 裡。
 //
@@ -41,8 +48,12 @@ export class ResponsesController {
     type: ResponseDetailEntity,
   })
   @ApiNotFoundResponse({ description: '填寫不存在', type: ErrorResponseEntity })
+  @ApiForbiddenResponse({
+    description: '無此權限',
+    type: ErrorResponseEntity,
+  })
   @Get(':id')
-  findOne(@Param('id') id: string) {
-    return this.responsesService.findOne(id);
+  findOne(@Param('id') id: string, @CurrentUser() user: AuthUser) {
+    return this.responsesService.findOne(id, user);
   }
 }

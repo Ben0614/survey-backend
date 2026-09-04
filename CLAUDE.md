@@ -126,12 +126,18 @@ git ls-files --eol <檔案>          # 權威答案：i/ 是索引、w/ 是工�
 
 **單元測試只寫在有真正商業邏輯的地方**——目前全專案只有一支：`src/surveys/survey.rules.spec.ts`。
 
-判準不是「這段程式碼重不重要」，而是**「拿掉外部依賴之後還剩下什麼」**——剩下判斷邏輯才值得單元測試，什麼都不剩就別寫。`survey.rules.ts` 的兩個函式符合（純判斷、無依賴、不碰 HTTP）：
+判準不是「這段程式碼重不重要」，而是**「拿掉外部依賴之後還剩下什麼」**——剩下判斷邏輯才值得單元測試，什麼都不剩就別寫。`survey.rules.ts` 的四個函式都符合（純判斷、無依賴、不碰 HTTP）：
 
-- `canEditQuestions(status)` —— 只有 `DRAFT` 能增刪改題目（Ch3 已完成）
-- `canUnpublish(responseCount)` —— 沒有任何填答才能撤回發布（Ch3 已完成）
+- `canEditQuestions(status)` —— 只有 `DRAFT` 能增刪改題目（Ch3）
+- `canUnpublish(responseCount)` —— 沒有任何填答才能撤回發布（Ch3）
+- `canSubmitResponse(status)` —— 只有 `PUBLISHED` 的問卷能被填答（Ch5）
+- `canManageSurvey(ownerId, user)` —— 擁有者或 `ADMIN` 才能管這份問卷（Ch12）
 
-Ch5 的「只有 `PUBLISHED` 的問卷能被填答」預計是第三條。**新規則一律加進 `survey.rules.ts`，不要寫進 service**——寫進 service 就得啟動 Nest 才測得到。
+前三條回答「這件事現在能不能做」（→ 409），第四條回答「你能不能碰」（→ 403），而**授權要排在商業規則之前**。
+
+**新規則一律加進 `survey.rules.ts`，不要寫進 service**——寫進 service 就得啟動 Nest 才測得到。加完**回頭改一次那個檔案的檔頭**：它從 Ch5 到 Ch12 一直寫著「兩條商業規則」，漏了七章沒人發現。
+
+單元測試另一個獨有的價值是**它到得了 e2e 到不了的地方**：`canManageSurvey(null, 一般使用者)` 這個分支要靠「無主問卷」才觸發，而 e2e 的前提資料一律有擁有者，造不出來。
 
 不要回頭補測試：測試要在寫功能的當下寫，否則只是驗證「現在的行為」。
 

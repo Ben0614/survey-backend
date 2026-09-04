@@ -10,6 +10,19 @@
 // 這邊是兩層（答案掛在作答底下、作答掛在問卷底下），
 // 而且 Answer 還額外指向 Question —— 所以「答案合不合法」不是外鍵管得完的事。
 //
+// **Ch12 加了擁有權檢查，但只加在「看結果」那兩支**：
+//   findAll / findOne —— 別人問卷的填答結果不該給你看
+//   create（填答）  —— **刻意不保護**。任何登入的人都能填任何已發布的問卷，
+//                       那就是這個產品的用途。保護它等於讓問卷沒有人能填。
+// 這一輪的風險有一半是「保護過頭」，不是保護不足 ——
+// e2e 因此有一條「任何人都能填別人的問卷 → 201」當反面對照。
+//
+// findOne 為了授權多撈了 survey.ownerId，**但回傳前要剔除**：
+// 它撈回來的那個物件就是 API 的回應本身（對照 questions 的 update／remove，
+// 那兩支回的是另一次查詢的結果，include 不會漏出去）。
+// 忘了剔除的話回應會多一個 survey 欄位，而 ResponseEntity 沒有一致性測試 ——
+// 所以 Ch12 順手補了一條「回應不含 survey 欄位」來守它。
+//
 // 下一站：src/auth/auth.module.ts（第四個 feature：註冊登入，這個專案第一次處理機密資料）
 // ============================================================
 
@@ -24,6 +37,7 @@ import { SurveysService } from '../surveys/surveys.service';
 import { canSubmitResponse } from '../surveys/survey.rules';
 import { CreateResponseDto } from './dto/create-response.dto';
 import { FindResponsesQueryDto } from './dto/find-responses-query.dto';
+import type { AuthUser } from '../auth/guards/jwt-auth.guard';
 
 @Injectable()
 export class ResponsesService {
@@ -137,7 +151,11 @@ export class ResponsesService {
   }
 
   /** 列出一份問卷的所有作答，一次一頁。回的是 { data, meta }。 */
-  async findAll(surveyId: string, query: FindResponsesQueryDto) {
+  async findAll(
+    surveyId: string,
+    query: FindResponsesQueryDto,
+    user: AuthUser,
+  ) {
     // [教學] 這行沒接回傳值，作用是**借 SurveysService 丟 404**（同 questions.service.ts）。
     //
     // 少了它不會壞掉，但會壞在一個很難察覺的地方：問卷不存在時 findMany
@@ -146,7 +164,9 @@ export class ResponsesService {
     //
     // 而且它比 Ch3 那次更隱蔽：那邊回的是裸的空陣列 []，比較容易讓人起疑；
     // 這裡回的是一個 meta 四個欄位齊全的合法 JSON，**看起來非常正常**。
-    await this.surveysService.assertExists(surveyId);
+    const survey = await this.surveysService.assertExists(surveyId);
+
+    this.surveysService.assertCanManage(survey.ownerId, user);
 
     // 分頁的換算與 { data, meta } 的形狀完全照 surveys.service.ts 的 findAll，
     // 那邊的註解不重複。where 抽成變數的理由也一樣：讓 findMany 與 count
@@ -185,7 +205,7 @@ export class ResponsesService {
   }
 
   /** 查一份作答，連同每一題的答案與題目本身。找不到就是 404。 */
-  async findOne(id: string) {
+  async findOne(id: string, user: AuthUser) {
     // [教學] include 走了**兩步**，這是專案裡最深的一次：
     //
     //   Response → answers   往下，一對多 → 拿到陣列（所以要 orderBy）
@@ -205,6 +225,11 @@ export class ResponsesService {
     const response = await this.prisma.response.findUnique({
       where: { id },
       include: {
+        survey: {
+          select: {
+            ownerId: true,
+          },
+        },
         answers: {
           include: { question: true },
           orderBy: {
@@ -223,6 +248,10 @@ export class ResponsesService {
       throw new NotFoundException('作答不存在');
     }
 
-    return response;
+    const { survey, ...rest } = response;
+
+    this.surveysService.assertCanManage(survey.ownerId, user);
+
+    return rest;
   }
 }

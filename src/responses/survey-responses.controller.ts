@@ -22,6 +22,7 @@ import {
   ApiNotFoundResponse,
   ApiConflictResponse,
   ApiBearerAuth,
+  ApiForbiddenResponse,
 } from '@nestjs/swagger';
 import { Body, Controller, Post, Param, Get, Query } from '@nestjs/common';
 import { CreateResponseDto } from './dto/create-response.dto';
@@ -32,6 +33,8 @@ import {
   PaginatedResponsesEntity,
 } from './entities/response.entity';
 import { ErrorResponseEntity } from '../common/entities/error-response.entity';
+import { CurrentUser } from '../auth/decorators/current-user.decorator';
+import type { AuthUser } from 'src/auth/guards/jwt-auth.guard';
 
 @ApiTags('responses')
 @ApiBearerAuth()
@@ -74,11 +77,16 @@ export class SurveyResponsesController {
   })
   @ApiBadRequestResponse({ description: '參數錯誤', type: ErrorResponseEntity })
   @ApiNotFoundResponse({ description: '問卷不存在', type: ErrorResponseEntity })
+  @ApiForbiddenResponse({
+    description: '無此權限',
+    type: ErrorResponseEntity,
+  })
   @Get()
   findAll(
     @Param('surveyId') surveyId: string,
     @Query() query: FindResponsesQueryDto,
+    @CurrentUser() user: AuthUser,
   ) {
-    return this.responsesService.findAll(surveyId, query);
+    return this.responsesService.findAll(surveyId, query, user);
   }
 }

@@ -27,7 +27,9 @@ import {
   canEditQuestions,
   canUnpublish,
   canSubmitResponse,
+  canManageSurvey,
 } from './survey.rules';
+import { Role } from '../generated/prisma/enums';
 
 describe('canEditQuestions', () => {
   // [教學] 用 SurveyStatus.DRAFT 而不是字串 'DRAFT'，理由跟 survey.rules.ts 裡一樣：
@@ -62,5 +64,52 @@ describe('canSubmitResponse', () => {
   });
   it('DRAFT 的問卷不能被填答', () => {
     expect(canSubmitResponse(SurveyStatus.DRAFT)).toBe(false);
+  });
+});
+
+describe('canManageSurvey', () => {
+  it('擁有者本人 → true', () => {
+    const ownerId = 'asdfg123456';
+    const user = {
+      id: 'asdfg123456',
+      role: Role.USER,
+    };
+    expect(canManageSurvey(ownerId, user)).toBe(true);
+  });
+
+  it('不是擁有者、也不是管理員 → false', () => {
+    const ownerId = 'asdfg123456';
+    const user = {
+      id: 'zxcvb78945614',
+      role: Role.USER,
+    };
+    expect(canManageSurvey(ownerId, user)).toBe(false);
+  });
+
+  it('管理員改別人的問卷 → true', () => {
+    const ownerId = 'asdfg123456';
+    const user = {
+      id: 'zxcvb78945614',
+      role: Role.ADMIN,
+    };
+    expect(canManageSurvey(ownerId, user)).toBe(true);
+  });
+
+  it('ownerId 是 null 的無主問卷，一般使用者 → false', () => {
+    const ownerId = null;
+    const user = {
+      id: 'zxcvb78945614',
+      role: Role.USER,
+    };
+    expect(canManageSurvey(ownerId, user)).toBe(false);
+  }); // ← 主角
+
+  it('ownerId 是 null 的無主問卷，管理員 → true', () => {
+    const ownerId = null;
+    const user = {
+      id: 'zxcvb78945614',
+      role: Role.ADMIN,
+    };
+    expect(canManageSurvey(ownerId, user)).toBe(true);
   });
 });

@@ -71,10 +71,15 @@ interface SurveyBodyList {
   meta: SurveyMeta;
 }
 
+interface LoginBody {
+  accessToken: string;
+}
+
 describe('Surveys (e2e)', () => {
   let app: INestApplication<App>;
   let prisma: PrismaService;
   let authToken: string;
+  let userId: string;
 
   beforeAll(async () => {
     const moduleFixture: TestingModule = await Test.createTestingModule({
@@ -104,6 +109,17 @@ describe('Surveys (e2e)', () => {
   beforeEach(async () => {
     await resetDb(prisma);
     authToken = await registerAndLogin(app);
+
+    // [教學] Ch12 加的。前提資料用 prisma.survey.create 直接建（比走 HTTP 好控制
+    // status、createdAt 這些欄位），但那條路**不會填 ownerId** ——
+    // POST /surveys 是從 token 填的，繞過它就是一份無主問卷。
+    //
+    // Ch12 輪 1 實際踩到：擁有權檢查上線後，那三個 describe 的 6 條測試
+    // 突然全部 403 —— 而程式碼是對的，是前提資料造出了 canManageSurvey
+    // 正確擋下的那種問卷（ownerId 為 null）。
+    //
+    // 所以受擁有權保護的端點，它的前提資料必須明講 ownerId。
+    userId = app.get(JwtService).decode<{ sub: string }>(authToken).sub;
   });
 
   describe('POST /surveys', () => {
@@ -626,7 +642,7 @@ describe('Surveys (e2e)', () => {
   describe('PATCH /surveys/:id', () => {
     it('更新問卷標題', async () => {
       const survey = await prisma.survey.create({
-        data: { title: '舊標題' },
+        data: { title: '舊標題', ownerId: userId },
       });
 
       const res = await request(app.getHttpServer())
@@ -679,7 +695,7 @@ describe('Surveys (e2e)', () => {
     // 一條驗「沒出現就跳過」，一條驗「出現了就照常檢查」。少任何一條都看不出差別。
     it('空 body 不會改動任何欄位', async () => {
       const survey = await prisma.survey.create({
-        data: { title: '舊標題' },
+        data: { title: '舊標題', ownerId: userId },
       });
 
       const res = await request(app.getHttpServer())
@@ -693,7 +709,7 @@ describe('Surveys (e2e)', () => {
 
     it('title 是空字串時回 400', async () => {
       const survey = await prisma.survey.create({
-        data: { title: '舊標題' },
+        data: { title: '舊標題', ownerId: userId },
       });
 
       await request(app.getHttpServer())
@@ -709,7 +725,7 @@ describe('Surveys (e2e)', () => {
     // POST 那條照樣過，只有這條會紅。
     it('偷塞 DTO 沒宣告的 status 會被忽略', async () => {
       const survey = await prisma.survey.create({
-        data: { title: '舊標題' },
+        data: { title: '舊標題', ownerId: userId },
       });
 
       const res = await request(app.getHttpServer())
@@ -719,6 +735,63 @@ describe('Surveys (e2e)', () => {
         .expect(200);
 
       expect((res.body as SurveyBody).status).toBe('DRAFT');
+    });
+
+    it('改別人的問卷 → 403，code 是 FORBIDDEN', async () => {
+      const survey = await prisma.survey.create({
+        data: { title: '舊標題', ownerId: userId },
+      });
+
+      const email = 'new-email@example.com';
+      const password = 'newpassword';
+
+      await request(app.getHttpServer())
+        .post('/auth/register')
+        .send({ email, password })
+        .expect(201);
+
+      const newUser = await request(app.getHttpServer())
+        .post('/auth/login')
+        .send({ email, password })
+        .expect(200);
+
+      const newUserBody = newUser.body as LoginBody;
+
+      await request(app.getHttpServer())
+        .patch(`/surveys/${survey.id}`)
+        .set(...authHeader(newUserBody.accessToken))
+        .send({ title: '新標題' })
+        .expect(403);
+
+      const updated = await prisma.survey.findUnique({
+        where: { id: survey.id },
+      });
+      expect(updated).toMatchObject({
+        id: survey.id,
+        title: '舊標題',
+      });
+    });
+
+    it('ADMIN 改別人的問卷 → 200', async () => {
+      const survey = await prisma.survey.create({
+        data: { title: '舊標題', ownerId: userId },
+      });
+
+      const adminToken = await registerAndLoginAsAdmin(app, prisma);
+
+      await request(app.getHttpServer())
+        .patch(`/surveys/${survey.id}`)
+        .set(...authHeader(adminToken))
+        .send({ title: '新標題' })
+        .expect(200);
+
+      const updated = await prisma.survey.findUnique({
+        where: { id: survey.id },
+      });
+      expect(updated).toMatchObject({
+        id: survey.id,
+        title: '新標題',
+      });
     });
   });
 
@@ -881,7 +954,7 @@ describe('Surveys (e2e)', () => {
   describe('PATCH /surveys/:id/publish', () => {
     it('調整問卷成發布狀態', async () => {
       const survey = await prisma.survey.create({
-        data: { title: '待發布問卷' },
+        data: { title: '待發布問卷', ownerId: userId },
       });
 
       const res = await request(app.getHttpServer())
@@ -891,12 +964,46 @@ describe('Surveys (e2e)', () => {
 
       expect((res.body as SurveyBody).status).toBe(SurveyStatus.PUBLISHED);
     });
+
+    it('發布別人的問卷 → 403', async () => {
+      const survey = await prisma.survey.create({
+        data: { title: '待發布問卷', ownerId: userId },
+      });
+
+      const email = 'new-email@example.com';
+      const password = 'newpassword';
+
+      await request(app.getHttpServer())
+        .post('/auth/register')
+        .send({ email, password })
+        .expect(201);
+
+      const newUser = await request(app.getHttpServer())
+        .post('/auth/login')
+        .send({ email, password })
+        .expect(200);
+
+      const newUserBody = newUser.body as LoginBody;
+
+      const res = await request(app.getHttpServer())
+        .patch(`/surveys/${survey.id}/publish`)
+        .set(...authHeader(newUserBody.accessToken))
+        .expect(403);
+
+      const body = res.body as ErrorBody;
+
+      expect(body.error.code).toBe('FORBIDDEN');
+    });
   });
 
   describe('PATCH /surveys/:id/unpublish', () => {
     it('調整問卷成未發布狀態', async () => {
       const survey = await prisma.survey.create({
-        data: { title: '已發布問卷', status: SurveyStatus.PUBLISHED },
+        data: {
+          title: '已發布問卷',
+          status: SurveyStatus.PUBLISHED,
+          ownerId: userId,
+        },
       });
 
       const res = await request(app.getHttpServer())
@@ -909,7 +1016,11 @@ describe('Surveys (e2e)', () => {
 
     it('已填寫問卷，調整問卷成未發布狀態會顯示409', async () => {
       const survey = await prisma.survey.create({
-        data: { title: '已發布問卷', status: SurveyStatus.PUBLISHED },
+        data: {
+          title: '已發布問卷',
+          status: SurveyStatus.PUBLISHED,
+          ownerId: userId,
+        },
       });
 
       await prisma.response.create({
@@ -925,6 +1036,40 @@ describe('Surveys (e2e)', () => {
         where: { id: survey.id },
       });
       expect(res?.status).toBe(SurveyStatus.PUBLISHED);
+    });
+
+    it('撤回別人的問卷 → 403', async () => {
+      const survey = await prisma.survey.create({
+        data: {
+          title: '待發布問卷',
+          status: SurveyStatus.PUBLISHED,
+          ownerId: userId,
+        },
+      });
+
+      const email = 'new-email@example.com';
+      const password = 'newpassword';
+
+      await request(app.getHttpServer())
+        .post('/auth/register')
+        .send({ email, password })
+        .expect(201);
+
+      const newUser = await request(app.getHttpServer())
+        .post('/auth/login')
+        .send({ email, password })
+        .expect(200);
+
+      const newUserBody = newUser.body as LoginBody;
+
+      const res = await request(app.getHttpServer())
+        .patch(`/surveys/${survey.id}/unpublish`)
+        .set(...authHeader(newUserBody.accessToken))
+        .expect(403);
+
+      const body = res.body as ErrorBody;
+
+      expect(body.error.code).toBe('FORBIDDEN');
     });
   });
 });

@@ -47,9 +47,14 @@ export function buildSwaggerDocument(app: INestApplication): OpenAPIObject {
         '請用 `code` 分支處理，不要解析 `message`（它的內容會隨版本變動）。',
         '`details` 只有欄位驗證失敗（`VALIDATION_FAILED`）時才會出現。',
         '',
-        '**兩條商業規則**，違反時回 409：',
+        '**三條商業規則**，違反時回 409：',
         '- 只有 `PUBLISHED` 的問卷能被填答',
         '- `DRAFT` 才能增刪改題目；一旦有人填答就不能撤回發布',
+        '',
+        '**權限**：除了 `/health`、註冊、登入之外都要帶 JWT（否則 401）。',
+        '- 問卷與它的題目、填答結果，只有**建立者本人或 `ADMIN`** 能改／能看（否則 403）',
+        '- 刪除整份問卷只有 `ADMIN` 能做',
+        '- 但**任何登入的人都能填任何已發布的問卷**，那是這個平台的用途',
       ].join('\n'),
     )
     .setVersion('1.0.0')

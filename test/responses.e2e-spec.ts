@@ -15,6 +15,14 @@
 // 還有一條是專案第一次的併發測試（在 questions.e2e-spec.ts），
 // 那條的結論寫在 ch05 坑 #5：**綠不代表修好了。**
 //
+// **Ch12 在這裡留了一條反面對照**：「任何人都能填別人的問卷 → 201」。
+// 這一輪的風險有一半是保護過頭 —— 把 POST /responses 也加上擁有權檢查的話，
+// 這個問卷平台就沒有人能填問卷了，而其他測試不會叫。
+//
+// 另外還有一條守契約的：「GET /responses/:id 的回應不含 survey 欄位」。
+// findOne 為了授權把 survey.ownerId 撈了進來，忘了剔除就會靜默地多一個欄位 ——
+// 而 ResponseEntity 沒有 swagger 一致性測試，沒有人會替你發現。
+//
 // 下一站：test/auth.e2e-spec.ts（第一次測「回應裡不該有什麼」）
 // ============================================================
 
@@ -27,6 +35,7 @@ import { PrismaService } from '../src/prisma/prisma.service';
 import { setupApp } from '../src/setup-app';
 import { resetDb } from './helpers/reset-db';
 import { registerAndLogin, authHeader } from './helpers/auth';
+import { JwtService } from '@nestjs/jwt';
 
 // [教學] supertest 的 res.body 型別是 any，而專案的 ESLint 禁止在 any 上直接取欄位，
 // 所以宣告形狀轉一次（同 surveys.e2e-spec.ts 開頭那批）。
@@ -54,10 +63,23 @@ interface ResponseWithAnswersBody extends ResponseBody {
   }[];
 }
 
+interface LoginBody {
+  accessToken: string;
+}
+
+interface ErrorBody {
+  error: {
+    code: string;
+    message: string;
+    details?: string[];
+  };
+}
+
 describe('Responses (e2e)', () => {
   let app: INestApplication<App>;
   let prisma: PrismaService;
   let authToken: string;
+  let userId: string;
 
   beforeAll(async () => {
     const moduleFixture: TestingModule = await Test.createTestingModule({
@@ -87,6 +109,7 @@ describe('Responses (e2e)', () => {
   beforeEach(async () => {
     await resetDb(prisma);
     authToken = await registerAndLogin(app);
+    userId = app.get(JwtService).decode<{ sub: string }>(authToken).sub;
   });
 
   describe('POST /surveys/:surveyId/responses', () => {
@@ -94,6 +117,7 @@ describe('Responses (e2e)', () => {
       const survey = await prisma.survey.create({
         data: {
           title: '已發布問卷',
+          ownerId: userId,
           status: 'PUBLISHED',
         },
       });
@@ -142,6 +166,7 @@ describe('Responses (e2e)', () => {
       const survey = await prisma.survey.create({
         data: {
           title: '未發布問卷',
+          ownerId: userId,
         },
       });
 
@@ -192,6 +217,7 @@ describe('Responses (e2e)', () => {
       const survey = await prisma.survey.create({
         data: {
           title: '已發布問卷',
+          ownerId: userId,
           status: 'PUBLISHED',
         },
       });
@@ -211,6 +237,7 @@ describe('Responses (e2e)', () => {
       const survey = await prisma.survey.create({
         data: {
           title: '已發布問卷',
+          ownerId: userId,
           status: 'PUBLISHED',
         },
       });
@@ -244,6 +271,7 @@ describe('Responses (e2e)', () => {
       const survey1 = await prisma.survey.create({
         data: {
           title: '已發布問卷一',
+          ownerId: userId,
           status: 'PUBLISHED',
         },
       });
@@ -251,6 +279,7 @@ describe('Responses (e2e)', () => {
       const survey2 = await prisma.survey.create({
         data: {
           title: '已發布問卷二',
+          ownerId: userId,
           status: 'PUBLISHED',
         },
       });
@@ -285,6 +314,7 @@ describe('Responses (e2e)', () => {
       const survey = await prisma.survey.create({
         data: {
           title: '已發布問卷一',
+          ownerId: userId,
           status: 'PUBLISHED',
         },
       });
@@ -309,6 +339,7 @@ describe('Responses (e2e)', () => {
       const survey = await prisma.survey.create({
         data: {
           title: '已發布問卷一',
+          ownerId: userId,
           status: 'PUBLISHED',
         },
       });
@@ -342,12 +373,63 @@ describe('Responses (e2e)', () => {
 
       expect(await prisma.response.count()).toBe(0);
     });
+
+    it('任何人都能填別人的問卷 → 201', async () => {
+      const survey = await prisma.survey.create({
+        data: {
+          title: '已發布問卷',
+          ownerId: userId,
+          status: 'PUBLISHED',
+        },
+      });
+
+      const question1 = await prisma.question.create({
+        data: {
+          surveyId: survey.id,
+          title: '題目一',
+          type: 'SINGLE_CHOICE',
+          order: 0,
+          options: ['選項1', '選項2', '選項3'],
+        },
+      });
+
+      const email = 'new-email@example.com';
+      const password = 'newpassword';
+
+      await request(app.getHttpServer())
+        .post('/auth/register')
+        .send({ email, password })
+        .expect(201);
+
+      const newUser = await request(app.getHttpServer())
+        .post('/auth/login')
+        .send({ email, password })
+        .expect(200);
+
+      const newUserBody = newUser.body as LoginBody;
+
+      await request(app.getHttpServer())
+        .post(`/surveys/${survey.id}/responses`)
+        .set(...authHeader(newUserBody.accessToken))
+        .send({
+          answers: [
+            {
+              questionId: question1.id,
+              content: '選項1',
+            },
+          ],
+        })
+        .expect(201);
+
+      expect(await prisma.response.count()).toBe(1);
+      expect(await prisma.answer.count()).toBe(1);
+    });
   });
 
   describe('GET /surveys/:surveyId/responses', () => {
     it('回傳這份問卷的作答，最新的在前面', async () => {
       const survey = await prisma.survey.create({
-        data: { title: '已發布問卷', status: 'PUBLISHED' },
+        data: { title: '已發布問卷', ownerId: userId, status: 'PUBLISHED' },
       });
 
       // [教學] 這一條只驗排序，所以不必建題目、也不必帶 answers ——
@@ -378,10 +460,10 @@ describe('Responses (e2e)', () => {
 
     it('只回這份問卷的作答，不會混到別份問卷的', async () => {
       const survey1 = await prisma.survey.create({
-        data: { title: '已發布問卷一', status: 'PUBLISHED' },
+        data: { title: '已發布問卷一', ownerId: userId, status: 'PUBLISHED' },
       });
       const survey2 = await prisma.survey.create({
-        data: { title: '已發布問卷二', status: 'PUBLISHED' },
+        data: { title: '已發布問卷二', ownerId: userId, status: 'PUBLISHED' },
       });
       await prisma.response.create({
         data: {
@@ -409,7 +491,7 @@ describe('Responses (e2e)', () => {
 
     it('pageSize=1 時只回 1 筆，meta 顯示共 2 筆 2 頁', async () => {
       const survey = await prisma.survey.create({
-        data: { title: '已發布問卷一', status: 'PUBLISHED' },
+        data: { title: '已發布問卷一', ownerId: userId, status: 'PUBLISHED' },
       });
 
       await prisma.response.create({
@@ -439,7 +521,7 @@ describe('Responses (e2e)', () => {
 
     it('還沒有人填答時 data 是空陣列、total 是 0', async () => {
       const survey = await prisma.survey.create({
-        data: { title: '已發布問卷一', status: 'PUBLISHED' },
+        data: { title: '已發布問卷一', ownerId: userId, status: 'PUBLISHED' },
       });
 
       const res = await request(app.getHttpServer())
@@ -459,12 +541,46 @@ describe('Responses (e2e)', () => {
         .set(...authHeader(authToken))
         .expect(404);
     });
+
+    it('看別人問卷的填答列表 → 403，code 是 FORBIDDEN', async () => {
+      const survey = await prisma.survey.create({
+        data: { title: '已發布問卷', ownerId: userId, status: 'PUBLISHED' },
+      });
+
+      await prisma.response.create({
+        data: { surveyId: survey.id, createdAt: new Date('2026-01-01') },
+      });
+
+      const email = 'new-email@example.com';
+      const password = 'newpassword';
+
+      await request(app.getHttpServer())
+        .post('/auth/register')
+        .send({ email, password })
+        .expect(201);
+
+      const newUser = await request(app.getHttpServer())
+        .post('/auth/login')
+        .send({ email, password })
+        .expect(200);
+
+      const newUserBody = newUser.body as LoginBody;
+
+      const res = await request(app.getHttpServer())
+        .get(`/surveys/${survey.id}/responses`)
+        .set(...authHeader(newUserBody.accessToken))
+        .expect(403);
+
+      const body = res.body as ErrorBody;
+
+      expect(body.error.code).toBe('FORBIDDEN');
+    });
   });
 
   describe('GET /responses/:id', () => {
     it('回傳這份作答，並帶出每筆答案對應的題目', async () => {
       const survey = await prisma.survey.create({
-        data: { title: '已發布問卷一', status: 'PUBLISHED' },
+        data: { title: '已發布問卷一', ownerId: userId, status: 'PUBLISHED' },
       });
 
       const q1 = await prisma.question.create({
@@ -499,11 +615,80 @@ describe('Responses (e2e)', () => {
       expect(body.answers[0].question.title).toBe('題目一');
       expect(body.answers[1].question.title).toBe('題目二');
     });
+
     it('id 不存在時回 404', async () => {
       await request(app.getHttpServer())
         .get(`/responses/nonexistent-id`)
         .set(...authHeader(authToken))
         .expect(404);
+    });
+
+    it('看別人問卷的單筆作答 → 403', async () => {
+      const survey = await prisma.survey.create({
+        data: { title: '已發布問卷', ownerId: userId, status: 'PUBLISHED' },
+      });
+
+      const response = await prisma.response.create({
+        data: { surveyId: survey.id, createdAt: new Date('2026-01-01') },
+      });
+
+      const email = 'new-email@example.com';
+      const password = 'newpassword';
+
+      await request(app.getHttpServer())
+        .post('/auth/register')
+        .send({ email, password })
+        .expect(201);
+
+      const newUser = await request(app.getHttpServer())
+        .post('/auth/login')
+        .send({ email, password })
+        .expect(200);
+
+      const newUserBody = newUser.body as LoginBody;
+
+      const res = await request(app.getHttpServer())
+        .get(`/responses/${response.id}`)
+        .set(...authHeader(newUserBody.accessToken))
+        .expect(403);
+
+      const body = res.body as ErrorBody;
+
+      expect(body.error.code).toBe('FORBIDDEN');
+    });
+
+    it('GET /responses/:id 的回應不含 survey 欄位', async () => {
+      const survey = await prisma.survey.create({
+        data: { title: '已發布問卷一', ownerId: userId, status: 'PUBLISHED' },
+      });
+
+      const q1 = await prisma.question.create({
+        data: { surveyId: survey.id, title: '題目一', type: 'TEXT', order: 0 },
+      });
+
+      const response = await prisma.response.create({
+        data: {
+          surveyId: survey.id,
+          answers: {
+            create: [{ questionId: q1.id, content: '回答一' }],
+          },
+        },
+      });
+
+      const res = await request(app.getHttpServer())
+        .get(`/responses/${response.id}`)
+        .set(...authHeader(authToken))
+        .expect(200);
+
+      const body = res.body as ResponseWithAnswersBody;
+
+      expect(Object.keys(body).sort()).toEqual([
+        'answers',
+        'createdAt',
+        'id',
+        'surveyId',
+      ]);
+      expect(body).not.toHaveProperty('survey');
     });
   });
 });

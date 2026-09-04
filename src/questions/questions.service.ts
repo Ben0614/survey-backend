@@ -3,9 +3,20 @@
 //
 // 什麼時候被執行：兩個 controller 收到請求後都呼叫它（同一個實例）。
 //
-// 跟 surveys.service.ts 的差別只有一個，但它是這一章的主題：
+// 跟 surveys.service.ts 的差別只有一個，但它是 Ch3 的主題：
 // **題目是「子資源」，所以多了一層「父資源存不存在」要處理。**
 // 那件事不歸這個 service 判斷 —— 它借 SurveysService 去問（見 findAll）。
+//
+// **Ch12 讓它多借了第二件事：擁有權。** 題目自己沒有 ownerId，
+// 「這題是不是你的」要**追溯**到它所屬的問卷：
+//   create  —— 手上就有 surveyId，assertExists 的回傳值直接用
+//   update / remove —— 手上只有題目 id，但 findOne 早就 include 了 survey，
+//                      所以 question.survey.ownerId 是免費的
+// 三支都沒有為了授權多查一次 —— 那些查詢本來就在，只是以前沒人讀 ownerId。
+//
+// **順序：授權要在商業規則之前。** update / remove 先問 assertCanManage
+// 再問 canEditQuestions，否則別人的「已發布」問卷會回 409 而不是 403 ——
+// 那句「問卷已發布，無法修改題目」等於告訴一個不相干的人這份問卷的狀態。
 //
 // 下一站：src/responses/responses.module.ts（第三個 feature：作答，第一次寫入兩張表）
 // ============================================================
@@ -20,6 +31,7 @@ import { SurveysService } from '../surveys/surveys.service';
 import { CreateQuestionDto } from './dto/create-question.dto';
 import { UpdateQuestionDto } from './dto/update-question.dto';
 import { canEditQuestions } from '../surveys/survey.rules';
+import type { AuthUser } from '../auth/guards/jwt-auth.guard';
 
 @Injectable()
 export class QuestionsService {
@@ -86,12 +98,13 @@ export class QuestionsService {
   }
 
   /** 在指定問卷底下新增一題，order 自動接在最後。 */
-  async create(surveyId: string, dto: CreateQuestionDto) {
+  async create(surveyId: string, dto: CreateQuestionDto, user: AuthUser) {
     // [教學] 這行跟 findAll 那行是同一個呼叫，差別只在**這次接了回傳值**。
     // assertExists 的 select 裡放 status 就是為了這一刻 —— 一次查詢同時滿足
     // 「問卷存不存在」（404）和「能不能改題目」（409）兩個問題。
     const survey = await this.surveysService.assertExists(surveyId);
 
+    this.surveysService.assertCanManage(survey.ownerId, user);
     // [教學] 規則本身寫在 survey.rules.ts，這裡只負責把 false 翻譯成 409。
     // 那個分工的好處在 survey.rules.spec.ts 看得最清楚：規則不認識 HTTP，
     // 所以測它不必啟動 Nest。
@@ -153,7 +166,7 @@ export class QuestionsService {
   }
 
   /** 更新一題。只有 dto 裡實際出現的欄位會被改動。 */
-  async update(id: string, dto: UpdateQuestionDto) {
+  async update(id: string, dto: UpdateQuestionDto, user: AuthUser) {
     // 借 findOne 丟 404。沒有這行的話 Prisma 會丟 P2025 ——
     // Ch6 之後這種情況有安全網接住、不再是 500，而是 filter 翻譯成的 404
     // （見 all-exceptions.filter.ts）。但兩者的 404 不是同一件事：
@@ -161,6 +174,8 @@ export class QuestionsService {
     // 判準沒變（完整說明見 surveys.service.ts 的 update）：
     // 主要防線永遠是這一行，安全網只是它失守時的備援。
     const question = await this.findOne(id);
+
+    this.surveysService.assertCanManage(question.survey.ownerId, user);
 
     // [教學] 這裡的 question.survey 就是上面 include 帶回來的東西。
     // 沒有它的話，這行得改成再呼叫一次 surveysService.assertExists(question.surveyId)
@@ -180,7 +195,7 @@ export class QuestionsService {
   }
 
   /** 刪除一題，回傳被刪掉的那一筆。 */
-  async remove(id: string) {
+  async remove(id: string, user: AuthUser) {
     // 這一行就是當初選「先 findOne 再操作」而不是 catch P2025 的理由兌現：
     // 第二次要用的時候，原封不動搬過來就成立了。
     //
@@ -191,6 +206,8 @@ export class QuestionsService {
     // 「問卷已發布不能刪題目」那條商業規則檢查也一起消失，安全網只管錯誤格式，
     // 不管商業邏輯。）
     const question = await this.findOne(id);
+
+    this.surveysService.assertCanManage(question.survey.ownerId, user);
 
     // 規則檢查跟 update 同一套（說明見上面那支）。
     if (!canEditQuestions(question.survey.status)) {

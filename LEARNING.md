@@ -12,10 +12,14 @@
 > 換機或開新對話時**先讀這一節**。對話歷史與 AI 記憶都在 `~/.claude/` 底下，不跟 git 走 ——
 > 這裡沒寫的東西，換一台機器就等於沒發生過。
 
-**進度：** Ch0 ~ Ch11 完成。階段一（含部署）結束，**階段二做完三章**。
+**進度：** Ch0 ~ Ch12 完成。**階段一與階段二都結束了，後端功能到此為止。**
 線上位址 `https://survey-backend-0dku.onrender.com`（Render 免費方案 + Neon 的 `production` branch）。
-`pnpm test:e2e` **114 passed**、`pnpm test` **6 passed**、`tsc --noEmit` 0 errors、`lint` 0 problems。
-下一步是 **Ch12（資源層授權：只能改自己的問卷）**，接續點寫在下方「Ch12 接續點」。
+`pnpm test:e2e` **126 passed**、`pnpm test` **11 passed**、`tsc --noEmit` 0 errors、`lint` 0 problems。
+下一步是 **Ch13（Nuxt 3 建置、從 Swagger 產生型別）—— 換到前端**，
+接續點寫在下方「Ch13 接續點」。
+
+**⚠️ Ch13 起換一個 repo。** 前端是獨立的 Nuxt 3 專案，不是這個目錄的子資料夾。
+後端從這裡開始只會因為「前端串接時發現契約不夠用」而被回頭改。
 
 **2026-09-03 —— 線上 API 已經上鎖。** Ch10 之前任何人都能對線上服務讀寫刪，
 現在除了 `/health`、註冊、登入之外每一支端點都要帶 JWT。`/docs` 仍然公開，
@@ -603,22 +607,84 @@ Ch8 留下的「`/docs` 要不要公開」因此變成一個真正的選擇，
 
 ---
 
-### Ch12 接續點（2026-09-03）
+### Ch12 完成（2026-09-03）—— 兩輪，階段二結束
 
-**目前狀態**：`pnpm test:e2e` **114 passed**、`pnpm test` **6 passed**、
+**輪 1** 問卷自己的三支（`ownerId` 就在那筆資料上），**輪 2** 子資源五支
+（題目三支 + 看填答結果兩支，都要**追溯**回問卷）。
+
+`Survey.ownerId` 是 Ch10 輪 3 填進去的，**隔了兩章才第一次被讀** ——
+當初那條「比對到 `sub` 而不是 `not.toBeNull()`」的測試守的就是這一刻。
+
+三件值得記住的（完整版在 [`ch12`](docs/chapters/ch12-資源層授權.md)）：
+
+1. **判斷放 service 不放 guard，因為 guard 看不到資料。** service 的 `assertExists`
+   本來就在查那筆問卷，`select` 加一格 `ownerId` 就夠了 —— **整章零額外往返**。
+   而那是因為 `assertCanManage` 收的是 `ownerId` 而不是 `surveyId`。
+2. **授權要排在商業規則之前。** 反過來的話，不相干的人去改別人「已發布」問卷的題目
+   會拿到 409「問卷已發布，無法修改題目」—— 洩漏了狀態，而且順序本身說錯了話。
+   這個錯很難發現：改題目的正常測試一定用 DRAFT，剛好繞過那個分岔。
+3. **前提資料造出了無主問卷。** 輪 1 上線後 6 條測試同時 403，而程式碼是對的 ——
+   `prisma.survey.create` 不填 `ownerId`（填它的是 `POST /surveys`）。
+   **那個紅燈是好消息**：寫成 `if (ownerId && ownerId !== user.id)` 的話它們會全綠，
+   而 `&&` 在 `null` 短路 → 任何人都能改無主問卷。順帶修好三條假綠。
+
+還有一件跨章的事：**`survey.rules.ts` 的檔頭從 Ch5 到 Ch12 一直寫著「兩條商業規則」**，
+而 `canSubmitResponse` 是 Ch5 加的 —— 漏了七章。同一句話也錯在 `CLAUDE.md`、
+`LEARNING.md` 的「貫穿全程的商業規則」、`src/swagger.ts` 的 `/docs` 說明，
+四個地方一起修好了。**加函式時回頭看一眼同一個檔案最上面的檔頭。**
+
+---
+
+### Ch13 接續點（2026-09-03）—— 換到前端
+
+**目前狀態**：`pnpm test:e2e` **126 passed**、`pnpm test` **11 passed**、
 `tsc --noEmit` 0 errors、`eslint` 0 problems。
-**Ch0 ~ Ch11 完成。階段二做完三章。**
+**Ch0 ~ Ch12 完成，後端功能到此為止。**
 
-#### 換機之後先做這四件事
+> **這一章跟前面十二章不一樣**：程式碼寫在**另一個 repo**（獨立的 Nuxt 3 專案）。
+> 這一節記的是「**後端留下了什麼給前端**」，以及回頭改後端時要注意什麼。
 
-1. **一般的換機步驟**（`git pull` / `pnpm install` / `pnpm exec prisma generate` /
-   重建 `.env`、`.env.test` / 重建 skills junction）—— 見
-   [`docs/專案速查.md`](docs/專案速查.md) 的「換機接續」。
-2. **`.env` 與 `.env.test` 各需要一組 `JWT_SECRET` / `JWT_EXPIRES_IN`**（Ch10 加的）。
-   **三個環境的 secret 必須互不相同**。⚠️ `getOrThrow` 只擋 undefined：
-   寫成 `JWT_SECRET=` 時應用起得來、`/health` 是綠的，**只有登入會 500**。
-3. **跑四項驗收確認數字對得上**：`test:e2e` **114**、`test` **6**、`tsc` 0、`lint` 0。
-4. **確認 `core.autocrlf`**：查換行**只信 `git ls-files --eol` 的 `i/` 欄**。
+#### 後端交給前端的三樣東西
+
+| | 在哪 | 給前端做什麼 |
+| --- | --- | --- |
+| **OpenAPI 規格** | `https://survey-backend-0dku.onrender.com/docs-json`（線上）<br>`http://localhost:3100/docs-json`（本機） | Ch13 用 `openapi-typescript` 產型別。**這是 Ch7 投資的兌現點** |
+| **錯誤格式** | 所有端點都是 `{ error: { code, message, details? } }` | 用 `code` 分支，**不要解析 `message`** |
+| **認證方式** | `Authorization: Bearer <token>`，token 從 `POST /auth/login` 拿 | 見下面那張表 |
+
+#### 前端一定會撞到的四件事
+
+1. **token 一小時過期，而且不會自動延長**（`exp` 是簽發當下算好的）。
+   沒有 refresh token —— 過期就重新登入。Ch14 要處理「使用者填到一半被踢出去」。
+2. **401 是唯一有通用處置的狀態碼**：清掉 token、導去登入頁。
+   而 `/auth/me` 的三種失敗（沒帶票／票無效／那個人已被刪）**對外一模一樣**，
+   前端不必分辨。
+3. **403 有兩種來源**，但對外也一樣（`code` 都是 `FORBIDDEN`）：
+   角色不足（刪問卷要 `ADMIN`）、不是你的資源（改別人的問卷）。
+   前端顯示「權限不足」即可，不要試圖分辨。
+4. **`GET /auth/me` 是還原身分的唯一入口**。`login` 只回 `{ accessToken }`，
+   reload 之後前端手上只有 token，要靠它拿回 `id / email / role`。
+
+#### 哪些端點不用登入
+
+```
+GET  /health
+POST /auth/register
+POST /auth/login
+GET  /docs、/docs-json     ← 這兩支不經過 Nest 的管線，guard 攔不到（實測，見 ch10）
+```
+
+**其餘全部要帶 token**，而其中八支還要看擁有權或角色（見 `ch11` / `ch12`）。
+
+#### 回頭改後端時
+
+1. **一般的換機步驟**見 [`docs/專案速查.md`](docs/專案速查.md) 的「換機接續」。
+2. **`.env` 與 `.env.test` 各需要一組 `JWT_SECRET` / `JWT_EXPIRES_IN`**，
+   三個環境互不相同。⚠️ `getOrThrow` 只擋 undefined：寫成 `JWT_SECRET=`
+   應用起得來、`/health` 綠，**只有登入會 500**。
+3. **四項驗收**：`test:e2e` **126**、`test` **11**、`tsc` 0、`lint` 0。
+4. **改了回應形狀就是改了契約** —— Ch13 之後前端的型別是從 `/docs-json` 產的，
+   改一個欄位會讓前端編譯不過。這是好事（改壞了會有人叫），但要預期它。
 
 #### 線上環境
 
@@ -629,46 +695,20 @@ Ch8 留下的「`/docs` 要不要公開」因此變成一個真正的選擇，
 | 資料庫 | Neon 的 `production` branch |
 | 環境變數 | `DATABASE_URL` + `JWT_SECRET` / `JWT_EXPIRES_IN` |
 | `/docs` | 公開（Ch10 重新評估後維持，理由見 `ch10`） |
-| 認證 | 除了 `/health`、註冊、登入之外全部要帶 JWT |
-| 授權 | **`DELETE /surveys/:id` 只有 `ADMIN`**（Ch11）。線上還沒有任何 admin —— 要的話得直接改資料庫 |
+| 認證 | 除了上面那四支之外全部要帶 JWT |
+| 授權 | 刪問卷要 `ADMIN`；改問卷／題目、看填答結果要**擁有者或 `ADMIN`**。線上還沒有任何 admin |
+| ⚠️ CORS | **還沒設定**。Ch16 的主題 —— 前端跨網域打過來會被瀏覽器擋下 |
 
-#### 改完 schema 之後，三條 branch 各自怎麼套用
+#### 兩件留著的技術債
 
-| branch | 誰套用 |
-| --- | --- |
-| dev | `prisma migrate dev` 當下就套用了 |
-| **test** | **只有這條要你動手：`pnpm migrate:test`** |
-| production | `git push` 之後 Render 的 Build Command 自動跑 |
+> **`code` 的合法值有三份**（filter 的 `STATUS_TO_CODE`、`error-response.entity.ts`
+> 的 `enum`、`swagger.ts` 的說明字串），而它們之間**沒有偵測器**。
+> Ch9 與 Ch11 各漂移過一次。要補得寫一條測試比對「filter 產得出來的 code 集合」與那份 `enum`。
 
-`migrate dev` **不會順帶 `generate`**，改完 schema 直接查產物：`ls src/generated/prisma/models/`。
-
-#### Ch12 要做什麼
-
-**主題：資源層授權 —— 只能改自己的問卷。** Ch11 判斷的是「你是什麼角色」，
-Ch12 判斷的是「**這筆資料是不是你的**」。這兩者的位置不一樣，那正是這一章的重點。
-
-幾個已經知道會碰到的點，開工前一輪再定細節：
-
-- **guard 看不到資料。** `RolesGuard` 只需要 `request.user`，但「這份問卷是誰的」
-  要先去資料庫查一次 —— 而 guard 跑在 controller 之前，那時還沒有人查過。
-  所以判斷該放 guard 還是 service？這是 `LEARNING.md` 課綱寫的
-  「**Guard 層 vs Service 層判斷的取捨**」
-- **`Survey.ownerId` 終於被讀。** Ch10 輪 3 填進去的值，到 Ch12 才第一次
-  拿來做判斷。中間隔了一整章 —— 這正是當初那條「比對到 `sub` 而不是 `not.toBeNull()`」
-  的測試在保護的東西
-- **ADMIN 要不要能改別人的問卷？** 兩條規則相遇時的優先順序，是這一章的設計題
-- **測試要一次生出兩個使用者**：`registerAndLoginAsAdmin` 的 `email` 參數
-  （Ch11 加的）到這裡才真的派上用場
-
-> **Ch11 留下的觀察**：`pnpm test:e2e` 大約三次會有一次**只失敗 1 條，而且每次
-> 不一樣**（跟改動無關、單獨跑都綠）。照 `docs/專案速查.md` 的判準這是環境問題，
-> 而且使用者確認**之前就發生過**、不是 Ch11 引入的。刻意不追（1/114、每次 80 秒），
-> 但**下次遇到請先把錯誤訊息存下來** —— 要分辨是 `ECONNRESET` 還是斷言失敗，
-> 那一步這次漏了。完整紀錄在 `docs/專案速查.md` 的「e2e 測試連線問題怎麼查」。
->
-> **Ch11 留下、Ch12 之後要處理的一件事**：`code` 的合法值有三份，
-> 而它們之間**沒有任何偵測器**。要補的話得寫一條測試比對
-> 「filter 產得出來的 code 集合」與 `error-response.entity.ts` 的 `enum`。
+> **`pnpm test:e2e` 大約三次會有一次只失敗 1 條、每次不一樣**（跟改動無關，
+> 之前就發生過）。判定是環境問題，刻意不追。**下次遇到請先把錯誤訊息存下來**
+> （`pnpm test:e2e 2>&1 | tee /tmp/e2e.log`）—— 要分辨是 `ECONNRESET` 還是斷言失敗。
+> 完整紀錄在 `docs/專案速查.md` 的「e2e 測試連線問題怎麼查」。
 
 ## 進度表
 
@@ -696,7 +736,7 @@ Ch12 判斷的是「**這筆資料是不是你的**」。這兩者的位置不�
 | Ch9 | User model、bcrypt、註冊登入 | 密碼雜湊；預設拒絕比逐一排除可靠；**對已有資料的表加 `ownerId`** | ✅ |
 | Ch10 | JWT 與全域 AuthGuard | 認證流程、`@Public()` 的例外機制；**看得到內容 ≠ 內容可信** | ✅ |
 | Ch11 | RBAC：只有管理員能刪問卷 | 角色權限、`@Roles()` 自訂裝飾器；**裝飾器只是紙條，擋人的是 guard** | ✅ |
-| Ch12 | 資源層授權：只能改自己的問卷 | Guard 層 vs Service 層判斷的取捨 | ⬜ |
+| Ch12 | 資源層授權：只能改自己的問卷 | Guard 層 vs Service 層判斷的取捨；**授權要排在商業規則之前** | ✅ |
 
 ### 階段三：前端串接與部署
 
@@ -710,13 +750,24 @@ Ch12 判斷的是「**這筆資料是不是你的**」。這兩者的位置不�
 
 ### 貫穿全程的商業規則
 
-`Survey.status` 不是裝飾用的欄位，兩條規則分散在對應章節實作：
+四條規則全部住在 `src/surveys/survey.rules.ts`，分散在對應章節實作。
+前三條由 `Survey.status` 決定「**這件事現在能不能做**」（違反 → 409）：
 
-- **只有 `PUBLISHED` 的問卷能被填答**（Ch5）
 - **`DRAFT` 才能自由增刪題目；一旦有人填答就不能再改題目**（Ch3）
+- **沒有任何填答才能撤回發布**（Ch3）
+- **只有 `PUBLISHED` 的問卷能被填答**（Ch5）
+
+第四條由 `Survey.ownerId` 決定「**你能不能碰**」（違反 → 403）：
+
+- **擁有者本人或 `ADMIN` 才能管這份問卷**（Ch12）
+
+**授權要排在商業規則之前** —— 否則不相干的人會拿到「問卷已發布，無法修改題目」
+這種他不該知道的資訊。
 
 這是整個專案唯一有實質商業邏輯的地方，也是**唯一適合寫單元測試**的地方
-（純判斷、不碰資料庫）。其餘部分都用 E2E 測試 —— Ch5 會實際對比兩者的適用時機。
+（純判斷、不碰資料庫）。其餘部分都用 E2E —— 而單元測試還有一個獨有的價值：
+**它到得了 e2e 到不了的地方**（`canManageSurvey(null, …)` 要靠無主問卷才觸發，
+而 e2e 的前提資料一律有擁有者）。
 
 ### 課綱修訂紀錄
 
@@ -757,6 +808,7 @@ Ch12 判斷的是「**這筆資料是不是你的**」。這兩者的位置不�
 | Ch9 — 認證基礎 | [`docs/chapters/ch09-認證基礎.md`](docs/chapters/ch09-認證基礎.md) |
 | Ch10 — JWT 與全域 AuthGuard | [`docs/chapters/ch10-JWT與全域AuthGuard.md`](docs/chapters/ch10-JWT與全域AuthGuard.md) |
 | Ch11 — RBAC 與角色權限 | [`docs/chapters/ch11-RBAC與角色權限.md`](docs/chapters/ch11-RBAC與角色權限.md) |
+| Ch12 — 資源層授權 | [`docs/chapters/ch12-資源層授權.md`](docs/chapters/ch12-資源層授權.md) |
 
 ## 跨章節文件
 
