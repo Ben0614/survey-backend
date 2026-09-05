@@ -16,13 +16,11 @@
 > 換機或開新對話時**先讀這一節**。對話歷史與 AI 記憶都在 `~/.claude/` 底下，不跟 git 走 ——
 > 這裡沒寫的東西，換一台機器就等於沒發生過。
 
-**進度：** Ch0 ~ Ch12 完成，**Ch13 進行中**。
+**進度：** Ch0 ~ Ch13 完成。**階段三只剩 Ch14 ~ Ch17。**
 線上位址 `https://survey-backend-0dku.onrender.com`（Render 免費方案 + Neon 的 `production` branch）。
-`pnpm test:e2e` **126 passed**、`pnpm test` **11 passed**、`tsc --noEmit` 0 errors、`lint` 0 problems。
+`pnpm test:e2e` **133 passed**、`pnpm test` **11 passed**、`tsc --noEmit` 0 errors、`lint` 0 problems。
 
-**Ch13 的前端骨架與型別產出已經完成，後端那兩輪還沒做** ——
-接續點在下方「**Ch13 接續點**」，那一節現在記的是**做到哪裡、下一步是什麼**，
-不再是「還沒開始」。
+下一步是 **Ch14（認證串接：CORS 與 401 的一致性）**，接續點在下方「**Ch14 接續點**」。
 
 **⚠️ Ch13 起換一個 repo。** 前端是獨立的 **Nuxt 4** 專案（`survey-frontend`），
 跟這個並排放在 `Desktop/train/survey/` 底下，不是這個目錄的子資料夾。
@@ -643,40 +641,37 @@ Ch8 留下的「`/docs` 要不要公開」因此變成一個真正的選擇，
 
 ---
 
-### Ch13 接續點（更新於 2026-09-05）—— 進行中
+### Ch14 接續點（2026-09-05）
 
-**目前狀態**：`pnpm test:e2e` **126 passed**、`pnpm test` **11 passed**、
-`tsc --noEmit` 0 errors、`eslint` 0 problems。
-**Ch0 ~ Ch12 完成，Ch13 進行中** —— 前端骨架與型別產出已完成，
-**後端還有兩輪沒做**（見下方「做到哪裡了」與「還沒做的兩輪」）。
+**目前狀態**：`pnpm test:e2e` **133 passed**、`pnpm test` **11 passed**、
+`tsc --noEmit` 0 errors、`eslint` 0 problems。**Ch0 ~ Ch13 完成。**
 
-> **這一章跟前面十二章不一樣，而且有兩層不一樣**：
+> **這一階段跟前面十二章有兩層不一樣**：
 > 1. 程式碼寫在**另一個 repo**（獨立的 Nuxt 4 專案）
-> 2. **那些程式碼由 AI 寫，不走教練模式** —— 這一章的驗收標準是**後端的交付物**
+> 2. **那些程式碼由 AI 寫，不走教練模式** —— 每一章的驗收標準是**後端的交付物**
 >
-> 這一節記的是「**後端留下了什麼給前端**」、前端怎麼寫、以及回頭改後端時要注意什麼。
+> 這一節記的是「**後端留下了什麼給前端**」、以及回頭改後端時要注意什麼。
 
-#### 做到哪裡了（2026-09-05）
+#### Ch13 做完了什麼
 
-**前端骨架完成、型別產出來了、後端那兩輪還沒做。**
+**前端**（AI 寫的，在 `survey-frontend`）：Nuxt 4.5.2 + `openapi-typescript` 7.13，
+`pnpm gen:api` 從 `/docs-json` 產出 `app/model/api/schema.d.ts`（**進版控**，是契約的快照），
+`app/model/api/contract-check.ts` 是編譯期的契約斷言、不發請求。
+⚠️ Vuetify / Pinia / `useMyService` / `app/api/*.ts` **刻意還沒裝** ——
+它們的第一個真實用途在 Ch14 的 `/login` 頁。
 
-已完成（在 `survey-frontend`，AI 寫的）：
+**後端**（教練模式，兩輪）：
 
-- Nuxt 4.5.2（minimal 模板）+ `openapi-typescript` 7.13，`pnpm` 11.17
-- `pnpm gen:api` 從 `http://localhost:3100/docs-json` 產出 `app/model/api/schema.d.ts`（1295 行，**進版控**）
-- `app/model/api/contract-check.ts` —— 編譯期的契約斷言，**不發任何請求**（所以這一章撞不到 CORS）
-- `docs/前端分層慣例.md` —— 前端的分層與判準（`useMyService` 的設計、兩種回應約定的對照）
-- ⚠️ **Vuetify / Pinia / `useMyService` / `app/api/*.ts` 這一輪刻意沒裝** ——
-  它們的第一個真實用途在 Ch14 的 `/login` 頁，現在裝等於裝好放著
+- **輪 ①** `SurveyEntity.ownerId` 補 `type: String`、`QuestionEntity.order` 拿掉
+  不成立的 `default: 0`；抽出 `test/helpers/expect-schema-matches.ts`，
+  一致性測試從 2 條變 7 條（126 → 131）
+- **輪 ②** 新增 `@ApiAuthenticated()`（`applyDecorators`），5 個 controller
+  一行換一行；契約裡有 401 的端點從 2 支變 16 支（131 → 133）
 
-**`pnpm typecheck` 現在刻意是紅的，只紅一條**，指的就是下面輪 ① 要修的東西：
+完整記錄見 [`ch13`](docs/chapters/ch13-契約驗收.md)。**一句話的收穫：兩種錯要兩種偵測器**
+—— e2e 抓「key 集合漂移」，前端 `pnpm typecheck` 抓「型別標錯」，兩邊漏掉的不重疊。
 
-```
-app/model/api/contract-check.ts(40,7): error TS2322:
-  Type 'string' is not assignable to type 'Record<string, never>'.
-```
-
-#### 型別產出實況（實測，不是推測）
+#### 型別產出實況（實測，Ch13 收尾時的狀態）
 
 | 標的 | 產出來 | |
 | --- | --- | :---: |
@@ -684,104 +679,22 @@ app/model/api/contract-check.ts(40,7): error TS2322:
 | `enum` | `status: "DRAFT" \| "PUBLISHED"`、`code: "BAD_REQUEST" \| ...` | ✅ |
 | `optional` | `questions?: QuestionEntity[]` | ✅ |
 | 巢狀 `$ref` | `answers: AnswerEntity[]`、`answer.question: QuestionEntity` | ✅ |
-| **`nullable`** | **`ownerId: Record<string, never> \| null`** | ❌ |
+| `nullable` | `ownerId: string \| null` | ✅（輪 ① 修好，修之前是 `Record<string, never>`） |
+| 401 的 body | 16 支端點各一個 `ErrorResponseEntity` | ✅（輪 ② 補上） |
 
-`Ch7` 那些 `type: String, format: 'date-time'` 的堅持在這裡兌現了 ——
-標成 `Date` 的話產出來就是 `Date`，前端 `.getTime()` 直接炸。
+**前端 `pnpm typecheck` 現在是綠的（exit 0）。** 它從 Ch13 開工到輪 ① 結束之前
+刻意紅著一條，那條紅字就是 `ownerId`。
 
-**唯一壞掉的是 `ownerId`**，而它壞掉的原因值得單獨記一條：
+#### Ch14 的起點
 
-> **`emitDecoratorMetadata` 救得了 class 與單一原生型別，救不了聯集型別。**
->
-> `AnswerEntity.question` 的 `@ApiProperty` **沒寫 `type:`**，卻照樣產出了 `$ref` ——
-> 因為 `design:type` 記到的是 `QuestionEntity` 這個 class。
-> 而 `ownerId: string | null` 是聯集，`design:type` 只能記成 `Object`，
-> 反射什麼都救不了，於是產出 `Record<string, never>`。
->
-> 判準：**欄位型別是聯集（含 `| null`）時，`type:` 一定要自己寫。**
+主題是**認證串接**，驗收標準見進度表。三件事已經知道了：
 
-#### 還沒做的兩輪（後端，教練模式）
-
-**輪 ①：entity 說了什麼**
-
-1. `src/surveys/entities/survey.entity.ts` 的 `ownerId` 補上 `type: String`。
-2. `src/questions/entities/question.entity.ts` 的 `order` 標了 `default: 0`，
-   但 `schema.prisma` 的 `Question.order` 沒有預設值（值由 service 算）——
-   這是文件說謊的第三種形狀：**不是多寫也不是少寫，是寫了一句不成立的話。**
-3. 補一致性測試。現有兩條（`SurveyEntity` / `ErrorResponseEntity`）用同一段雙向比對，
-   再抄三次會有五份 —— **先抽再加**：`test/helpers/expect-schema-matches.ts`，
-   簽名大約 `expectSchemaMatches(doc, schemaName, realBody)`，`SchemaLike` 一起搬。
-   五條測試名稱在下方「輪 ① 的測試名稱」。
-
-**輪 ① 的驗收有兩半，缺一半就不算完**：
-
-```bash
-# 後端
-pnpm test:e2e          # 126 → 131 passed
-pnpm test              # 11 passed
-pnpm exec tsc --noEmit # 0 errors
-pnpm lint              # 0 problems
-
-# 前端（改了 entity 就是改了契約，一定要重產）
-cd ../survey-backend && pnpm start:dev
-cd ../survey-frontend && pnpm gen:api && pnpm typecheck   # 由紅轉綠
-```
-
-⚠️ **`schema.d.ts` 進了版控，而現在存的是「壞掉的」那一版**（`ownerId:
-Record<string, never> | null`）。修完 entity 一定要重跑 `gen:api`，
-否則前端手上的契約還是舊的。那個 diff 只會有一行：
-
-```diff
--            ownerId: Record<string, never> | null;
-+            ownerId: string | null;
-```
-
-**留著它** —— 那一行就是「型別品質 = entity 標記品質」最直接的證據，
-收尾寫 `docs/chapters/ch13-*.md` 時貼進去。
-
-⚠️ **輪 ① 最容易錯的一點**：`GET /responses/:id` 的比對**只比第一層等於沒比** ——
-`{ id, surveyId, createdAt, answers }` 四個 key 全都在，`AnswerEntity` 與
-`QuestionEntity` 的任何錯都不會紅。要往下比三層。而且那條測試要準備到
-「有題目、有人填答」才拿得到 `answers[0]`，否則 `body.answers[0]` 是 `undefined` ——
-**測試不會紅，只會悄悄什麼都沒比到**。對策：先斷言 `answers` 長度至少 1。
-
-⚠️ **兩種錯要兩種偵測器**：e2e 抓的是「key 集合漂移」，`ownerId` 那種**型別標錯**
-它一條都抓不到 —— 那個的偵測器是前端的 `pnpm typecheck`。這是 Ch13 的核心收穫。
-
-**輪 ②：端點說了會回什麼 —— 契約裡沒有 401**
-
-18 支端點裡 **16 支沒有標 401**（只有 `POST /auth/login` 與 `GET /auth/me` 標了），
-而那 16 支裡 **14 支是要帶 token 的** —— 差的兩支是 `GET /health` 與
-`POST /auth/register`，它們本來就公開，沒有 401 是正確的。
-
-```
-GET  /surveys           200,400          ← 沒有 401
-GET  /responses/{id}    200,403,404      ← 沒有 401
-...
-```
-
-前端最重要的錯誤路徑 —— **token 一小時過期 → 清 token 導登入** —— 在契約上不存在。
-`@ApiBearerAuth()` 標了，但那只說「這支要認證」，沒說「不帶會回什麼」。
-這是「文件說謊」的第四種形狀：**它沒說謊，它只是沒講。**
-
-那一輪的設計題：14 支逐支加 `@ApiUnauthorizedResponse`，
-還是做一個組合裝飾器？（Ch11 的 `@Roles()` 示範過怎麼寫自訂裝飾器。）
-
-#### 輪 ① 的測試名稱
-
-放進 `test/swagger.e2e-spec.ts` 既有的 `describe('Swagger 契約（buildSwaggerDocument）')`：
-
-```ts
-it('QuestionEntity 的屬性，跟實際打 POST /surveys/:surveyId/questions 拿到的 key 完全一致', async () => {});
-it('ResponseEntity 的屬性，跟實際打 POST /surveys/:surveyId/responses 拿到的 key 完全一致', async () => {});
-it('ResponseDetailEntity 的屬性，跟實際打 GET /responses/:id 拿到的 key 完全一致', async () => {});
-it('GET /responses/:id 的 answers[0] 與 answers[0].question，分別對得上 AnswerEntity 與 QuestionEntity', async () => {});
-it('UserEntity 的屬性，跟實際打 POST /auth/register 拿到的 key 完全一致', async () => {});
-```
-
-第四條是主角。前提資料：第二～四條要 `POST /surveys` → 建題目 → `publish` →
-`POST responses`，第三、四條共用同一份作答；第五條要一組沒註冊過的 email，
-不能重用 `registerAndLogin` 產的那組。
+1. **CORS 一定要加** —— 見下方「後端還沒完」。這是 Ch14 的第一件事，
+   而且是前端發出第一個真請求的前提。
+2. **401 的三種來源對前端是否真的一致** —— `/auth/me` 的沒帶票／票無效／
+   那個人已被刪，對外一模一樣（`ch10` 的決定）。串接時要確認前端真的不必分辨。
+3. **`/auth/me` 夠不夠用** —— `login` 只回 `{ accessToken }`，
+   reload 之後要靠它拿回 `id / email / role`。
 
 #### 兩個 repo 怎麼分工（2026-09-03 定的）
 
@@ -854,7 +767,7 @@ GET  /docs、/docs-json     ← 這兩支不經過 Nest 的管線，guard 攔不
 2. **`.env` 與 `.env.test` 各需要一組 `JWT_SECRET` / `JWT_EXPIRES_IN`**，
    三個環境互不相同。⚠️ `getOrThrow` 只擋 undefined：寫成 `JWT_SECRET=`
    應用起得來、`/health` 綠，**只有登入會 500**。
-3. **四項驗收**：`test:e2e` **126**、`test` **11**、`tsc` 0、`lint` 0。
+3. **四項驗收**：`test:e2e` **133**、`test` **11**、`tsc` 0、`lint` 0。
 4. **改了回應形狀就是改了契約** —— Ch13 之後前端的型別是從 `/docs-json` 產的，
    改一個欄位會讓前端編譯不過。這是好事（改壞了會有人叫），但要預期它。
 
@@ -869,7 +782,7 @@ GET  /docs、/docs-json     ← 這兩支不經過 Nest 的管線，guard 攔不
 | `/docs` | 公開（Ch10 重新評估後維持，理由見 `ch10`） |
 | 認證 | 除了上面那四支之外全部要帶 JWT |
 | 授權 | 刪問卷要 `ADMIN`；改問卷／題目、看填答結果要**擁有者或 `ADMIN`**。線上還沒有任何 admin |
-| ⚠️ CORS | **還沒設定**。Ch16 的主題 —— 前端跨網域打過來會被瀏覽器擋下 |
+| ⚠️ CORS | **還沒設定**。Ch14 的第一件事 —— 前端跨網域打過來會被瀏覽器擋下 |
 
 #### 後端還沒完 —— 前端一定會推著它改
 
@@ -883,8 +796,8 @@ GET  /docs、/docs-json     ← 這兩支不經過 Nest 的管線，guard 攔不
 
 症狀會騙人：Console 一片紅、`Failed to fetch`，看起來像後端壞了 ——
 但你用 `curl` 或 `api.http` 打**完全正常**，因為那兩個不是瀏覽器、沒有同源政策。
-課綱把它排在 Ch16，但 **Ch13 第一天就會撞到**，到時候要決定是先加一行擋著、
-還是把 Ch16 的一部分提前。
+Ch13 沒撞到它，因為 `gen:api` 是抓 `/docs-json` 這個檔案、不經瀏覽器。
+**Ch14 的第一個真請求就會撞上**（`enableCors` 是那一章的驗收標準之一）。
 
 **很可能要改的：`GET /surveys` 現在回所有人的問卷。**
 
@@ -907,7 +820,7 @@ Ch12 只保護了「改」，**讀完全沒動** —— 所以任何登入的人
 | `Response` 加提交者欄位 | 想做「我填過的問卷」就需要 —— 現在 schema 完全沒記錄誰填的（Ch5 的匿名決定） |
 | `/auth/me` 之外的東西 | Ch14 串認證時可能發現前端還需要別的 |
 
-**好消息是改起來很安全**：126 條 e2e + 11 條單元測試守著，而 Ch13 之後
+**好消息是改起來很安全**：133 條 e2e + 11 條單元測試守著，而 Ch13 之後
 前端的型別是從 `/docs-json` 產的 —— **改壞契約前端會編譯不過**，那是一道
 比測試更早叫的防線。
 
@@ -1048,7 +961,7 @@ pnpm typecheck                             # 綠 = 契約可用
 
 | 章節 | 主題 | **後端的驗收標準** | 狀態 |
 | :---: | --- | --- | :---: |
-| Ch13 | **契約驗收：從 Swagger 產型別** | 產出來的型別品質 **= entity 標記品質**。實測結果：`date-time` / optional / enum / 巢狀 `$ref` 都對，**`ownerId` 的 `nullable` 壞了**（聯集型別反射救不了）；另外 **16 支端點沒標 401**。待辦兩輪見「Ch13 接續點」 | 🚧 |
+| Ch13 | **契約驗收：從 Swagger 產型別** | 產出來的型別品質 **= entity 標記品質**。修掉 `ownerId` 的聯集型別與 `order` 不成立的 `default`；契約有 401 的端點 2 → 16（`@ApiAuthenticated()`）。**兩種錯要兩種偵測器** | ✅ |
 | Ch14 | **認證串接：CORS 與 401 的一致性** | `enableCors` 上線（含 credentials）；401 的三種來源對前端是否真的一致；`/auth/me` 夠不夠用 | ⬜ |
 | Ch15 | **串接暴露的 API 設計問題** | `GET /surveys` 回所有人的問卷（含別人的草稿標題）是已知的第一個；其餘由串接過程發現，每改一處都要有測試 | ⬜ |
 | Ch16 | 環境變數分離與 production build | CORS 的 origin 依環境切換；前後端各自的 `.env` 分離 | ⬜ |
@@ -1129,6 +1042,7 @@ pnpm typecheck                             # 綠 = 契約可用
 | Ch10 — JWT 與全域 AuthGuard | [`docs/chapters/ch10-JWT與全域AuthGuard.md`](docs/chapters/ch10-JWT與全域AuthGuard.md) |
 | Ch11 — RBAC 與角色權限 | [`docs/chapters/ch11-RBAC與角色權限.md`](docs/chapters/ch11-RBAC與角色權限.md) |
 | Ch12 — 資源層授權 | [`docs/chapters/ch12-資源層授權.md`](docs/chapters/ch12-資源層授權.md) |
+| Ch13 — 契約驗收 | [`docs/chapters/ch13-契約驗收.md`](docs/chapters/ch13-契約驗收.md) |
 
 ## 跨章節文件
 
