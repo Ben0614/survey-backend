@@ -16,11 +16,11 @@
 > 換機或開新對話時**先讀這一節**。對話歷史與 AI 記憶都在 `~/.claude/` 底下，不跟 git 走 ——
 > 這裡沒寫的東西，換一台機器就等於沒發生過。
 
-**進度：** Ch0 ~ Ch13 完成。**階段三只剩 Ch14 ~ Ch17。**
+**進度：** Ch0 ~ Ch14 完成。**階段三只剩 Ch15 ~ Ch17。**
 線上位址 `https://survey-backend-0dku.onrender.com`（Render 免費方案 + Neon 的 `production` branch）。
-`pnpm test:e2e` **133 passed**、`pnpm test` **11 passed**、`tsc --noEmit` 0 errors、`lint` 0 problems。
+`pnpm test:e2e` **138 passed**、`pnpm test` **11 passed**、`tsc --noEmit` 0 errors、`lint` 0 problems。
 
-下一步是 **Ch14（認證串接：CORS 與 401 的一致性）**，接續點在下方「**Ch14 接續點**」。
+下一步是 **Ch15（串接暴露的 API 設計問題）**，接續點在下方「**Ch15 接續點**」。
 
 **⚠️ Ch13 起換一個 repo。** 前端是獨立的 **Nuxt 4** 專案（`survey-frontend`），
 跟這個並排放在 `Desktop/train/survey/` 底下，不是這個目錄的子資料夾。
@@ -641,61 +641,49 @@ Ch8 留下的「`/docs` 要不要公開」因此變成一個真正的選擇，
 
 ---
 
-### Ch14 接續點（2026-09-05）
+### Ch15 接續點（2026-09-05）
 
-**目前狀態**：`pnpm test:e2e` **133 passed**、`pnpm test` **11 passed**、
-`tsc --noEmit` 0 errors、`eslint` 0 problems。**Ch0 ~ Ch13 完成。**
+**目前狀態**：`pnpm test:e2e` **138 passed**、`pnpm test` **11 passed**、
+`tsc --noEmit` 0 errors、`eslint` 0 problems。**Ch0 ~ Ch14 完成。**
 
-> **這一階段跟前面十二章有兩層不一樣**：
-> 1. 程式碼寫在**另一個 repo**（獨立的 Nuxt 4 專案）
-> 2. **那些程式碼由 AI 寫，不走教練模式** —— 每一章的驗收標準是**後端的交付物**
->
-> 這一節記的是「**後端留下了什麼給前端**」、以及回頭改後端時要注意什麼。
+> **階段三的兩層不一樣**：程式碼寫在**另一個 repo**，而且**那些程式碼由 AI 寫**。
+> 每一章的驗收標準是**後端的交付物** —— 這一節記的是後端留下了什麼、還缺什麼。
 
-#### Ch13 做完了什麼
+#### Ch13 ~ Ch14 做完了什麼
 
-**前端**（AI 寫的，在 `survey-frontend`）：Nuxt 4.5.2 + `openapi-typescript` 7.13，
-`pnpm gen:api` 從 `/docs-json` 產出 `app/model/api/schema.d.ts`（**進版控**，是契約的快照），
-`app/model/api/contract-check.ts` 是編譯期的契約斷言、不發請求。
-⚠️ Vuetify / Pinia / `useMyService` / `app/api/*.ts` **刻意還沒裝** ——
-它們的第一個真實用途在 Ch14 的 `/login` 頁。
+**Ch13（契約驗收）** —— 詳見 [`ch13`](docs/chapters/ch13-契約驗收.md)
+修掉 `ownerId` 的聯集型別與 `order` 不成立的 `default`；
+契約有 401 的端點 2 → 16（新增 `@ApiAuthenticated()`）。
+一句話：**兩種錯要兩種偵測器**（e2e 抓 key 集合漂移，前端 typecheck 抓型別標錯）。
 
-**後端**（教練模式，兩輪）：
+**Ch14（認證串接）** —— 詳見 [`ch14`](docs/chapters/ch14-認證串接.md)
+`enableCors` 上線（放 `setup-app.ts`，**不開 credentials**）；
+401 的三種來源確認符合實務標準、不必改；前端 `/login` 頁與整條認證鏈完成。
+**這一章第一次有真的瀏覽器打後端。**
 
-- **輪 ①** `SurveyEntity.ownerId` 補 `type: String`、`QuestionEntity.order` 拿掉
-  不成立的 `default: 0`；抽出 `test/helpers/expect-schema-matches.ts`，
-  一致性測試從 2 條變 7 條（126 → 131）
-- **輪 ②** 新增 `@ApiAuthenticated()`（`applyDecorators`），5 個 controller
-  一行換一行；契約裡有 401 的端點從 2 支變 16 支（131 → 133）
+前端現在能：註冊、登入、reload 之後靠 `/auth/me` 還原身分、登出。
+`survey-frontend` 有 Vuetify + Pinia + `useMyService` + 全域路由守衛。
 
-完整記錄見 [`ch13`](docs/chapters/ch13-契約驗收.md)。**一句話的收穫：兩種錯要兩種偵測器**
-—— e2e 抓「key 集合漂移」，前端 `pnpm typecheck` 抓「型別標錯」，兩邊漏掉的不重疊。
+#### Ch15 的起點 —— 已經知道的四個 API 設計問題
 
-#### 型別產出實況（實測，Ch13 收尾時的狀態）
+主題是「**串接暴露的 API 設計問題**」，而串接已經先送了四個過來：
 
-| 標的 | 產出來 | |
-| --- | --- | :---: |
-| `date-time` | `createdAt: string` | ✅ |
-| `enum` | `status: "DRAFT" \| "PUBLISHED"`、`code: "BAD_REQUEST" \| ...` | ✅ |
-| `optional` | `questions?: QuestionEntity[]` | ✅ |
-| 巢狀 `$ref` | `answers: AnswerEntity[]`、`answer.question: QuestionEntity` | ✅ |
-| `nullable` | `ownerId: string \| null` | ✅（輪 ① 修好，修之前是 `Record<string, never>`） |
-| 401 的 body | 16 支端點各一個 `ErrorResponseEntity` | ✅（輪 ② 補上） |
+1. **`GET /surveys` 回所有人的問卷**（含別人的草稿標題）。課綱早就記了這一條，
+   Ch15 的 `/surveys` 列表頁第一天就會看到它。
+2. **契約沒講密碼規則。** 後端 `RegisterDto` 有 `@MinLength(8)` / `@MaxLength(72)`
+   （72 是 bcrypt 的硬上限），但 `@ApiProperty` 沒標，所以 `schema.d.ts` 裡
+   `password` 是個沒有任何約束的 `string`。前端 `login.vue` 那兩條規則因此是**硬寫的**。
+   對照 `CreateSurveyDto.title` **有**標 `maxLength: 200` —— 同一份契約兩種待遇。
+   （`RegisterDto.email` 的 `@IsEmail()` 也沒反映成 `format: email`。）
+   ⚠️ 補了之後前端**仍然要自己寫一份**表單驗證 —— `minLength` 只會變成 JSDoc，
+   TypeScript 沒有「最短 8 字的字串」這種型別。補的收益是「有依據可對照」，不是消除硬寫。
+3. **`VALIDATION_FAILED` 的 `details` 是 class-validator 的英文原文**
+   （`"password must be longer than or equal to 8 characters"`），直接顯示給使用者不理想。
+4. **409 的 message 是通用的「資料已存在」** —— 註冊撞 email 時使用者看到這句話，
+   不知道是什麼資料、也不知道該怎麼辦。
 
-**前端 `pnpm typecheck` 現在是綠的（exit 0）。** 它從 Ch13 開工到輪 ① 結束之前
-刻意紅著一條，那條紅字就是 `ownerId`。
-
-#### Ch14 的起點
-
-主題是**認證串接**，驗收標準見進度表。三件事已經知道了：
-
-1. **CORS 一定要加** —— 見下方「後端還沒完」。這是 Ch14 的第一件事，
-   而且是前端發出第一個真請求的前提。
-2. **401 的三種來源對前端是否真的一致** —— `/auth/me` 的沒帶票／票無效／
-   那個人已被刪，對外一模一樣（`ch10` 的決定）。串接時要確認前端真的不必分辨。
-3. **`/auth/me` 夠不夠用** —— `login` 只回 `{ accessToken }`，
-   reload 之後要靠它拿回 `id / email / role`。
-
+還有一件小的：前端 `contract-check.ts` 目前守著 5 件事，**沒有守 `UserEntity.role`**。
+Ch15 的列表頁要用 `role === 'ADMIN'` 決定刪除按鈕顯不顯示，值得補一條斷言。
 #### 兩個 repo 怎麼分工（2026-09-03 定的）
 
 ```
@@ -782,22 +770,24 @@ GET  /docs、/docs-json     ← 這兩支不經過 Nest 的管線，guard 攔不
 | `/docs` | 公開（Ch10 重新評估後維持，理由見 `ch10`） |
 | 認證 | 除了上面那四支之外全部要帶 JWT |
 | 授權 | 刪問卷要 `ADMIN`；改問卷／題目、看填答結果要**擁有者或 `ADMIN`**。線上還沒有任何 admin |
-| ⚠️ CORS | **還沒設定**。Ch14 的第一件事 —— 前端跨網域打過來會被瀏覽器擋下 |
+| CORS | ✅ Ch14 設定好了（`setup-app.ts`，白名單 `http://localhost:3000`，不開 credentials）。<br>⚠️ 線上那份的 origin 還是 localhost —— **依環境切換是 Ch16 的驗收標準** |
 
 #### 後端還沒完 —— 前端一定會推著它改
 
 前面十二章的驗收標準都是 e2e 綠燈，那證明了「**API 行為正確**」，
 **沒有證明「這組 API 好不好串」**。Ch13–17 就是那個驗收。
 
-**一定要改的：CORS。**
+**~~一定要改的：CORS~~ —— ✅ Ch14 輪 ① 做完了。**
 
-`src/` 裡沒有任何 `enableCors`。前端在 `localhost:3000`、後端在 `localhost:3100`，
-是**不同的 origin**，所以前端第一次發請求就會被瀏覽器擋下。
+`setup-app.ts` 的 `enableCors`：白名單 `http://localhost:3000`、
+`allowedHeaders: ['Content-Type', 'Authorization']`、**不開 credentials**。
+三條測試守著（`test/cors.e2e-spec.ts`）。完整記錄見 [`ch14`](docs/chapters/ch14-認證串接.md)。
 
-症狀會騙人：Console 一片紅、`Failed to fetch`，看起來像後端壞了 ——
-但你用 `curl` 或 `api.http` 打**完全正常**，因為那兩個不是瀏覽器、沒有同源政策。
-Ch13 沒撞到它，因為 `gen:api` 是抓 `/docs-json` 這個檔案、不經瀏覽器。
-**Ch14 的第一個真請求就會撞上**（`enableCors` 是那一章的驗收標準之一）。
+留下來的那句話仍然值得記住 —— 它是這一類問題的通用症狀：
+**Console 一片紅 `Failed to fetch`，但 `curl` 或 `api.http` 打完全正常。**
+那兩個不是瀏覽器、沒有同源政策。撞到這個先想 CORS，不要去改 guard 或 service。
+
+⚠️ **線上那份的 origin 還是 `localhost:3000`** —— 依環境切換是 Ch16 的驗收標準。
 
 **很可能要改的：`GET /surveys` 現在回所有人的問卷。**
 
@@ -846,7 +836,7 @@ Java/Spring 生態常見的 `ApiResponse<T>` 約定（**HTTP 一律 2xx，靠 bo
 
 | 路由 | 用到的端點 | 這一頁會暴露什麼 |
 | --- | --- | --- |
-| `/login` | `POST /auth/register`、`POST /auth/login`、`GET /auth/me` | **CORS 第一次撞牆**；401 的處置；token 存哪 |
+| ~~`/login`~~ ✅ Ch14 完成 | `POST /auth/register`、`POST /auth/login`、`GET /auth/me` | CORS 第一次撞牆；401 的處置；token 存哪 —— 三個都驗過了 |
 | `/surveys` | `GET /surveys`、**`DELETE /surveys/:id`** | 它**回所有人的問卷**（含別人的草稿標題）—— 已知的第一個 API 設計問題。刪除按鈕只有 `ADMIN` 看得到，**那是第一次用到 `/auth/me` 回的 `role`** |
 | `/surveys/new` | `POST /surveys` | `ownerId` 從 token 來，前端不送 |
 | `/surveys/:id/edit` | `GET /surveys/:id?includeQuestions=true`、`PATCH /surveys/:id`、題目三支、`publish` / `unpublish` | 擁有權 403 的實際體驗；`DRAFT` 才能改題目那條規則的 409 |
@@ -904,7 +894,7 @@ Ch13 收尾時實際踩過：`docs` 裡先寫「六頁把 18 支全部用到」�
 4. ~~`openapi-typescript` 產型別~~ ✅（`pnpm gen:api`，吃 **localhost:3100**，
    **不要用線上那條** —— 線上是 production 資料庫）
 5. **第一個真請求才會撞到 CORS，而 Ch13 沒有發過任何真請求** ——
-   型別是抓 `/docs-json` 這個檔案、不經瀏覽器。CORS 留給 Ch14（它本來就是 Ch14 的驗收標準）
+   型別是抓 `/docs-json` 這個檔案、不經瀏覽器。CORS 由 Ch14 輪 ① 完成。
 
 **每次要重產型別的順序**（不能反過來）：
 
@@ -962,7 +952,7 @@ pnpm typecheck                             # 綠 = 契約可用
 | 章節 | 主題 | **後端的驗收標準** | 狀態 |
 | :---: | --- | --- | :---: |
 | Ch13 | **契約驗收：從 Swagger 產型別** | 產出來的型別品質 **= entity 標記品質**。修掉 `ownerId` 的聯集型別與 `order` 不成立的 `default`；契約有 401 的端點 2 → 16（`@ApiAuthenticated()`）。**兩種錯要兩種偵測器** | ✅ |
-| Ch14 | **認證串接：CORS 與 401 的一致性** | `enableCors` 上線（含 credentials）；401 的三種來源對前端是否真的一致；`/auth/me` 夠不夠用 | ⬜ |
+| Ch14 | **認證串接：CORS 與 401 的一致性** | `enableCors` 上線（放 `setup-app.ts`；**不開 credentials** —— token 走標頭，瀏覽器不必自動帶 cookie）；401 的三種來源確認符合實務標準、不必改；`/auth/me` 夠用 | ✅ |
 | Ch15 | **串接暴露的 API 設計問題** | `GET /surveys` 回所有人的問卷（含別人的草稿標題）是已知的第一個；其餘由串接過程發現，每改一處都要有測試 | ⬜ |
 | Ch16 | 環境變數分離與 production build | CORS 的 origin 依環境切換；前後端各自的 `.env` 分離 | ⬜ |
 | Ch17 | 前端部署與端到端驗收 | 線上 origin 加進 CORS；跑通「建立 → 發布 → 填寫 → 看結果」 | ⬜ |
@@ -1043,6 +1033,7 @@ pnpm typecheck                             # 綠 = 契約可用
 | Ch11 — RBAC 與角色權限 | [`docs/chapters/ch11-RBAC與角色權限.md`](docs/chapters/ch11-RBAC與角色權限.md) |
 | Ch12 — 資源層授權 | [`docs/chapters/ch12-資源層授權.md`](docs/chapters/ch12-資源層授權.md) |
 | Ch13 — 契約驗收 | [`docs/chapters/ch13-契約驗收.md`](docs/chapters/ch13-契約驗收.md) |
+| Ch14 — 認證串接 | [`docs/chapters/ch14-認證串接.md`](docs/chapters/ch14-認證串接.md) |
 
 ## 跨章節文件
 
