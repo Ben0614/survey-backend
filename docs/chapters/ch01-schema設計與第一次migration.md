@@ -240,10 +240,10 @@ ls src/generated/prisma/models/
 
 | 時間 | 事件 | 當時 `schema.prisma` 的 model 數 |
 | --- | --- | --- |
-| 07/31 17:02 (`71e1c65`) | Ch0 的最後一次 schema 變動 | **0** |
+| 07/31 17:02 (`90c66fd`) | Ch0 的最後一次 schema 變動 | **0** |
 | **08/01 17:23** | **`src/generated/prisma/` 的檔案時間戳** | — |
-| 08/06 13:41 (`c498dbd`) | Ch1 寫了 `Survey` 範本 | 1 |
-| 08/07 14:08 (`3ca33ac`) | Ch1 四個 model 完成 | 4 |
+| 08/06 13:41 (`7acbf11`) | Ch1 寫了 `Survey` 範本 | 1 |
+| 08/07 14:08 (`d373949`) | Ch1 四個 model 完成 | 4 |
 
 也就是說：**這台機器上的 Prisma Client 是在 schema 還沒有任何 model 的時候產生的**，之後兩次 schema 變動它都沒跟上。難怪 model 集合是空的。
 

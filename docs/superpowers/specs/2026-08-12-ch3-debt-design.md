@@ -2,8 +2,8 @@
 
 ## 背景
 
-Ch3 第一段的**實作**已完成並 push（`4d03691` GET/POST、`d43ee9e` PATCH、`5544241` DELETE、
-`ad4c408` include），`pnpm test:e2e` 30 passed。但整段是連續四次「寫端點 → review → 跑測試 → commit」
+Ch3 第一段的**實作**已完成並 push（`afd1cc2` GET/POST、`cf270d1` PATCH、`0abfcc5` DELETE、
+`9c3e0cd` include），`pnpm test:e2e` 30 passed。但整段是連續四次「寫端點 → review → 跑測試 → commit」
 推進的，教學註解與文件一次都沒補 —— `LEARNING.md` 的「欠的債」那一節就是為了記住這件事而存在。
 
 債務累積到現在有三個性質：

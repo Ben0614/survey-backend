@@ -1,9 +1,13 @@
 # 問卷管理平台 — 後端學習歷程
 
 從零打造一個前後端分離的問卷平台，補齊資料庫與後端能力。
-技術棧：**NestJS 11 + Prisma 7 + PostgreSQL (Neon)**，前端 Nuxt 3。
+技術棧：**NestJS 11 + Prisma 7 + PostgreSQL (Neon)**，前端 **Nuxt 4 + Vuetify**。
 
 學習方式是**教練模式**：每章由教練講解概念與取捨、示範第一個範例，其餘同類程式碼自己寫完再 review。
+
+> **⚠️ 教練模式只適用後端（Ch0–Ch12，以及階段三回頭改後端的部分）。**
+> 階段三的前端程式碼**由 AI 直接寫** —— 使用者本身是前端工程師，那部分沒有學習目標。
+> 這是 2026-09-03 第三次課綱修訂的決定，理由見下方「課綱修訂紀錄」。
 
 ---
 
@@ -12,14 +16,18 @@
 > 換機或開新對話時**先讀這一節**。對話歷史與 AI 記憶都在 `~/.claude/` 底下，不跟 git 走 ——
 > 這裡沒寫的東西，換一台機器就等於沒發生過。
 
-**進度：** Ch0 ~ Ch12 完成。**階段一與階段二都結束了，後端功能到此為止。**
+**進度：** Ch0 ~ Ch12 完成，**Ch13 進行中**。
 線上位址 `https://survey-backend-0dku.onrender.com`（Render 免費方案 + Neon 的 `production` branch）。
 `pnpm test:e2e` **126 passed**、`pnpm test` **11 passed**、`tsc --noEmit` 0 errors、`lint` 0 problems。
-下一步是 **Ch13（Nuxt 3 建置、從 Swagger 產生型別）—— 換到前端**，
-接續點寫在下方「Ch13 接續點」。
 
-**⚠️ Ch13 起換一個 repo。** 前端是獨立的 Nuxt 3 專案，不是這個目錄的子資料夾。
-後端從這裡開始只會因為「前端串接時發現契約不夠用」而被回頭改。
+**Ch13 的前端骨架與型別產出已經完成，後端那兩輪還沒做** ——
+接續點在下方「**Ch13 接續點**」，那一節現在記的是**做到哪裡、下一步是什麼**，
+不再是「還沒開始」。
+
+**⚠️ Ch13 起換一個 repo。** 前端是獨立的 **Nuxt 4** 專案（`survey-frontend`），
+跟這個並排放在 `Desktop/train/survey/` 底下，不是這個目錄的子資料夾。
+**後端從這裡開始只會因為「前端串接時發現契約不夠用」而被回頭改** ——
+而那正是階段三每一章的驗收標準。
 
 **2026-09-03 —— 線上 API 已經上鎖。** Ch10 之前任何人都能對線上服務讀寫刪，
 現在除了 `/health`、註冊、登入之外每一支端點都要帶 JWT。`/docs` 仍然公開，
@@ -87,7 +95,7 @@ Jest 30 抓得到（測試紅），但它若是 `it` 的最後一行，rejection
 `data: { title: dto.title }` 是第二道防線），兩層都拆掉才會紅。
 
 **2026-08-11 —— Ch3 第一段做到一半，`GET` 與 `POST` 完成。**
-兩個 commit：`4d03691`（questions module）、`a5818f3`（`maxWorkers` 修正）。
+兩個 commit：`afd1cc2`（questions module）、`4fa0b5d`（`maxWorkers` 修正）。
 
 最有價值的一次意外：拔掉 `@IsEnum` 想看「資料庫的 enum 會不會擋」，結果**根本沒到資料庫** ——
 `whitelist: true` 判斷的是「屬性有沒有驗證裝飾器」，`type` 少了裝飾器就被整個丟掉，
@@ -98,8 +106,8 @@ Jest 30 抓得到（測試紅），但它若是 `it` 的最後一行，rejection
 第二個會清資料庫的 e2e 檔一出現就穿幫了。**隔離做得夠不夠，要等第二個參與者出現才知道。**
 
 **2026-08-12 —— Ch3 第一段完成（`PATCH` / `DELETE` / `include`），並把債補完。**
-四個 commit：`d43ee9e`（PATCH）、`5544241`（DELETE）、`ad4c408`（include）、
-`fb278bc`（教學註解＋閱讀動線＋修過期註解＋`api.http`）。**30 passed。**
+四個 commit：`cf270d1`（PATCH）、`0abfcc5`（DELETE）、`9c3e0cd`（include）、
+`732c112`（教學註解＋閱讀動線＋修過期註解＋`api.http`）。**30 passed。**
 
 這一段最有價值的一次意外，是三條測試裡**那條綠的**：網址都少打一個 `s`，
 於是「id 不存在回 404」綠了 —— 它的 404 來自「Nest 找不到路由」，
@@ -117,7 +125,7 @@ Jest 30 抓得到（測試紅），但它若是 `it` 的最後一行，rejection
 [`ch03`](docs/chapters/ch03-巢狀資源與關聯查詢.md)，這裡不重複。
 
 **2026-08-12（同日稍後）—— 第二段的 ③ 打開 query log，量到三件事。**
-commit `d1b7b8b`。加了 `PRISMA_LOG_QUERIES` 開關（預設關），其餘全是觀察：
+commit `1787548`。加了 `PRISMA_LOG_QUERIES` 開關（預設關），其餘全是觀察：
 
 1. **`include` 是兩句 SQL，不是 JOIN。** Prisma 用「多一次網路往返」換
    「不重複傳輸資料 + 語義單純」—— JOIN 會讓每一列都重複帶著父資料，多一層就相乘
@@ -134,7 +142,7 @@ commit `d1b7b8b`。加了 `PRISMA_LOG_QUERIES` 開關（預設關），其餘全
 `ConfigModule` 讀進去的，不是 `setup-env.ts` —— 它只讀進一個丟棄用的物件做比對）。
 結論對、機制錯，照錯的理解去推下一步就會出錯。**註解寫錯比沒寫更糟，這是第四次。**
 
-**2026-08-13 —— Ch3 完成。** commit `811b191`（實作）＋文件。
+**2026-08-13 —— Ch3 完成。** commit `4b07e74`（實作）＋文件。
 `assertExists` 砍掉重複查詢（`GET /surveys/:surveyId/questions` 3 句 → **2 句**，實測確認）；
 兩條商業規則抽成純函式、`publish` / `unpublish` 兩支動作型端點；
 **36 passed**（+6）、`pnpm test` **4 passed** —— 專案第一支單元測試，0.5 秒對比 e2e 的 12 秒。
@@ -257,7 +265,7 @@ enum 在 PostgreSQL 裡是真的型別（`CAST($1::text AS "SurveyStatus")`）�
 從 ① 就漏了）。**兩條新規則已寫進 `CLAUDE.md`**：實測推翻既有說法要全域搜一次、
 新增檔案要同時接動線與加地圖。
 
-另外統一了 import 路徑（commit `9022cae`）：相對路徑一律不帶副檔名。
+另外統一了 import 路徑（commit `572e7d1`）：相對路徑一律不帶副檔名。
 順帶抓到第五次註解過期，以及兩份文件寫錯的機制（「`nodenext` 要求寫編譯後的副檔名」——
 它只在 ESM 檔案裡才要求）。**判準與 CJS/ESM 的分水嶺已寫進 `CLAUDE.md` 的「import 路徑的寫法」。**
 
@@ -307,11 +315,11 @@ N 筆答案**批次成一句 `INSERT`**，查詢數不隨答案數成長。
 
 觀念、取捨、6 條坑、SQL 觀察與六題作業都在
 [`ch05`](docs/chapters/ch05-提交與查詢作答.md)，這裡不重複。
-中途另外把 [`docs/Prisma速查.md`](docs/Prisma速查.md) 補了出來（commit `aafd9c4`）——
+中途另外把 [`docs/Prisma速查.md`](docs/Prisma速查.md) 補了出來（commit `f0f9ee0`）——
 起因是實作時卡在「`create` 的 `data` 到底可以帶什麼」，那是跨章節的問題。
 
 **2026-08-22 —— Ch6 輪 1 完成，並把纏了兩章的環境問題連根修掉。**
-兩個 commit：`51667fe`（環境）、`1d49fe4`（輪 1）。`74 passed`（+5）。
+兩個 commit：`38f1c2c`（環境）、`75855d3`（輪 1）。`74 passed`（+5）。
 
 **環境那一半比 Ch6 本身更有價值。** Ch5 坑 #6 的 `read ECONNRESET` 當時停在
 「這台機器 HTTP socket 層的問題」，這次拆開來發現底下其實是**三個各自獨立的問題**：
@@ -635,14 +643,172 @@ Ch8 留下的「`/docs` 要不要公開」因此變成一個真正的選擇，
 
 ---
 
-### Ch13 接續點（2026-09-03）—— 換到前端
+### Ch13 接續點（更新於 2026-09-05）—— 進行中
 
 **目前狀態**：`pnpm test:e2e` **126 passed**、`pnpm test` **11 passed**、
 `tsc --noEmit` 0 errors、`eslint` 0 problems。
-**Ch0 ~ Ch12 完成，後端功能到此為止。**
+**Ch0 ~ Ch12 完成，Ch13 進行中** —— 前端骨架與型別產出已完成，
+**後端還有兩輪沒做**（見下方「做到哪裡了」與「還沒做的兩輪」）。
 
-> **這一章跟前面十二章不一樣**：程式碼寫在**另一個 repo**（獨立的 Nuxt 3 專案）。
-> 這一節記的是「**後端留下了什麼給前端**」，以及回頭改後端時要注意什麼。
+> **這一章跟前面十二章不一樣，而且有兩層不一樣**：
+> 1. 程式碼寫在**另一個 repo**（獨立的 Nuxt 4 專案）
+> 2. **那些程式碼由 AI 寫，不走教練模式** —— 這一章的驗收標準是**後端的交付物**
+>
+> 這一節記的是「**後端留下了什麼給前端**」、前端怎麼寫、以及回頭改後端時要注意什麼。
+
+#### 做到哪裡了（2026-09-05）
+
+**前端骨架完成、型別產出來了、後端那兩輪還沒做。**
+
+已完成（在 `survey-frontend`，AI 寫的）：
+
+- Nuxt 4.5.2（minimal 模板）+ `openapi-typescript` 7.13，`pnpm` 11.17
+- `pnpm gen:api` 從 `http://localhost:3100/docs-json` 產出 `app/model/api/schema.d.ts`（1295 行，**進版控**）
+- `app/model/api/contract-check.ts` —— 編譯期的契約斷言，**不發任何請求**（所以這一章撞不到 CORS）
+- `docs/前端分層慣例.md` —— 前端的分層與判準（`useMyService` 的設計、兩種回應約定的對照）
+- ⚠️ **Vuetify / Pinia / `useMyService` / `app/api/*.ts` 這一輪刻意沒裝** ——
+  它們的第一個真實用途在 Ch14 的 `/login` 頁，現在裝等於裝好放著
+
+**`pnpm typecheck` 現在刻意是紅的，只紅一條**，指的就是下面輪 ① 要修的東西：
+
+```
+app/model/api/contract-check.ts(40,7): error TS2322:
+  Type 'string' is not assignable to type 'Record<string, never>'.
+```
+
+#### 型別產出實況（實測，不是推測）
+
+| 標的 | 產出來 | |
+| --- | --- | :---: |
+| `date-time` | `createdAt: string` | ✅ |
+| `enum` | `status: "DRAFT" \| "PUBLISHED"`、`code: "BAD_REQUEST" \| ...` | ✅ |
+| `optional` | `questions?: QuestionEntity[]` | ✅ |
+| 巢狀 `$ref` | `answers: AnswerEntity[]`、`answer.question: QuestionEntity` | ✅ |
+| **`nullable`** | **`ownerId: Record<string, never> \| null`** | ❌ |
+
+`Ch7` 那些 `type: String, format: 'date-time'` 的堅持在這裡兌現了 ——
+標成 `Date` 的話產出來就是 `Date`，前端 `.getTime()` 直接炸。
+
+**唯一壞掉的是 `ownerId`**，而它壞掉的原因值得單獨記一條：
+
+> **`emitDecoratorMetadata` 救得了 class 與單一原生型別，救不了聯集型別。**
+>
+> `AnswerEntity.question` 的 `@ApiProperty` **沒寫 `type:`**，卻照樣產出了 `$ref` ——
+> 因為 `design:type` 記到的是 `QuestionEntity` 這個 class。
+> 而 `ownerId: string | null` 是聯集，`design:type` 只能記成 `Object`，
+> 反射什麼都救不了，於是產出 `Record<string, never>`。
+>
+> 判準：**欄位型別是聯集（含 `| null`）時，`type:` 一定要自己寫。**
+
+#### 還沒做的兩輪（後端，教練模式）
+
+**輪 ①：entity 說了什麼**
+
+1. `src/surveys/entities/survey.entity.ts` 的 `ownerId` 補上 `type: String`。
+2. `src/questions/entities/question.entity.ts` 的 `order` 標了 `default: 0`，
+   但 `schema.prisma` 的 `Question.order` 沒有預設值（值由 service 算）——
+   這是文件說謊的第三種形狀：**不是多寫也不是少寫，是寫了一句不成立的話。**
+3. 補一致性測試。現有兩條（`SurveyEntity` / `ErrorResponseEntity`）用同一段雙向比對，
+   再抄三次會有五份 —— **先抽再加**：`test/helpers/expect-schema-matches.ts`，
+   簽名大約 `expectSchemaMatches(doc, schemaName, realBody)`，`SchemaLike` 一起搬。
+   五條測試名稱在下方「輪 ① 的測試名稱」。
+
+**輪 ① 的驗收有兩半，缺一半就不算完**：
+
+```bash
+# 後端
+pnpm test:e2e          # 126 → 131 passed
+pnpm test              # 11 passed
+pnpm exec tsc --noEmit # 0 errors
+pnpm lint              # 0 problems
+
+# 前端（改了 entity 就是改了契約，一定要重產）
+cd ../survey-backend && pnpm start:dev
+cd ../survey-frontend && pnpm gen:api && pnpm typecheck   # 由紅轉綠
+```
+
+⚠️ **`schema.d.ts` 進了版控，而現在存的是「壞掉的」那一版**（`ownerId:
+Record<string, never> | null`）。修完 entity 一定要重跑 `gen:api`，
+否則前端手上的契約還是舊的。那個 diff 只會有一行：
+
+```diff
+-            ownerId: Record<string, never> | null;
++            ownerId: string | null;
+```
+
+**留著它** —— 那一行就是「型別品質 = entity 標記品質」最直接的證據，
+收尾寫 `docs/chapters/ch13-*.md` 時貼進去。
+
+⚠️ **輪 ① 最容易錯的一點**：`GET /responses/:id` 的比對**只比第一層等於沒比** ——
+`{ id, surveyId, createdAt, answers }` 四個 key 全都在，`AnswerEntity` 與
+`QuestionEntity` 的任何錯都不會紅。要往下比三層。而且那條測試要準備到
+「有題目、有人填答」才拿得到 `answers[0]`，否則 `body.answers[0]` 是 `undefined` ——
+**測試不會紅，只會悄悄什麼都沒比到**。對策：先斷言 `answers` 長度至少 1。
+
+⚠️ **兩種錯要兩種偵測器**：e2e 抓的是「key 集合漂移」，`ownerId` 那種**型別標錯**
+它一條都抓不到 —— 那個的偵測器是前端的 `pnpm typecheck`。這是 Ch13 的核心收穫。
+
+**輪 ②：端點說了會回什麼 —— 契約裡沒有 401**
+
+18 支端點裡 **16 支沒有標 401**（只有 `POST /auth/login` 與 `GET /auth/me` 標了），
+而那 16 支裡 **14 支是要帶 token 的** —— 差的兩支是 `GET /health` 與
+`POST /auth/register`，它們本來就公開，沒有 401 是正確的。
+
+```
+GET  /surveys           200,400          ← 沒有 401
+GET  /responses/{id}    200,403,404      ← 沒有 401
+...
+```
+
+前端最重要的錯誤路徑 —— **token 一小時過期 → 清 token 導登入** —— 在契約上不存在。
+`@ApiBearerAuth()` 標了，但那只說「這支要認證」，沒說「不帶會回什麼」。
+這是「文件說謊」的第四種形狀：**它沒說謊，它只是沒講。**
+
+那一輪的設計題：14 支逐支加 `@ApiUnauthorizedResponse`，
+還是做一個組合裝飾器？（Ch11 的 `@Roles()` 示範過怎麼寫自訂裝飾器。）
+
+#### 輪 ① 的測試名稱
+
+放進 `test/swagger.e2e-spec.ts` 既有的 `describe('Swagger 契約（buildSwaggerDocument）')`：
+
+```ts
+it('QuestionEntity 的屬性，跟實際打 POST /surveys/:surveyId/questions 拿到的 key 完全一致', async () => {});
+it('ResponseEntity 的屬性，跟實際打 POST /surveys/:surveyId/responses 拿到的 key 完全一致', async () => {});
+it('ResponseDetailEntity 的屬性，跟實際打 GET /responses/:id 拿到的 key 完全一致', async () => {});
+it('GET /responses/:id 的 answers[0] 與 answers[0].question，分別對得上 AnswerEntity 與 QuestionEntity', async () => {});
+it('UserEntity 的屬性，跟實際打 POST /auth/register 拿到的 key 完全一致', async () => {});
+```
+
+第四條是主角。前提資料：第二～四條要 `POST /surveys` → 建題目 → `publish` →
+`POST responses`，第三、四條共用同一份作答；第五條要一組沒註冊過的 email，
+不能重用 `registerAndLogin` 產的那組。
+
+#### 兩個 repo 怎麼分工（2026-09-03 定的）
+
+```
+Desktop/train/survey/
+├── survey-backend/     ← 這個 repo（獨立的 GitHub repo，Render 接它的 main）
+└── survey-frontend/    ← 新的、也是獨立的 GitHub repo，只放程式碼
+```
+
+`survey/` 本身**不要 `git init`** —— 兩個獨立 repo 並排，不要巢狀。
+
+**session 開在 `survey/` 這一層**，不是任一個子資料夾。理由是 Ch13 的第一件事
+（跑後端 → 讀 `/docs-json` → 在前端產型別）本來就橫跨兩個 repo，
+之後「串接時發現契約不夠用、回頭改後端」也是同一件事的兩半。
+
+**學習紀錄全部留在後端**：`LEARNING.md` 與 `docs/chapters/ch00`～`ch17` 都在
+`survey-backend/`，不搬。理由是 `CLAUDE.md` 那條「`LEARNING.md` 是唯一的進度與範圍來源」
+—— 拆成兩份，「現在到哪一章」就要看兩個地方。前端 repo 只放程式碼與它自己的
+`CLAUDE.md`（Vue / Nuxt 的慣例），共用的教學慣例指回後端這一份。
+
+⚠️ **搬資料夾會孤立現有的對話紀錄**：`~/.claude/projects/` 是用**絕對路徑當 key** 的，
+路徑一變，舊的 transcript 就 `--resume` 不到了。這個代價本來就在這份文件的第一段
+講過 —— 真正的紀錄是 `LEARNING.md` 與 `docs/`，它們跟著 git 走。
+
+⚠️ **兩個 repo 的 commit 絕對不能混**：Render 接的是 `survey-backend` 的 `main`，
+推錯地方會觸發不該有的部署。在 `survey/` 這一層打 `git status` 是沒有 repo 的，
+每個 git 指令都要先進到子資料夾。
 
 #### 後端交給前端的三樣東西
 
@@ -674,7 +840,13 @@ POST /auth/login
 GET  /docs、/docs-json     ← 這兩支不經過 Nest 的管線，guard 攔不到（實測，見 ch10）
 ```
 
-**其餘全部要帶 token**，而其中八支還要看擁有權或角色（見 `ch11` / `ch12`）。
+**其餘全部要帶 token**，而其中**九支**還要再過一關（見 `ch11` / `ch12`）：
+
+- **8 支看擁有權**（`assertCanManage`）：`PATCH /surveys/:id`、`publish`、`unpublish`、
+  題目三支、看填答結果兩支
+- **1 支看角色**（`@Roles(Role.ADMIN)`）：`DELETE /surveys/:id`
+
+數法見本節最後的「這些數字怎麼驗」。
 
 #### 回頭改後端時
 
@@ -698,6 +870,136 @@ GET  /docs、/docs-json     ← 這兩支不經過 Nest 的管線，guard 攔不
 | 認證 | 除了上面那四支之外全部要帶 JWT |
 | 授權 | 刪問卷要 `ADMIN`；改問卷／題目、看填答結果要**擁有者或 `ADMIN`**。線上還沒有任何 admin |
 | ⚠️ CORS | **還沒設定**。Ch16 的主題 —— 前端跨網域打過來會被瀏覽器擋下 |
+
+#### 後端還沒完 —— 前端一定會推著它改
+
+前面十二章的驗收標準都是 e2e 綠燈，那證明了「**API 行為正確**」，
+**沒有證明「這組 API 好不好串」**。Ch13–17 就是那個驗收。
+
+**一定要改的：CORS。**
+
+`src/` 裡沒有任何 `enableCors`。前端在 `localhost:3000`、後端在 `localhost:3100`，
+是**不同的 origin**，所以前端第一次發請求就會被瀏覽器擋下。
+
+症狀會騙人：Console 一片紅、`Failed to fetch`，看起來像後端壞了 ——
+但你用 `curl` 或 `api.http` 打**完全正常**，因為那兩個不是瀏覽器、沒有同源政策。
+課綱把它排在 Ch16，但 **Ch13 第一天就會撞到**，到時候要決定是先加一行擋著、
+還是把 Ch16 的一部分提前。
+
+**很可能要改的：`GET /surveys` 現在回所有人的問卷。**
+
+```ts
+const where = { status: query.status, title: { contains: query.q } };
+//              ↑ 沒有任何 ownerId 條件
+```
+
+Ch12 只保護了「改」，**讀完全沒動** —— 所以任何登入的人都列得出別人的問卷，
+連別人**還沒發布的草稿標題**都看得到。前端一做「我的問卷」列表就會需要它。
+
+三種改法（加 `?mine=true`、預設只回自己的、或拆成兩支端點）**是一個設計題**，
+不是補一行。順帶這也是一個溫和的資訊洩漏 —— 草稿標題本來不該給別人看。
+
+**可能要改的：**
+
+| | 什麼情況會需要 |
+| --- | --- |
+| entity 的型別標記 | Ch13 用 `openapi-typescript` 產型別時，`optional` / `required` 標錯會產出難用的型別。`ResponseEntity` 沒有一致性測試（Ch12 發現），最可能出問題 |
+| `Response` 加提交者欄位 | 想做「我填過的問卷」就需要 —— 現在 schema 完全沒記錄誰填的（Ch5 的匿名決定） |
+| `/auth/me` 之外的東西 | Ch14 串認證時可能發現前端還需要別的 |
+
+**好消息是改起來很安全**：126 條 e2e + 11 條單元測試守著，而 Ch13 之後
+前端的型別是從 `/docs-json` 產的 —— **改壞契約前端會編譯不過**，那是一道
+比測試更早叫的防線。
+
+#### 前端的技術決定（2026-09-03 定的，不必重新討論）
+
+**技術棧**：Nuxt 4 + Vuetify + Pinia。**前端程式碼由 AI 寫**，使用者不 review 實作細節，
+只 review「它有沒有正確反映後端契約」。
+
+**分層與判準定稿在 `survey-frontend/docs/前端分層慣例.md`**（2026-09-05）——
+分層與職責、`useMyService` 的骨架、`auth.ts` 與路由守衛兩支小檔、Vuetify 的四處設定，全部在那一份。
+
+一句話的重點：**`useMyService` 要依這個後端的錯誤約定設計。**
+Java/Spring 生態常見的 `ApiResponse<T>` 約定（**HTTP 一律 2xx，靠 body 的
+`code !== 0` 判斷業務錯誤**）在這裡不適用，這個後端（Ch6 定的）是相反的：**真的 HTTP 狀態碼**
++ `{ error: { code, message } }`。`ok` 的計算、錯誤 toast 的觸發點、`error.message`
+的取法都要照這個約定來。
+
+（那份文件記了一個 `msgs` false-success 的失敗模式 —— 封裝跟後端契約脫鉤的代價，
+手寫型別的專案只能靠 eslint 的 `no-restricted-syntax` 去擋。**這個專案有結構性的解法**：
+型別是產的，寫一個後端不存在的欄位當場編譯不過。值得寫進 ch13 當對照組。）
+
+#### 前端要做哪些頁面（六頁，用到 18 支裡的 17 支）
+
+| 路由 | 用到的端點 | 這一頁會暴露什麼 |
+| --- | --- | --- |
+| `/login` | `POST /auth/register`、`POST /auth/login`、`GET /auth/me` | **CORS 第一次撞牆**；401 的處置；token 存哪 |
+| `/surveys` | `GET /surveys`、**`DELETE /surveys/:id`** | 它**回所有人的問卷**（含別人的草稿標題）—— 已知的第一個 API 設計問題。刪除按鈕只有 `ADMIN` 看得到，**那是第一次用到 `/auth/me` 回的 `role`** |
+| `/surveys/new` | `POST /surveys` | `ownerId` 從 token 來，前端不送 |
+| `/surveys/:id/edit` | `GET /surveys/:id?includeQuestions=true`、`PATCH /surveys/:id`、題目三支、`publish` / `unpublish` | 擁有權 403 的實際體驗；`DRAFT` 才能改題目那條規則的 409 |
+| `/surveys/:id/fill` | `GET /surveys/:id/questions`、`POST /surveys/:id/responses` | **這兩支刻意不保護**，任何登入的人都能填 |
+| `/surveys/:id/result` | `GET /surveys/:id/responses`、`GET /responses/:id` | 只有擁有者看得到；分頁參數好不好用 |
+
+**沒被用到的那一支是 `GET /health`** —— 它的呼叫者是 Render 的健康檢查，
+前端沒有理由打它。所以覆蓋率的目標是 **17 / 18**，不是全部。
+
+**「端點被前端用過」本身就是驗收的一部分**：沒有被用過的端點等於沒有真正被驗收 ——
+e2e 只證明它「行為正確」，沒證明它「好用」。
+
+（**18 支端點分布在 12 條路徑上** —— `swagger.e2e-spec.ts` 斷言的 12 是**路徑**數，
+同一條路徑可以有 GET / PATCH / DELETE 好幾支。兩個數字都對，別搞混。）
+
+#### 這些數字怎麼驗（別用推的）
+
+上面那些「18 支」「9 支」是數出來的，不是估的。**下次改完端點請重新數一次**：
+
+```bash
+# 端點總數（排除註解行，避免把範例當成真的路由）
+grep -hvE "^\s*//" src/*/*.controller.ts | grep -coE "@(Get|Post|Patch|Delete)\("
+
+# 受擁有權保護的（排除方法定義本身）
+grep -rn "assertCanManage(" src/ --include=*.ts | grep -v "ownerId: string"
+
+# 受角色保護的
+grep -rn "^\s*@Roles(" src/ --include=*.ts
+```
+
+**哪幾支端點沒有標 401**（後端要先 `pnpm start:dev`）——
+Ch13 輪 ② 的那個數字就是這樣數出來的：
+
+```bash
+curl -s http://localhost:3100/docs-json | node -e "
+let s='';process.stdin.on('data',d=>s+=d).on('end',()=>{
+  const doc=JSON.parse(s); let n=0;
+  for(const [p,ops] of Object.entries(doc.paths))
+    for(const [m,op] of Object.entries(ops)){
+      const codes=Object.keys(op.responses).join(',');
+      if(!codes.includes('401')){ n++; console.log(m.toUpperCase().padEnd(7)+p.padEnd(34)+codes); }
+    }
+  console.log('沒標 401 的共 '+n+' 支');
+});"
+```
+
+Ch13 收尾時實際踩過：`docs` 裡先寫「六頁把 18 支全部用到」，逐條列出來才發現
+`GET /health` 前端根本不會打 —— **「看起來夠了」跟「逐條對照過」是兩回事。**
+
+#### 前端 repo 的起手清單（已完成，留著當紀錄）
+
+1. ~~在 `survey/` 底下建 `survey-frontend`，`git init`~~ ✅
+2. ~~建一份它自己的 `CLAUDE.md`~~ ✅（Vue / Nuxt 慣例在裡面，共用的教學慣例指回 `../survey-backend/CLAUDE.md`）
+3. ~~確認後端跑得起來、`/docs-json` 出得來~~ ✅
+4. ~~`openapi-typescript` 產型別~~ ✅（`pnpm gen:api`，吃 **localhost:3100**，
+   **不要用線上那條** —— 線上是 production 資料庫）
+5. **第一個真請求才會撞到 CORS，而 Ch13 沒有發過任何真請求** ——
+   型別是抓 `/docs-json` 這個檔案、不經瀏覽器。CORS 留給 Ch14（它本來就是 Ch14 的驗收標準）
+
+**每次要重產型別的順序**（不能反過來）：
+
+```bash
+cd survey-backend && pnpm start:dev        # 先讓 /docs-json 出得來
+cd ../survey-frontend && pnpm gen:api      # 產型別
+pnpm typecheck                             # 綠 = 契約可用
+```
 
 #### 兩件留著的技術債
 
@@ -738,15 +1040,19 @@ GET  /docs、/docs-json     ← 這兩支不經過 Nest 的管線，guard 攔不
 | Ch11 | RBAC：只有管理員能刪問卷 | 角色權限、`@Roles()` 自訂裝飾器；**裝飾器只是紙條，擋人的是 guard** | ✅ |
 | Ch12 | 資源層授權：只能改自己的問卷 | Guard 層 vs Service 層判斷的取捨；**授權要排在商業規則之前** | ✅ |
 
-### 階段三：前端串接與部署
+### 階段三：串接驗收（2026-09-03 重新定義）
 
-| 章節 | 主題 | 這章的關鍵收穫 | 狀態 |
+> **這五章的前端程式碼由 AI 寫，使用者不學前端**（他本來就是前端工程師）。
+> 每一章的**驗收標準是後端的交付物** —— 串接的價值在於它會暴露
+> 「API 行為正確」與「這組 API 好不好用」之間的差距，而那是前十二章驗不到的。
+
+| 章節 | 主題 | **後端的驗收標準** | 狀態 |
 | :---: | --- | --- | :---: |
-| Ch13 | Nuxt 3 建置、**從 Swagger 產生型別**、API client 封裝 | `openapi-typescript`、統一錯誤處理 | ⬜ |
-| Ch14 | 認證流程串接 | token 存放的安全取捨、路由守衛 | ⬜ |
-| Ch15 | 問卷功能頁面 | 前端狀態與後端契約的落差 | ⬜ |
-| Ch16 | CORS、環境變數分離、production build | 跨網域的實際運作機制 | ⬜ |
-| Ch17 | 前端部署與整合驗收 | 端到端跑通「建立 → 填寫 → 看結果」 | ⬜ |
+| Ch13 | **契約驗收：從 Swagger 產型別** | 產出來的型別品質 **= entity 標記品質**。實測結果：`date-time` / optional / enum / 巢狀 `$ref` 都對，**`ownerId` 的 `nullable` 壞了**（聯集型別反射救不了）；另外 **16 支端點沒標 401**。待辦兩輪見「Ch13 接續點」 | 🚧 |
+| Ch14 | **認證串接：CORS 與 401 的一致性** | `enableCors` 上線（含 credentials）；401 的三種來源對前端是否真的一致；`/auth/me` 夠不夠用 | ⬜ |
+| Ch15 | **串接暴露的 API 設計問題** | `GET /surveys` 回所有人的問卷（含別人的草稿標題）是已知的第一個；其餘由串接過程發現，每改一處都要有測試 | ⬜ |
+| Ch16 | 環境變數分離與 production build | CORS 的 origin 依環境切換；前後端各自的 `.env` 分離 | ⬜ |
+| Ch17 | 前端部署與端到端驗收 | 線上 origin 加進 CORS；跑通「建立 → 發布 → 填寫 → 看結果」 | ⬜ |
 
 ### 貫穿全程的商業規則
 
@@ -770,6 +1076,20 @@ GET  /docs、/docs-json     ← 這兩支不經過 Nest 的管線，guard 攔不
 而 e2e 的前提資料一律有擁有者）。
 
 ### 課綱修訂紀錄
+
+**2026-09-03（第三次修訂）** — 階段三從「學前端」改成「串接驗收」：
+
+原課綱的 Ch13–15 是照「**使用者要學前端**」寫的（Nuxt 建置、API client 封裝、
+功能頁面）。**那個前提是錯的** —— 使用者本身就是前端工程師，他要學的是後端，
+以及「前端串接時需要後端處理的部分」。照原樣走，那三章會變成
+「教一個前端工程師寫前端」，而真正該學的東西反而沒有被寫成驗收標準。
+
+改動：**前端程式碼由 AI 寫，五章的驗收標準全部換成後端的交付物。**
+串接在這裡的角色是**一種新的測試**：前十二章的 e2e 證明了「API 行為正確」，
+串接證明的是「這組 API 好不好用」—— 而後者只有真的有人拿去用才驗得出來。
+
+（`CLAUDE.md` 的教練模式因此也分成兩半：後端維持「使用者自己寫、AI review」，
+前端由 AI 直接寫。）
 
 **2026-07-27（第二次修訂）** — 17 章調整為 18 章：
 
