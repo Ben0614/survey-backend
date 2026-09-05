@@ -77,6 +77,7 @@ export class SurveyEntity {
   @ApiProperty({
     description: '建立者的 User id，尚未有值時為 null',
     nullable: true,
+    type: String,
   })
   ownerId: string | null;
 }

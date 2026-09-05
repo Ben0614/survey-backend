@@ -8,7 +8,7 @@
 // （見 src/surveys/entities/survey.entity.ts 檔頭），tsc 管不到它，
 // 這支測試是它唯一的偵測器。
 //
-// 下一站：src/surveys/survey.rules.spec.ts（同樣是測試，但什麼都不必準備 —— 動線終點）
+// 下一站：test/helpers/expect-schema-matches.ts（下面幾條共用的雙向比對，實作在那裡）
 // ============================================================
 
 import { INestApplication } from '@nestjs/common';
@@ -21,17 +21,13 @@ import { setupApp } from '../src/setup-app';
 import { resetDb } from './helpers/reset-db';
 import { buildSwaggerDocument } from '../src/swagger';
 import { registerAndLogin, authHeader } from './helpers/auth';
+import {
+  expectSchemaMatches,
+  SchemaLike,
+} from './helpers/expect-schema-matches';
 
-// [教學] OpenAPI 物件的官方型別非常寬鬆（每個位置都可能是 schema 或 $ref），
-// 照著它一層層收窄會寫掉半個檔案。這裡的做法跟 surveys.e2e-spec.ts 的
-// SurveyBody 一樣：宣告「我預期它長這樣」的最小形狀，取值時轉一次。
-//
-// 這不是型別安全 —— 是把「不符預期」變成測試會紅的東西，而不是編譯期的事。
-interface SchemaLike {
-  properties?: Record<string, unknown>;
-  required?: string[];
-}
-
+// [教學] 這兩個介面跟 helper 裡的 SchemaLike 是同一種做法：宣告「我預期它長這樣」
+// 的最小形狀，取值時轉一次（理由見 helpers/expect-schema-matches.ts 檔頭）。
 interface ParameterLike {
   name: string;
   in: string;
@@ -134,31 +130,12 @@ describe('Swagger 契約（buildSwaggerDocument）', () => {
       .expect(200);
 
     const doc = buildSwaggerDocument(app);
-    const schema = doc.components?.schemas?.SurveyEntity as SchemaLike;
 
-    const specKeys = Object.keys(schema.properties ?? {});
-    const specRequired = schema.required ?? [];
-    const realKeys = Object.keys(res.body as Record<string, unknown>);
-
-    // [教學] **兩個方向都要比**，因為兩種錯這一章都真的發生過：
-    //
-    //   spec 多寫了 → 文件說謊，前端讀一個不存在的欄位（例如 meta 被標成陣列）
-    //   spec 少寫了 → 文件漏講，前端不知道有這個欄位（QuestionEntity 一度漏了 surveyId）
-    //
-    // 只比一個方向的測試會漏掉另一半，而漏掉的那一半不會有任何症狀。
-
-    // 方向一：spec 承諾「一定會有」的 key，實際回應必須都有。
-    // 這裡用 required 而不是 properties —— questions 是 @ApiPropertyOptional，
-    // 只有 ?includeQuestions=true 才出現，拿 properties 去比會誤判成失敗。
-    // **required 的語義正好就是「一定會出現的 key」**，這條測試要的就是它。
-    expect(specRequired.sort()).toEqual(
-      specRequired.filter((k) => realKeys.includes(k)).sort(),
+    expectSchemaMatches(
+      doc,
+      'SurveyEntity',
+      res.body as Record<string, unknown>,
     );
-
-    // 方向二：實際回應的每一個 key，spec 都必須描述過（不論選填或必填）。
-    for (const key of realKeys) {
-      expect(specKeys).toContain(key);
-    }
   });
 
   it('ErrorResponseEntity 的屬性，跟實際打一次 404 拿到的 body 完全一致', async () => {
@@ -170,21 +147,164 @@ describe('Swagger 契約（buildSwaggerDocument）', () => {
     const doc = buildSwaggerDocument(app);
 
     const outer = doc.components?.schemas?.ErrorResponseEntity as SchemaLike;
-    const inner = doc.components?.schemas?.ErrorBodyEntity as SchemaLike;
     const errorBody = (res.body as { error: Record<string, unknown> }).error;
 
+    // 外層只有 error 一個 key —— 這條斷言 helper 幫不上忙（它比的是屬性集合對不對得上，
+    // 不是「required 剛好等於某個清單」），所以留在這裡。真正的內容在 ErrorBodyEntity。
     expect(outer.required).toEqual(['error']);
 
-    const specKeys = Object.keys(inner.properties ?? {});
-    const specRequired = inner.required ?? [];
-    const realKeys = Object.keys(errorBody);
+    expectSchemaMatches(doc, 'ErrorBodyEntity', errorBody);
+  });
 
-    expect(specRequired.sort()).toEqual(
-      specRequired.filter((k) => realKeys.includes(k)).sort(),
+  // [教學] 前提資料一律走 HTTP，不用 prisma.question.create ——
+  // 這條驗的就是「**那支端點**回什麼」，繞過它等於改成測資料庫欄位。
+  //
+  // （responses.e2e-spec.ts 用 prisma 直接建 PUBLISHED 問卷是另一回事：
+  //   那邊繞過的是「不該由那支測試負責」的前置規則，不是被測的對象本身。）
+  it('QuestionEntity 的屬性，跟實際打 POST /surveys/:surveyId/questions 拿到的 key 完全一致', async () => {
+    const survey = await request(app.getHttpServer())
+      .post('/surveys')
+      .set(...authHeader(authToken))
+      .send({ title: '員工滿意度調查' })
+      .expect(201);
+
+    const surveyId = (survey.body as { id: string }).id;
+
+    const res = await request(app.getHttpServer())
+      .post(`/surveys/${surveyId}/questions`)
+      .set(...authHeader(authToken))
+      .send({
+        title: '題目一',
+        type: 'SINGLE_CHOICE',
+        options: ['選項1', '選項2', '選項3'],
+      })
+      .expect(201);
+
+    const doc = buildSwaggerDocument(app);
+
+    expectSchemaMatches(
+      doc,
+      'QuestionEntity',
+      res.body as Record<string, unknown>,
     );
+  });
 
-    for (const key of realKeys) {
-      expect(specKeys).toContain(key);
-    }
+  // [教學] 下面三條都要「一份已發布、有題目、而且有人填過的問卷」——
+  // 四個請求，抄三次就是三份會各自演化的前提資料。
+  //
+  // 這跟這一輪開頭把雙向比對抽成 expectSchemaMatches 是同一個判準：
+  // **同一段東西要出現第三次的時候，就是抽的時候。**
+  //
+  // 回傳四樣，呼叫端要哪個解構哪個。
+  async function seedPublishedSurveyWithResponse() {
+    const survey = await request(app.getHttpServer())
+      .post('/surveys')
+      .set(...authHeader(authToken))
+      .send({ title: '員工滿意度調查' })
+      .expect(201);
+
+    const surveyId = (survey.body as { id: string }).id;
+
+    const question = await request(app.getHttpServer())
+      .post(`/surveys/${surveyId}/questions`)
+      .set(...authHeader(authToken))
+      .send({
+        title: '題目一',
+        type: 'SINGLE_CHOICE',
+        options: ['選項1', '選項2', '選項3'],
+      })
+      .expect(201);
+
+    const questionId = (question.body as { id: string }).id;
+
+    // 題目只有 DRAFT 能加、作答只有 PUBLISHED 能送 —— 順序不能換（Ch3 / Ch5 的規則）。
+    await request(app.getHttpServer())
+      .patch(`/surveys/${surveyId}/publish`)
+      .set(...authHeader(authToken))
+      .expect(200);
+
+    const response = await request(app.getHttpServer())
+      .post(`/surveys/${surveyId}/responses`)
+      .set(...authHeader(authToken))
+      .send({ answers: [{ questionId, content: '選項1' }] })
+      .expect(201);
+
+    return {
+      surveyId,
+      questionId,
+      responseId: (response.body as { id: string }).id,
+      responseBody: response.body as Record<string, unknown>,
+    };
+  }
+
+  it('ResponseEntity 的屬性，跟實際打 POST /surveys/:surveyId/responses 拿到的 key 完全一致', async () => {
+    const { responseBody } = await seedPublishedSurveyWithResponse();
+
+    const doc = buildSwaggerDocument(app);
+
+    // POST 回的是 ResponseEntity（不帶 answers），GET /responses/:id 才是
+    // ResponseDetailEntity —— 同一張表、兩種形狀（見 response.entity.ts 檔頭）。
+    expectSchemaMatches(doc, 'ResponseEntity', responseBody);
+  });
+
+  it('ResponseDetailEntity 的屬性，跟實際打 GET /responses/:id 拿到的 key 完全一致', async () => {
+    const { responseId } = await seedPublishedSurveyWithResponse();
+
+    const res = await request(app.getHttpServer())
+      .get(`/responses/${responseId}`)
+      .set(...authHeader(authToken))
+      .expect(200);
+
+    const doc = buildSwaggerDocument(app);
+
+    expectSchemaMatches(
+      doc,
+      'ResponseDetailEntity',
+      res.body as Record<string, unknown>,
+    );
+  });
+
+  // [教學] 這一輪的主角。上面那條只比得到第一層的
+  // { id, surveyId, createdAt, answers } —— 四個 key 全中就綠，
+  // 而 AnswerEntity 與 QuestionEntity 的任何錯都躺在 answers 裡面，它一個都碰不到。
+  it('GET /responses/:id 的 answers[0] 與 answers[0].question，分別對得上 AnswerEntity 與 QuestionEntity', async () => {
+    const { responseId } = await seedPublishedSurveyWithResponse();
+
+    const res = await request(app.getHttpServer())
+      .get(`/responses/${responseId}`)
+      .set(...authHeader(authToken))
+      .expect(200);
+
+    const body = res.body as {
+      answers: { question: Record<string, unknown> }[] &
+        Record<string, unknown>[];
+    };
+
+    // **這一行不能省。** 前提資料若沒準備到「有題目、有人填答」，answers 會是空陣列，
+    // 下面兩個比對就變成拿 undefined 去比 —— 而那不會紅，只會悄悄什麼都沒比到。
+    // expectSchemaMatches 裡還有第二道防線，但第一道要下在這裡：
+    // 只有這裡知道 answers 該有幾筆。
+    expect(body.answers.length).toBeGreaterThanOrEqual(1);
+
+    const doc = buildSwaggerDocument(app);
+
+    expectSchemaMatches(doc, 'AnswerEntity', body.answers[0]);
+    expectSchemaMatches(doc, 'QuestionEntity', body.answers[0].question);
+  });
+
+  it('UserEntity 的屬性，跟實際打 POST /auth/register 拿到的 key 完全一致', async () => {
+    // beforeEach 的 registerAndLogin 已經用掉預設那組 email，這裡要另一組 ——
+    // 撞名的話 email 的 @unique 會讓註冊回 409，而 .expect(201) 會當場紅在這裡
+    // （那正是 helpers/auth.ts 檔頭說的「前提資料出問題就該當場紅」）。
+    //
+    // 註冊是 @Public()，所以這支不帶 token。
+    const res = await request(app.getHttpServer())
+      .post('/auth/register')
+      .send({ email: 'swagger-contract@example.com', password: 'zxcv1234' })
+      .expect(201);
+
+    const doc = buildSwaggerDocument(app);
+
+    expectSchemaMatches(doc, 'UserEntity', res.body as Record<string, unknown>);
   });
 });

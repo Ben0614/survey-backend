@@ -45,7 +45,6 @@ export class QuestionEntity {
 
   @ApiProperty({
     description: '題號',
-    default: 0,
     type: Number,
   })
   order: number;
