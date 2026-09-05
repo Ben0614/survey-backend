@@ -38,6 +38,14 @@ import { resetDb } from './helpers/reset-db';
 import { JwtService } from '@nestjs/jwt';
 import { registerAndLogin, authHeader } from './helpers/auth';
 
+interface ErrorBody {
+  error: {
+    code: string;
+    message: string;
+    details?: string[];
+  };
+}
+
 describe('AuthGuard (e2e)', () => {
   let app: INestApplication<App>;
   let prisma: PrismaService;
@@ -136,6 +144,42 @@ describe('AuthGuard (e2e)', () => {
         .set('Authorization', token)
         .expect(401);
     });
+
+    it('不帶 token 打 /auth/me，code 是 UNAUTHORIZED', async () => {
+      const res = await request(app.getHttpServer())
+        .get('/auth/me')
+        .expect(401);
+
+      const body = res.body as ErrorBody;
+
+      expect(body.error.code).toBe('UNAUTHORIZED');
+    });
+
+    it('用別的 secret 簽的 token 打 /auth/me，code 一樣是 UNAUTHORIZED', async () => {
+      const forged = new JwtService({ secret: 'not-the-real-secret' }).sign({
+        sub: 'whatever',
+      });
+
+      const res = await request(app.getHttpServer())
+        .get('/auth/me')
+        .set(...authHeader(forged))
+        .expect(401);
+
+      const body = res.body as ErrorBody;
+
+      expect(body.error.code).toBe('UNAUTHORIZED');
+    });
+
+    // [教學] **第三種失敗（票有效、但那個人已經被刪掉）刻意不在這裡測。**
+    // test/auth.e2e-spec.ts 的「token 的 sub 指向已被刪除的使用者 → 401」
+    // 已經完整守著它，連 error.code 都驗了。
+    //
+    // 這一段是 Ch14 輪 ② 留下的紀錄：那一輪開工前只掃了這個檔案的 9 條
+    // （當時全部只斷言狀態碼），就下結論「三種失敗都沒有測試守著」——
+    // 漏看了另一個檔案裡名字完全不同的那一條。差點多寫一條重複的測試。
+    //
+    // ch05 那條「測試數字漲了不代表覆蓋增加了」在這裡有第二種形狀：
+    // **不只可能沒增加，還可能是重複的。** 回頭補測試之前，先確認沒人補過。
   });
 
   describe('token 正確', () => {
