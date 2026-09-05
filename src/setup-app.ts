@@ -38,6 +38,11 @@ export function setupApp(app: INestApplication): INestApplication {
     }),
   );
 
+  app.enableCors({
+    allowedHeaders: ['Content-Type', 'Authorization'],
+    origin: 'http://localhost:3000',
+  });
+
   // [教學] Filter 跟 Pipe 是同一個家族、位置相反的兩個中介層：
   // Pipe 站在請求「進來」的路上（每個請求都跑），
   // Filter 站在回應「出去」的路上，而且**只有例外被丟出來時才跑**。

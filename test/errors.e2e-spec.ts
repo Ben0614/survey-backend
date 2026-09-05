@@ -10,7 +10,7 @@
 //
 // 跑法：pnpm test:e2e -- test/errors.e2e-spec.ts
 //
-// 下一站：test/swagger.e2e-spec.ts（唯一一支不打 API、改去驗「文件有沒有說謊」的測試）
+// 下一站：test/cors.e2e-spec.ts（同樣是所有端點共同的一層，但那一層在應用外面）
 // ============================================================
 
 import { INestApplication, LoggerService } from '@nestjs/common';
