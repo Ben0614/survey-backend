@@ -27,7 +27,6 @@ import {
   ApiNotFoundResponse,
   ApiBadRequestResponse,
   ApiConflictResponse,
-  ApiBearerAuth,
   ApiForbiddenResponse,
 } from '@nestjs/swagger';
 import { CreateSurveyDto } from './dto/create-survey.dto';
@@ -41,6 +40,7 @@ import { CurrentUser } from '../auth/decorators/current-user.decorator';
 import { Roles } from '../auth/decorators/roles.decorator';
 import type { AuthUser } from '../auth/guards/jwt-auth.guard';
 import { Role } from '../generated/prisma/enums';
+import { ApiAuthenticated } from '../auth/decorators/api-authenticated.decorator';
 
 // [教學] @Controller('surveys') 是這個 class 所有路由的共同前綴。
 // 下面的 @Get() 因此是 GET /surveys，不是 GET /。
@@ -49,7 +49,7 @@ import { Role } from '../generated/prisma/enums';
 // 會被收進一個叫 surveys 的摺疊區塊。不標的話全部散在最上層 default 裡。
 // 它不影響任何行為，標在 class 上，底下每一支自動繼承。
 @ApiTags('surveys')
-@ApiBearerAuth()
+@ApiAuthenticated()
 @Controller('surveys')
 export class SurveysController {
   constructor(private readonly surveysService: SurveysService) {}

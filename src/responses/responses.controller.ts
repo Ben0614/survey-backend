@@ -20,7 +20,6 @@ import {
   ApiOkResponse,
   ApiOperation,
   ApiNotFoundResponse,
-  ApiBearerAuth,
   ApiForbiddenResponse,
 } from '@nestjs/swagger';
 import { Controller, Get, Param } from '@nestjs/common';
@@ -29,6 +28,7 @@ import { ResponseDetailEntity } from './entities/response.entity';
 import { ErrorResponseEntity } from '../common/entities/error-response.entity';
 import { CurrentUser } from '../auth/decorators/current-user.decorator';
 import type { AuthUser } from 'src/auth/guards/jwt-auth.guard';
+import { ApiAuthenticated } from '../auth/decorators/api-authenticated.decorator';
 
 // [教學] 前綴只寫 'responses'，`:id` 放在 @Get() 裡。
 //
@@ -37,7 +37,7 @@ import type { AuthUser } from 'src/auth/guards/jwt-auth.guard';
 // 哪天要加 GET /responses（列表）就卡住了。
 // **前綴放「這組路由共同的部分」，變動的部分放在方法上。**
 @ApiTags('responses')
-@ApiBearerAuth()
+@ApiAuthenticated()
 @Controller('responses')
 export class ResponsesController {
   constructor(private readonly responsesService: ResponsesService) {}

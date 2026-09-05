@@ -20,6 +20,7 @@ import { PrismaService } from '../src/prisma/prisma.service';
 import { setupApp } from '../src/setup-app';
 import { resetDb } from './helpers/reset-db';
 import { buildSwaggerDocument } from '../src/swagger';
+import { OpenAPIObject } from '@nestjs/swagger';
 import { registerAndLogin, authHeader } from './helpers/auth';
 import {
   expectSchemaMatches,
@@ -32,6 +33,33 @@ interface ParameterLike {
   name: string;
   in: string;
   required?: boolean;
+}
+
+interface OperationLike {
+  // security 存在 = 這支要帶 token（@ApiBearerAuth() 產生的，見 api-authenticated.decorator.ts）
+  security?: unknown[];
+  responses?: Record<string, unknown>;
+}
+
+// doc.paths[路徑] 底下除了方法之外還有 parameters 之類的 key，要濾掉。
+const HTTP_METHODS = ['get', 'post', 'patch', 'delete', 'put'] as const;
+type HttpMethod = (typeof HTTP_METHODS)[number];
+
+/** 從 spec 撈出所有「要帶 token」的端點（= 有 security 的）。 */
+function collectSecuredOperations(doc: OpenAPIObject) {
+  const out: { method: HttpMethod; path: string; op: OperationLike }[] = [];
+
+  for (const [path, item] of Object.entries(doc.paths)) {
+    for (const [method, op] of Object.entries(
+      item as Record<string, OperationLike>,
+    )) {
+      if (!HTTP_METHODS.includes(method as HttpMethod)) continue;
+      if (!op.security) continue;
+      out.push({ method: method as HttpMethod, path, op });
+    }
+  }
+
+  return out;
 }
 
 interface JsonContentLike {
@@ -306,5 +334,55 @@ describe('Swagger 契約（buildSwaggerDocument）', () => {
     const doc = buildSwaggerDocument(app);
 
     expectSchemaMatches(doc, 'UserEntity', res.body as Record<string, unknown>);
+  });
+
+  // [教學] 這兩條是 Ch13 輪 ② 的產出，驗的是同一件事的兩半：
+  //   第一條 —— 契約**說了**「不帶票會 401」嗎？（只讀 spec，不發請求）
+  //   第二條 —— 契約說的那件事**是真的**嗎？（實際打，不帶 token）
+  //
+  // 少了第二條，契約可以在完全沒人發現的情況下說謊。
+  it('spec 裡每一支要帶 token 的端點，都標了 401', () => {
+    const doc = buildSwaggerDocument(app);
+    const secured = collectSecuredOperations(doc);
+
+    // 沒撈到任何端點 = 撈的邏輯壞了，而下面的迴圈跑 0 次照樣綠。
+    expect(secured.length).toBeGreaterThan(0);
+
+    // [教學] 收集成清單再一次比對，而不是在迴圈裡逐個 expect ——
+    // 後者失敗時只印得出第一個漏標的端點，前者一次列出全部。
+    const missing = secured
+      .filter(({ op }) => !('401' in (op.responses ?? {})))
+      .map(({ method, path }) => `${method.toUpperCase()} ${path}`);
+
+    expect(missing).toEqual([]);
+  });
+
+  // [教學] 這一輪的主角。
+  //
+  // 它便宜得出乎意料，理由是 **guard 跑在路由 handler 之前**：
+  // 不帶 token 的請求在「這個 id 存不存在」被問到之前就已經被擋下，
+  // 所以路徑參數隨便填一個字串就好，一筆前提資料都不必準備。
+  //
+  // 它也是「誤標」的偵測器：哪天有人把 @ApiAuthenticated() 貼到 @Public()
+  // 的端點上（例如 /health），那支會進到下面的清單，而它實際回 200 —— 當場紅。
+  it('每一支要帶 token 的端點，不帶 token 打過去實際回 401', async () => {
+    const doc = buildSwaggerDocument(app);
+    const secured = collectSecuredOperations(doc);
+
+    expect(secured.length).toBeGreaterThan(0);
+
+    const wrong: string[] = [];
+
+    for (const { method, path } of secured) {
+      const url = path.replace(/\{[^}]+\}/g, 'any-id');
+      const res = await request(app.getHttpServer())[method](url);
+
+      if (res.status !== 401) {
+        wrong.push(`${method.toUpperCase()} ${url} → ${res.status}`);
+      }
+    }
+
+    // 同上：收集完再比，失敗訊息會一次列出所有不符的端點與它實際回的狀態碼。
+    expect(wrong).toEqual([]);
   });
 });

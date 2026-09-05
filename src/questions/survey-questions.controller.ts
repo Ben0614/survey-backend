@@ -22,7 +22,6 @@ import {
   ApiNotFoundResponse,
   ApiBadRequestResponse,
   ApiConflictResponse,
-  ApiBearerAuth,
   ApiForbiddenResponse,
 } from '@nestjs/swagger';
 import { Controller, Get, Post, Param, Body } from '@nestjs/common';
@@ -32,6 +31,7 @@ import { QuestionEntity } from './entities/question.entity';
 import { ErrorResponseEntity } from '../common/entities/error-response.entity';
 import { CurrentUser } from '../auth/decorators/current-user.decorator';
 import type { AuthUser } from 'src/auth/guards/jwt-auth.guard';
+import { ApiAuthenticated } from '../auth/decorators/api-authenticated.decorator';
 
 // [教學] 前綴裡可以放**路徑參數**（:surveyId），不是只能放固定文字。
 // 底下每一支路由都自動帶著這一段，@Param('surveyId') 照樣抓得到。
@@ -44,7 +44,7 @@ import type { AuthUser } from 'src/auth/guards/jwt-auth.guard';
 //
 // 改與刪為什麼**不**巢狀，見 questions.controller.ts 的檔頭 —— 那是刻意的不對稱。
 @ApiTags('questions')
-@ApiBearerAuth()
+@ApiAuthenticated()
 @Controller('surveys/:surveyId/questions')
 export class SurveysQuestionsController {
   constructor(private readonly questionsService: QuestionsService) {}

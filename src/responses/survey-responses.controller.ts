@@ -21,7 +21,6 @@ import {
   ApiBadRequestResponse,
   ApiNotFoundResponse,
   ApiConflictResponse,
-  ApiBearerAuth,
   ApiForbiddenResponse,
 } from '@nestjs/swagger';
 import { Body, Controller, Post, Param, Get, Query } from '@nestjs/common';
@@ -35,9 +34,10 @@ import {
 import { ErrorResponseEntity } from '../common/entities/error-response.entity';
 import { CurrentUser } from '../auth/decorators/current-user.decorator';
 import type { AuthUser } from 'src/auth/guards/jwt-auth.guard';
+import { ApiAuthenticated } from '../auth/decorators/api-authenticated.decorator';
 
 @ApiTags('responses')
-@ApiBearerAuth()
+@ApiAuthenticated()
 @Controller('surveys/:surveyId/responses')
 export class SurveyResponsesController {
   constructor(private readonly responsesService: ResponsesService) {}

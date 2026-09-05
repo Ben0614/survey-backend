@@ -16,7 +16,7 @@
 // **它本身什麼都不做。** 貼完就沒事了，真正擋人的是讀紙條的那支 guard。
 // 只寫了裝飾器卻忘了註冊 guard 的話，效果是零 —— 而且完全無聲。
 //
-// 下一站：src/auth/decorators/current-user.decorator.ts（另一種裝飾器：取值而不是貼資料）
+// 下一站：src/auth/decorators/api-authenticated.decorator.ts（第三種：把多個裝飾器打包，而且它誰都不影響）
 // ============================================================
 
 import { CustomDecorator, SetMetadata } from '@nestjs/common';
