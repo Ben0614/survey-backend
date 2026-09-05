@@ -201,7 +201,11 @@ describe('Auth (e2e)', () => {
     it('body 硬送 role: ADMIN 會被忽略，存進去的仍是 USER', async () => {
       const res = await request(app.getHttpServer())
         .post('/auth/register')
-        .send({ email: 'user@example.com', password: 'zxcv1234', role: 'ADMIN' })
+        .send({
+          email: 'user@example.com',
+          password: 'zxcv1234',
+          role: 'ADMIN',
+        })
         .expect(201);
 
       const body = res.body as AuthRegisterBody;
