@@ -231,10 +231,18 @@ describe('Surveys (e2e)', () => {
       // 兩筆連續建立可能落在同一毫秒（欄位是 TIMESTAMP(3)），
       // 那樣排序結果就不確定，測試會偶爾紅一次 —— 最惹人厭的那種 bug。
       await prisma.survey.create({
-        data: { title: '第一份', createdAt: new Date('2026-01-01') },
+        data: {
+          ownerId: userId,
+          title: '第一份',
+          createdAt: new Date('2026-01-01'),
+        },
       });
       await prisma.survey.create({
-        data: { title: '第二份', createdAt: new Date('2026-01-02') },
+        data: {
+          ownerId: userId,
+          title: '第二份',
+          createdAt: new Date('2026-01-02'),
+        },
       });
 
       const res = await request(app.getHttpServer())
@@ -255,13 +263,25 @@ describe('Surveys (e2e)', () => {
     // 拿掉（totalPages 變成 1.5）不會有任何一條測試喊 —— 那正是實作時真的寫錯過的地方。
     it('pageSize=2 只回 2 筆，meta 顯示共 3 筆 2 頁', async () => {
       await prisma.survey.create({
-        data: { title: '第一份', createdAt: new Date('2026-01-01') },
+        data: {
+          ownerId: userId,
+          title: '第一份',
+          createdAt: new Date('2026-01-01'),
+        },
       });
       await prisma.survey.create({
-        data: { title: '第二份', createdAt: new Date('2026-01-02') },
+        data: {
+          ownerId: userId,
+          title: '第二份',
+          createdAt: new Date('2026-01-02'),
+        },
       });
       await prisma.survey.create({
-        data: { title: '第三份', createdAt: new Date('2026-01-03') },
+        data: {
+          ownerId: userId,
+          title: '第三份',
+          createdAt: new Date('2026-01-03'),
+        },
       });
 
       const res = await request(app.getHttpServer())
@@ -279,13 +299,25 @@ describe('Surveys (e2e)', () => {
 
     it('page=2 回最後 1 筆，也就是最舊的那筆', async () => {
       await prisma.survey.create({
-        data: { title: '第一份', createdAt: new Date('2026-01-01') },
+        data: {
+          ownerId: userId,
+          title: '第一份',
+          createdAt: new Date('2026-01-01'),
+        },
       });
       await prisma.survey.create({
-        data: { title: '第二份', createdAt: new Date('2026-01-02') },
+        data: {
+          ownerId: userId,
+          title: '第二份',
+          createdAt: new Date('2026-01-02'),
+        },
       });
       await prisma.survey.create({
-        data: { title: '第三份', createdAt: new Date('2026-01-03') },
+        data: {
+          ownerId: userId,
+          title: '第三份',
+          createdAt: new Date('2026-01-03'),
+        },
       });
 
       const res = await request(app.getHttpServer())
@@ -324,13 +356,25 @@ describe('Surveys (e2e)', () => {
 
     it('sort=title&order=asc 依標題由小到大排序', async () => {
       await prisma.survey.create({
-        data: { title: 'B問卷', createdAt: new Date('2026-01-01') },
+        data: {
+          ownerId: userId,
+          title: 'B問卷',
+          createdAt: new Date('2026-01-01'),
+        },
       });
       await prisma.survey.create({
-        data: { title: 'A問卷', createdAt: new Date('2026-01-02') },
+        data: {
+          ownerId: userId,
+          title: 'A問卷',
+          createdAt: new Date('2026-01-02'),
+        },
       });
       await prisma.survey.create({
-        data: { title: 'C問卷', createdAt: new Date('2026-01-03') },
+        data: {
+          ownerId: userId,
+          title: 'C問卷',
+          createdAt: new Date('2026-01-03'),
+        },
       });
 
       const res = await request(app.getHttpServer())
@@ -346,13 +390,25 @@ describe('Surveys (e2e)', () => {
 
     it('不給 sort 與 order 時，預設依 createdAt 由新到舊排序', async () => {
       await prisma.survey.create({
-        data: { title: '第二份', createdAt: new Date('2026-01-02') },
+        data: {
+          ownerId: userId,
+          title: '第二份',
+          createdAt: new Date('2026-01-02'),
+        },
       });
       await prisma.survey.create({
-        data: { title: '第一份', createdAt: new Date('2026-01-01') },
+        data: {
+          ownerId: userId,
+          title: '第一份',
+          createdAt: new Date('2026-01-01'),
+        },
       });
       await prisma.survey.create({
-        data: { title: '第三份', createdAt: new Date('2026-01-03') },
+        data: {
+          ownerId: userId,
+          title: '第三份',
+          createdAt: new Date('2026-01-03'),
+        },
       });
 
       const res = await request(app.getHttpServer())
@@ -383,13 +439,18 @@ describe('Surveys (e2e)', () => {
     it('status=DRAFT 只回草稿問卷', async () => {
       await prisma.survey.create({
         data: {
+          ownerId: userId,
           title: '第一份',
           createdAt: new Date('2026-01-01'),
           status: SurveyStatus.PUBLISHED,
         },
       });
       await prisma.survey.create({
-        data: { title: '第二份', createdAt: new Date('2026-01-02') },
+        data: {
+          ownerId: userId,
+          title: '第二份',
+          createdAt: new Date('2026-01-02'),
+        },
       });
 
       const res = await request(app.getHttpServer())
@@ -405,15 +466,24 @@ describe('Surveys (e2e)', () => {
     it('q=滿意度 只回標題含「滿意度」的問卷', async () => {
       await prisma.survey.create({
         data: {
+          ownerId: userId,
           title: '飲食滿意度問卷',
           createdAt: new Date('2026-01-01'),
         },
       });
       await prisma.survey.create({
-        data: { title: '交易滿意度問卷', createdAt: new Date('2026-01-02') },
+        data: {
+          ownerId: userId,
+          title: '交易滿意度問卷',
+          createdAt: new Date('2026-01-02'),
+        },
       });
       await prisma.survey.create({
-        data: { title: '測試問卷', createdAt: new Date('2026-01-03') },
+        data: {
+          ownerId: userId,
+          title: '測試問卷',
+          createdAt: new Date('2026-01-03'),
+        },
       });
 
       const res = await request(app.getHttpServer())
@@ -430,15 +500,24 @@ describe('Surveys (e2e)', () => {
     it('q 大小寫不敏感，q=api 找得到標題含 API 的問卷', async () => {
       await prisma.survey.create({
         data: {
+          ownerId: userId,
           title: '測試API',
           createdAt: new Date('2026-01-01'),
         },
       });
       await prisma.survey.create({
-        data: { title: '再次測試api', createdAt: new Date('2026-01-02') },
+        data: {
+          ownerId: userId,
+          title: '再次測試api',
+          createdAt: new Date('2026-01-02'),
+        },
       });
       await prisma.survey.create({
-        data: { title: '不相干問卷', createdAt: new Date('2026-01-03') },
+        data: {
+          ownerId: userId,
+          title: '不相干問卷',
+          createdAt: new Date('2026-01-03'),
+        },
       });
 
       const res = await request(app.getHttpServer())
@@ -462,15 +541,24 @@ describe('Surveys (e2e)', () => {
     it('篩選加分頁時，meta.total 是篩選後的筆數而不是全表筆數', async () => {
       await prisma.survey.create({
         data: {
+          ownerId: userId,
           title: '測試API',
           createdAt: new Date('2026-01-01'),
         },
       });
       await prisma.survey.create({
-        data: { title: '再次測試api', createdAt: new Date('2026-01-02') },
+        data: {
+          ownerId: userId,
+          title: '再次測試api',
+          createdAt: new Date('2026-01-02'),
+        },
       });
       await prisma.survey.create({
-        data: { title: '不相干問卷', createdAt: new Date('2026-01-03') },
+        data: {
+          ownerId: userId,
+          title: '不相干問卷',
+          createdAt: new Date('2026-01-03'),
+        },
       });
 
       const res = await request(app.getHttpServer())
@@ -491,7 +579,7 @@ describe('Surveys (e2e)', () => {
       // 因為 id 是 cuid、是隨機的，測試無法預先知道它會是什麼，
       // 只能從建立的結果拿回來再組進網址。
       const survey = await prisma.survey.create({
-        data: { title: '指定問卷' },
+        data: { ownerId: userId, title: '指定問卷' },
       });
 
       const res = await request(app.getHttpServer())
@@ -524,7 +612,7 @@ describe('Surveys (e2e)', () => {
 
     it('includeQuestions=true 時帶出題目，且依 order 排序', async () => {
       const survey = await prisma.survey.create({
-        data: { title: '指定問卷' },
+        data: { ownerId: userId, title: '指定問卷' },
       });
 
       await prisma.question.create({
@@ -561,7 +649,7 @@ describe('Surveys (e2e)', () => {
 
     it('不帶 includeQuestions 時，回應沒有 questions 欄位', async () => {
       const survey = await prisma.survey.create({
-        data: { title: '指定問卷' },
+        data: { ownerId: userId, title: '指定問卷' },
       });
 
       await prisma.question.create({
@@ -595,7 +683,7 @@ describe('Surveys (e2e)', () => {
 
     it('includeQuestions=false 時，回應沒有 questions 欄位', async () => {
       const survey = await prisma.survey.create({
-        data: { title: '指定問卷' },
+        data: { ownerId: userId, title: '指定問卷' },
       });
 
       await prisma.question.create({
@@ -629,13 +717,77 @@ describe('Surveys (e2e)', () => {
 
     it('includeQuestions 不是 true 或 false 時回 400', async () => {
       const survey = await prisma.survey.create({
-        data: { title: '指定問卷' },
+        data: { ownerId: userId, title: '指定問卷' },
       });
 
       await request(app.getHttpServer())
         .get(`/surveys/${survey.id}?includeQuestions=psads`)
         .set(...authHeader(authToken))
         .expect(400);
+    });
+
+    it('看別人未發布的問卷 → 404，訊息跟「真的不存在」時一模一樣', async () => {
+      const survey = await prisma.survey.create({
+        data: { title: '別人未發布問卷', ownerId: userId },
+      });
+
+      const email = 'new-email@example.com';
+      const password = 'newpassword';
+
+      await request(app.getHttpServer())
+        .post('/auth/register')
+        .send({ email, password })
+        .expect(201);
+
+      const newUser = await request(app.getHttpServer())
+        .post('/auth/login')
+        .send({ email, password })
+        .expect(200);
+
+      const newUserBody = newUser.body as LoginBody;
+
+      const res = await request(app.getHttpServer())
+        .get(`/surveys/${survey.id}`)
+        .set(...authHeader(newUserBody.accessToken))
+        .expect(404);
+
+      const body = res.body as ErrorBody;
+
+      expect(body.error.code).toBe('NOT_FOUND');
+    });
+
+    it('看別人已發布的問卷 → 200', async () => {
+      const survey = await prisma.survey.create({
+        data: { title: '別人已發布問卷', ownerId: userId, status: 'PUBLISHED' },
+      });
+
+      const email = 'new-email@example.com';
+      const password = 'newpassword';
+
+      await request(app.getHttpServer())
+        .post('/auth/register')
+        .send({ email, password })
+        .expect(201);
+
+      const newUser = await request(app.getHttpServer())
+        .post('/auth/login')
+        .send({ email, password })
+        .expect(200);
+
+      const newUserBody = newUser.body as LoginBody;
+
+      const res = await request(app.getHttpServer())
+        .get(`/surveys/${survey.id}`)
+        .set(...authHeader(newUserBody.accessToken))
+        .expect(200);
+
+      const body = res.body as SurveyBody;
+
+      expect(body).toMatchObject({
+        id: survey.id,
+        title: '別人已發布問卷',
+        status: SurveyStatus.PUBLISHED,
+      });
     });
   });
 
@@ -737,41 +889,6 @@ describe('Surveys (e2e)', () => {
       expect((res.body as SurveyBody).status).toBe('DRAFT');
     });
 
-    it('改別人的問卷 → 403，code 是 FORBIDDEN', async () => {
-      const survey = await prisma.survey.create({
-        data: { title: '舊標題', ownerId: userId },
-      });
-
-      const email = 'new-email@example.com';
-      const password = 'newpassword';
-
-      await request(app.getHttpServer())
-        .post('/auth/register')
-        .send({ email, password })
-        .expect(201);
-
-      const newUser = await request(app.getHttpServer())
-        .post('/auth/login')
-        .send({ email, password })
-        .expect(200);
-
-      const newUserBody = newUser.body as LoginBody;
-
-      await request(app.getHttpServer())
-        .patch(`/surveys/${survey.id}`)
-        .set(...authHeader(newUserBody.accessToken))
-        .send({ title: '新標題' })
-        .expect(403);
-
-      const updated = await prisma.survey.findUnique({
-        where: { id: survey.id },
-      });
-      expect(updated).toMatchObject({
-        id: survey.id,
-        title: '舊標題',
-      });
-    });
-
     it('ADMIN 改別人的問卷 → 200', async () => {
       const survey = await prisma.survey.create({
         data: { title: '舊標題', ownerId: userId },
@@ -791,6 +908,45 @@ describe('Surveys (e2e)', () => {
       expect(updated).toMatchObject({
         id: survey.id,
         title: '新標題',
+      });
+    });
+
+    it('改別人未發布的問卷 → 404 而不是 403（不承認它存在）', async () => {
+      const survey = await prisma.survey.create({
+        data: { title: '別人未發布的問卷', ownerId: userId },
+      });
+
+      const email = 'new-email@example.com';
+      const password = 'newpassword';
+
+      await request(app.getHttpServer())
+        .post('/auth/register')
+        .send({ email, password })
+        .expect(201);
+
+      const newUser = await request(app.getHttpServer())
+        .post('/auth/login')
+        .send({ email, password })
+        .expect(200);
+
+      const newUserBody = newUser.body as LoginBody;
+
+      const res = await request(app.getHttpServer())
+        .patch(`/surveys/${survey.id}`)
+        .set(...authHeader(newUserBody.accessToken))
+        .send({ title: '新標題' })
+        .expect(404);
+
+      const body = res.body as ErrorBody;
+
+      expect(body.error.code).toBe('NOT_FOUND');
+
+      const updated = await prisma.survey.findUnique({
+        where: { id: survey.id },
+      });
+      expect(updated).toMatchObject({
+        id: survey.id,
+        title: '別人未發布的問卷',
       });
     });
   });
@@ -965,7 +1121,7 @@ describe('Surveys (e2e)', () => {
       expect((res.body as SurveyBody).status).toBe(SurveyStatus.PUBLISHED);
     });
 
-    it('發布別人的問卷 → 403', async () => {
+    it('發布別人的問卷 → 404，code 是 NOT_FOUND', async () => {
       const survey = await prisma.survey.create({
         data: { title: '待發布問卷', ownerId: userId },
       });
@@ -988,11 +1144,11 @@ describe('Surveys (e2e)', () => {
       const res = await request(app.getHttpServer())
         .patch(`/surveys/${survey.id}/publish`)
         .set(...authHeader(newUserBody.accessToken))
-        .expect(403);
+        .expect(404);
 
       const body = res.body as ErrorBody;
 
-      expect(body.error.code).toBe('FORBIDDEN');
+      expect(body.error.code).toBe('NOT_FOUND');
     });
   });
 

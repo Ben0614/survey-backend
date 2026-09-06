@@ -30,7 +30,7 @@ import { PrismaService } from '../prisma/prisma.service';
 import { SurveysService } from '../surveys/surveys.service';
 import { CreateQuestionDto } from './dto/create-question.dto';
 import { UpdateQuestionDto } from './dto/update-question.dto';
-import { canEditQuestions } from '../surveys/survey.rules';
+import { canEditQuestions, canSeeSurvey } from '../surveys/survey.rules';
 import type { AuthUser } from '../auth/guards/jwt-auth.guard';
 
 @Injectable()
@@ -45,7 +45,7 @@ export class QuestionsService {
   ) {}
 
   /** 列出一份問卷的所有題目，依 order 由小到大。父問卷不存在就是 404。 */
-  async findAll(surveyId: string) {
+  async findAll(surveyId: string, user: AuthUser) {
     // [教學] 這行沒接回傳值，作用是**借 SurveysService 丟例外**
     // （同 surveys.service.ts 的 update，只是那裡借的是自己的 assertExists）。
     //
@@ -53,7 +53,16 @@ export class QuestionsService {
     // findMany 找不到符合的列 → 回**空陣列** → 200 []。
     // 於是「這份問卷沒有題目」和「根本沒有這份問卷」變成同一個回應，
     // 前端沒有辦法分辨。子資源的列表**幾乎都要先確認父資源**，理由就是這個。
-    await this.surveysService.assertExists(surveyId);
+    const survey = await this.surveysService.assertExists(surveyId);
+
+    // 看不到那份問卷 → 連它有沒有題目都不該知道（理由見 surveys.service.ts 的 findOne）。
+    //
+    // 這支用 canSeeSurvey 而不是 canManageSurvey 是刻意的：**能看就是能填**，
+    // 而填答者需要看得到題目。用擁有權去擋的話，別人的已發布問卷就沒有人填得了
+    // —— 那是「保護過頭」，而其他測試不會叫（見 responses.e2e-spec.ts 檔頭的同一條警告）。
+    if (!canSeeSurvey(survey.status, survey.ownerId, user)) {
+      throw new NotFoundException('問卷不存在');
+    }
 
     return this.prisma.question.findMany({
       where: { surveyId },
@@ -104,7 +113,7 @@ export class QuestionsService {
     // 「問卷存不存在」（404）和「能不能改題目」（409）兩個問題。
     const survey = await this.surveysService.assertExists(surveyId);
 
-    this.surveysService.assertCanManage(survey.ownerId, user);
+    this.surveysService.assertCanManage(survey.status, survey.ownerId, user);
     // [教學] 規則本身寫在 survey.rules.ts，這裡只負責把 false 翻譯成 409。
     // 那個分工的好處在 survey.rules.spec.ts 看得最清楚：規則不認識 HTTP，
     // 所以測它不必啟動 Nest。
@@ -175,7 +184,11 @@ export class QuestionsService {
     // 主要防線永遠是這一行，安全網只是它失守時的備援。
     const question = await this.findOne(id);
 
-    this.surveysService.assertCanManage(question.survey.ownerId, user);
+    this.surveysService.assertCanManage(
+      question.survey.status,
+      question.survey.ownerId,
+      user,
+    );
 
     // [教學] 這裡的 question.survey 就是上面 include 帶回來的東西。
     // 沒有它的話，這行得改成再呼叫一次 surveysService.assertExists(question.surveyId)
@@ -207,7 +220,11 @@ export class QuestionsService {
     // 不管商業邏輯。）
     const question = await this.findOne(id);
 
-    this.surveysService.assertCanManage(question.survey.ownerId, user);
+    this.surveysService.assertCanManage(
+      question.survey.status,
+      question.survey.ownerId,
+      user,
+    );
 
     // 規則檢查跟 update 同一套（說明見上面那支）。
     if (!canEditQuestions(question.survey.status)) {

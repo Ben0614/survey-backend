@@ -166,7 +166,7 @@ export class ResponsesService {
     // 這裡回的是一個 meta 四個欄位齊全的合法 JSON，**看起來非常正常**。
     const survey = await this.surveysService.assertExists(surveyId);
 
-    this.surveysService.assertCanManage(survey.ownerId, user);
+    this.surveysService.assertCanManage(survey.status, survey.ownerId, user);
 
     // 分頁的換算與 { data, meta } 的形狀完全照 surveys.service.ts 的 findAll，
     // 那邊的註解不重複。where 抽成變數的理由也一樣：讓 findMany 與 count
@@ -228,6 +228,7 @@ export class ResponsesService {
         survey: {
           select: {
             ownerId: true,
+            status: true,
           },
         },
         answers: {
@@ -250,7 +251,7 @@ export class ResponsesService {
 
     const { survey, ...rest } = response;
 
-    this.surveysService.assertCanManage(survey.ownerId, user);
+    this.surveysService.assertCanManage(survey.status, survey.ownerId, user);
 
     return rest;
   }

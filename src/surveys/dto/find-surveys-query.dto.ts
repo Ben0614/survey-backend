@@ -22,8 +22,9 @@ import {
   IsOptional,
   IsString,
 } from 'class-validator';
-import { Type } from 'class-transformer';
+import { Type, Transform } from 'class-transformer';
 import { SurveyStatus } from '../../generated/prisma/enums';
+import { IsBoolean } from 'class-validator';
 
 export class FindSurveysQueryDto {
   // [教學] @Type(() => Number) 是 class-transformer 的裝飾器（前兩份 DTO 沒有用到）。
@@ -145,4 +146,21 @@ export class FindSurveysQueryDto {
   @IsString()
   @IsOptional()
   q?: string;
+
+  @ApiPropertyOptional({
+    description: '我建立的問卷',
+    default: false,
+  })
+  // [教學] 轉型的寫法與理由跟 find-one-survey-query.dto.ts 的 includeQuestions 完全一樣
+  // （@Type(() => Boolean) 為什麼不行、@Transform 怎麼補），那裡解釋過，不重複。
+  //
+  // 這裡只記一件事：**它有預設值，所以不需要 @IsOptional()**。
+  // 判準就是 Ch4 那條「status 要 @IsOptional() 而 sort 不用 —— 差別是有沒有預設值」。
+  // 兩者都沒有的話，不帶參數時值是 undefined，而**驗證裝飾器對 undefined 也會判失敗**
+  // —— 症狀是「沒帶 mine 卻回 400 mine must be a boolean value」（Ch15 踩過）。
+  @Transform(({ value }: { value: unknown }) =>
+    value === 'true' ? true : value === 'false' ? false : value,
+  )
+  @IsBoolean()
+  mine: boolean = false;
 }

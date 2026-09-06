@@ -57,10 +57,10 @@ export class SurveysQuestionsController {
   })
   @ApiNotFoundResponse({ description: '問卷不存在', type: ErrorResponseEntity })
   @Get()
-  findAll(@Param('surveyId') surveyId: string) {
+  findAll(@Param('surveyId') surveyId: string, @CurrentUser() user: AuthUser) {
     // [教學] @Get() 是空的，實際網址是 GET /surveys/:surveyId/questions ——
     // 前綴已經寫掉全部路徑了。
-    return this.questionsService.findAll(surveyId);
+    return this.questionsService.findAll(surveyId, user);
   }
 
   @ApiOperation({ summary: '建立題目' })

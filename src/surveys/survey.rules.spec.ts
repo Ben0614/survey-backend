@@ -28,6 +28,7 @@ import {
   canUnpublish,
   canSubmitResponse,
   canManageSurvey,
+  canSeeSurvey,
 } from './survey.rules';
 import { Role } from '../generated/prisma/enums';
 
@@ -111,5 +112,49 @@ describe('canManageSurvey', () => {
       role: Role.ADMIN,
     };
     expect(canManageSurvey(ownerId, user)).toBe(true);
+  });
+
+  it('PUBLISHED 的問卷，不是自己的也看得到', () => {
+    const status = 'PUBLISHED';
+    const ownerId = 'asdfg123456';
+    const user = {
+      id: 'zxcvb78945614',
+      role: Role.USER,
+    };
+    expect(canSeeSurvey(status, ownerId, user)).toBe(true);
+  });
+  it('DRAFT 的問卷，自己的看得到', () => {
+    const status = 'DRAFT';
+    const ownerId = 'asdfg123456';
+    const user = {
+      id: 'asdfg123456',
+      role: Role.USER,
+    };
+    expect(canSeeSurvey(status, ownerId, user)).toBe(true);
+  });
+
+  it('DRAFT 的問卷，別人的看不到', () => {
+    const status = 'DRAFT';
+    const ownerId = 'asdfg123456';
+    const user = {
+      id: 'zxcvb78945614',
+      role: Role.USER,
+    };
+    expect(canSeeSurvey(status, ownerId, user)).toBe(false);
+  });
+
+  it('DRAFT 且無主（ownerId 為 null）的問卷，ADMIN 看得到、一般使用者看不到', () => {
+    const status = 'DRAFT';
+    const ownerId = null;
+    const user = {
+      id: 'zxcvb78945614',
+      role: Role.USER,
+    };
+    const user2 = {
+      id: 'rtyui78945614',
+      role: Role.ADMIN,
+    };
+    expect(canSeeSurvey(status, ownerId, user)).toBe(false);
+    expect(canSeeSurvey(status, ownerId, user2)).toBe(true);
   });
 });

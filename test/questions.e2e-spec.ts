@@ -130,6 +130,69 @@ describe('Questions (e2e)', () => {
         .set(...authHeader(authToken))
         .expect(404);
     });
+
+    it('看別人未發布問卷的題目 → 404', async () => {
+      const survey = await prisma.survey.create({
+        data: {
+          title: '別人未發布問卷',
+          ownerId: userId,
+        },
+      });
+
+      // [教學] 拿「第二個使用者」用 helper，不要手寫 register + login 兩段。
+      // registerAndLogin 的第二個參數就是為這個情境準備的（見 helpers/auth.ts 檔頭），
+      // 而且它裡面的 .expect(201) 會把前提資料的失敗擋在源頭 ——
+      // 手寫的話漏掉那一行，註冊失敗會安靜地回 undefined，錯誤要三十行後才浮現。
+      //
+      // ⚠️ email 不能用預設值：beforeEach 已經註冊過它了，撞名就是 409。
+      const otherToken = await registerAndLogin(app, 'other-user@example.com');
+      const res = await request(app.getHttpServer())
+        .get(`/surveys/${survey.id}/questions`)
+        .set(...authHeader(otherToken))
+        .expect(404);
+
+      const body = res.body as ErrorBody;
+
+      expect(body.error.code).toBe('NOT_FOUND');
+    });
+
+    it('看別人已發布問卷的題目 → 200，因為那是填答需要的', async () => {
+      const survey = await prisma.survey.create({
+        data: {
+          title: '別人已發布問卷',
+          ownerId: userId,
+          status: 'PUBLISHED',
+        },
+      });
+
+      await prisma.question.create({
+        data: {
+          surveyId: survey.id,
+          title: '題目一',
+          type: 'SINGLE_CHOICE',
+          order: 0,
+        },
+      });
+      await prisma.question.create({
+        data: {
+          surveyId: survey.id,
+          title: '題目二',
+          type: 'SINGLE_CHOICE',
+          order: 1,
+        },
+      });
+
+      const otherToken = await registerAndLogin(app, 'other-user@example.com');
+      const res = await request(app.getHttpServer())
+        .get(`/surveys/${survey.id}/questions`)
+        .set(...authHeader(otherToken))
+        .expect(200);
+
+      const questions = res.body as QuestionBody[];
+
+      expect(questions.length).toBe(2);
+      expect(questions[0].title).toBe('題目一');
+    });
   });
 
   describe('POST /surveys/:surveyId/questions', () => {
@@ -323,7 +386,7 @@ describe('Questions (e2e)', () => {
       expect(questions.map((q) => q.order)).toEqual([0, 1]);
     });
 
-    it('在別人的問卷新增題目 → 403，code 是 FORBIDDEN', async () => {
+    it('在別人的問卷新增題目 → 404，code 是 NOT_FOUND', async () => {
       const survey = await prisma.survey.create({
         data: {
           title: '別人的問卷',
@@ -354,11 +417,11 @@ describe('Questions (e2e)', () => {
           type: 'SINGLE_CHOICE',
           options: ['選項1', '選項2', '選項3'],
         })
-        .expect(403);
+        .expect(404);
 
       const body = res.body as ErrorBody;
 
-      expect(body.error.code).toBe('FORBIDDEN');
+      expect(body.error.code).toBe('NOT_FOUND');
     });
   });
 
@@ -529,7 +592,7 @@ describe('Questions (e2e)', () => {
       expect(unchanged?.title).toBe('題目一');
     });
 
-    it('改別人問卷的題目 → 403', async () => {
+    it('改別人問卷的題目 → 404，code 是 NOT_FOUND', async () => {
       const survey = await prisma.survey.create({
         data: {
           title: '別人的問卷',
@@ -569,11 +632,11 @@ describe('Questions (e2e)', () => {
           title: '修改後的題目一',
           options: ['修改後的選項1', '修改後的選項2', '修改後的選項3'],
         })
-        .expect(403);
+        .expect(404);
 
       const body = res.body as ErrorBody;
 
-      expect(body.error.code).toBe('FORBIDDEN');
+      expect(body.error.code).toBe('NOT_FOUND');
     });
 
     it('改別人「已發布」問卷的題目 → 403 而不是 409', async () => {
@@ -707,7 +770,7 @@ describe('Questions (e2e)', () => {
       expect(still).not.toBeNull();
     });
 
-    it('刪別人問卷的題目 → 403', async () => {
+    it('刪別人問卷的題目 → 404，code 是 NOT_FOUND', async () => {
       const survey = await prisma.survey.create({
         data: {
           title: '指定問卷',
@@ -743,11 +806,11 @@ describe('Questions (e2e)', () => {
       const res = await request(app.getHttpServer())
         .delete(`/questions/${question.id}`)
         .set(...authHeader(newUserBody.accessToken))
-        .expect(403);
+        .expect(404);
 
       const body = res.body as ErrorBody;
 
-      expect(body.error.code).toBe('FORBIDDEN');
+      expect(body.error.code).toBe('NOT_FOUND');
     });
   });
 });

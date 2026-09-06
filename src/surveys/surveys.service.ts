@@ -53,7 +53,7 @@ import { PrismaService } from '../prisma/prisma.service';
 import { CreateSurveyDto } from './dto/create-survey.dto';
 import { UpdateSurveyDto } from './dto/update-survey.dto';
 import { FindSurveysQueryDto } from './dto/find-surveys-query.dto';
-import { canUnpublish, canManageSurvey } from './survey.rules';
+import { canUnpublish, canManageSurvey, canSeeSurvey } from './survey.rules';
 import { SurveyStatus } from '../generated/prisma/enums';
 import { Prisma } from '../generated/prisma/client';
 import type { AuthUser } from '../auth/guards/jwt-auth.guard';
@@ -64,7 +64,7 @@ export class SurveysService {
   constructor(private readonly prisma: PrismaService) {}
 
   /** 列出問卷，一次一頁。回的是 { data, meta }，不是裸的陣列。 */
-  async findAll(query: FindSurveysQueryDto) {
+  async findAll(query: FindSurveysQueryDto, user: AuthUser) {
     // [教學] 把 API 的概念換算成 ORM 的概念（Ch4 加的）：
     //
     //   skip → SQL 的 OFFSET，「前面幾筆不要」
@@ -111,8 +111,30 @@ export class SurveysService {
     // 前面那個 % 讓一般的 B-tree 索引完全失效（索引是照開頭排序的）→ 全表掃描。
     // 這一章不做索引優化，但要知道「加一個搜尋框」在資料庫端不是免費的。
     const where: Prisma.SurveyWhereInput = {
+      // ① 使用者的篩選條件 —— 原本就有的，不要動
       status: query.status,
       title: { contains: query.q, mode: 'insensitive' },
+      // ② 擁有權條件 —— 跟 canSeeSurvey 同一條規則，
+      //    左半邊是寫死的 PUBLISHED，不是 query.status
+      // [教學] 這個物件裡的每一個 key 之間是 **AND**；要 OR 就得明寫一個 OR 陣列，
+      // 而那個 OR key 本身跟旁邊的 key 仍然是 AND —— 陣列會自動被括號包起來：
+      //
+      //   { title: X, OR: [A, B] }  →  WHERE title = X AND (A OR B)
+      //
+      // 用展開（...）併進同一個物件，而不是另外開一個 where 變數 ——
+      // 理由跟上面那段一樣：findMany 與 count 必須共用完全一樣的條件。
+      //
+      // **上下兩半是兩件不同的事，不能混在一起（Ch15 踩過）：**
+      //   status / title  —— 使用者「想看什麼」，由參數決定
+      //   這一段          —— 使用者「能看什麼」，是安全邊界
+      //
+      // 左半邊是寫死的 PUBLISHED，不是 query.status。寫成 query.status 的話，
+      // 不帶參數時它是 undefined，而 **undefined 在 Prisma 裡代表「這個條件不存在」**
+      // —— 在 AND 裡無害（少一個限制），在 OR 裡卻是**恆真**，整個邊界就失效了。
+      // 更糟的是送 ?status=DRAFT 會變成「全站所有人的草稿」。
+      ...(query.mine
+        ? { ownerId: user.id }
+        : { OR: [{ status: SurveyStatus.PUBLISHED }, { ownerId: user.id }] }),
     };
 
     // [教學] orderBy 不是可有可無的裝飾 —— **資料表沒有固有順序**
@@ -256,14 +278,29 @@ export class SurveysService {
   // 它是 QuestionsService / ResponsesService 也在用的第二個公開方法
   // （第一個是 assertExists），所以命名跟著它走：assert 開頭代表
   // 「呼叫我是為了讓不合格的情況直接中止」，不是為了取值。
-  assertCanManage(ownerId: string | null, user: AuthUser): void {
+  /**
+   * 八個「要動別人資料」的地方共用的守門員。
+   *
+   * **兩步的順序不能反（Ch15）：先問看得到嗎（404），再問能不能碰（403）。**
+   * 反過來的話，一個看不到那份問卷的人會拿到 403 —— 而那等於承認它存在。
+   * 修好之後 403 只剩一種情況：**你看得到、但它不是你的**（別人的已發布問卷）。
+   */
+  assertCanManage(
+    status: SurveyStatus,
+    ownerId: string | null,
+    user: AuthUser,
+  ): void {
+    if (!canSeeSurvey(status, ownerId, user)) {
+      throw new NotFoundException('問卷不存在');
+    }
+
     if (!canManageSurvey(ownerId, user)) {
       throw new ForbiddenException('權限不足');
     }
   }
 
   /** 查一份問卷。帶 includeQuestions 才連題目一起回。找不到就是 404，不會回 200 配一個空的 body。 */
-  async findOne(id: string, includeQuestions: boolean = false) {
+  async findOne(id: string, includeQuestions: boolean = false, user: AuthUser) {
     // [教學] 第二個參數收的是 boolean，**不是整包 DTO**（對照上面 findAll 收 DTO）。
     //
     // 判準是「這支方法需要幾個值」，不是「service 能不能碰 DTO」這種鐵律：
@@ -347,8 +384,24 @@ export class SurveysService {
     // 狀態碼 404 和這句訊息** —— 沒有「這是問卷還是作答不存在」的資訊。
     // 所以回應裡的 code 只能是狀態碼的鏡像（NOT_FOUND），要更細的 code
     // 就得讓 service 送上來。這是「決定不改 service」的直接代價。
+    // [教學] 兩種情況、同一個 404，而且**訊息必須一模一樣**（Ch15）：
+    //
+    //   真的不存在   →  404 問卷不存在
+    //   存在但看不到 →  404 問卷不存在
+    //
+    // 為什麼不是 403：403 等於承認「這個 id 存在，只是你沒權限」，
+    // 對方就能拿一串 id 去掃，靠 403 與 404 的差別列舉出全站有哪些問卷。
+    //
+    // 而訊息如果不同，那個差異本身就是同一種洩漏 —— 所以抽成一個變數，
+    // 讓「兩句話不一致」在結構上不可能發生（同 where 抽成變數的理由）。
+    const message = '問卷不存在';
+
     if (!survey) {
-      throw new NotFoundException('問卷不存在');
+      throw new NotFoundException(message);
+    }
+
+    if (!canSeeSurvey(survey.status, survey.ownerId, user)) {
+      throw new NotFoundException(message);
     }
 
     // [教學] 這裡的型別不是 Survey | null。TypeScript 知道 throw 之後的程式碼走不到，
@@ -408,7 +461,7 @@ export class SurveysService {
     // order race 是同一族的形狀（「讀 → 回到 Node 判斷 → 寫」中間那段空檔）。
     const survey = await this.assertExists(id);
 
-    this.assertCanManage(survey.ownerId, user);
+    this.assertCanManage(survey.status, survey.ownerId, user);
 
     // [教學] dto.title 是 undefined 時（例如空 body），Prisma **完全不碰這個欄位** ——
     // 它把該欄位整個從 SQL 拿掉，而不是寫入空值。所以在 Prisma 眼中：
@@ -458,7 +511,7 @@ export class SurveysService {
     // 一個出口、一種形狀，換一句 SQL —— 這個交易划算。
     const survey = await this.assertExists(id);
 
-    this.assertCanManage(survey.ownerId, user);
+    this.assertCanManage(survey.status, survey.ownerId, user);
 
     return this.prisma.survey.update({
       where: { id },
@@ -472,7 +525,7 @@ export class SurveysService {
   async unpublish(id: string, user: AuthUser) {
     const survey = await this.assertExists(id);
 
-    this.assertCanManage(survey.ownerId, user);
+    this.assertCanManage(survey.status, survey.ownerId, user);
 
     // [教學] 要的是「幾筆」，就用 count —— 不要撈出來再自己數 .length。
     //

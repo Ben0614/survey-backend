@@ -82,10 +82,10 @@ export class SurveysController {
   })
   @ApiBadRequestResponse({ description: '參數錯誤', type: ErrorResponseEntity })
   @Get()
-  findAll(@Query() query: FindSurveysQueryDto) {
+  findAll(@Query() query: FindSurveysQueryDto, @CurrentUser() user: AuthUser) {
     // [教學] 直接回傳 Promise 就好，Nest 會自己 await 再序列化成 JSON。
     // 這裡不用寫 async/await —— 沒有要對結果做任何事。
-    return this.surveysService.findAll(query);
+    return this.surveysService.findAll(query, user);
   }
 
   // [教學] @Get() 括號裡放的是**路徑樣式**，不是一段固定文字。
@@ -106,7 +106,11 @@ export class SurveysController {
   @ApiNotFoundResponse({ description: '問卷不存在', type: ErrorResponseEntity })
   @ApiBadRequestResponse({ description: '參數錯誤', type: ErrorResponseEntity })
   @Get(':id')
-  findOne(@Param('id') id: string, @Query() query: FindOneSurveyQueryDto) {
+  findOne(
+    @Param('id') id: string,
+    @Query() query: FindOneSurveyQueryDto,
+    @CurrentUser() user: AuthUser,
+  ) {
     // [教學] @Param('id') 從**網址**取值，對照 @Body() 從 request body 取值。
     // GET 依規範不帶 body，所以 id 只能放在網址裡 —— 這不是二選一的問題。
     // （另外兩個同類：@Query() 取 ?a=1 的部分，@Headers() 取標頭。）
@@ -127,7 +131,7 @@ export class SurveysController {
     // 要寫進去的資料用 body。
     //
     // 傳進 service 的是 query.includeQuestions 而不是整包 query，理由見 service 那邊。
-    return this.surveysService.findOne(id, query.includeQuestions);
+    return this.surveysService.findOne(id, query.includeQuestions, user);
   }
 
   // [教學] @Post() 的預設回應狀態碼是 **201 Created**，
