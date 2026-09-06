@@ -36,6 +36,7 @@ import { setupApp } from '../src/setup-app';
 import { resetDb } from './helpers/reset-db';
 import { registerAndLogin, authHeader } from './helpers/auth';
 import { JwtService } from '@nestjs/jwt';
+import { QuestionType } from '../src/generated/prisma/enums';
 
 // [教學] supertest 的 res.body 型別是 any，而專案的 ESLint 禁止在 any 上直接取欄位，
 // 所以宣告形狀轉一次（同 surveys.e2e-spec.ts 開頭那批）。
@@ -65,6 +66,20 @@ interface ResponseWithAnswersBody extends ResponseBody {
 
 interface LoginBody {
   accessToken: string;
+}
+
+interface SummaryBody {
+  surveyId: string;
+  responseCount: number;
+  questions: {
+    questionId: string;
+    title: string;
+    type: QuestionType;
+    order: number;
+    answerCount: number;
+    options?: { option: string; count: number }[];
+    samples?: string[];
+  }[];
 }
 
 interface ErrorBody {
@@ -838,6 +853,185 @@ describe('Responses (e2e)', () => {
         'surveyId',
       ]);
       expect(body).not.toHaveProperty('survey');
+    });
+  });
+
+  // [教學] 摘要這一組跟上面每一組的差別：**它斷言的是「算出來的數字」**，
+  // 而不是「有沒有寫進去」。所以前提資料要造得剛好 —— 每個選項幾票是預先設計的，
+  // 不能靠「有就好」。
+  describe('GET /surveys/:surveyId/responses/summary', () => {
+    // 這一組共用的前提：一份已發布的問卷、一個單選題、一個簡答題。
+    // 填答用 prisma 直接建（不走 API），因為要控制 createdAt 才驗得了排序。
+    async function seedSurveyWithAnswers(
+      picks: { choice: string; text: string; at: string }[],
+    ) {
+      const survey = await prisma.survey.create({
+        data: { title: '摘要用問卷', ownerId: userId, status: 'PUBLISHED' },
+      });
+
+      const choice = await prisma.question.create({
+        data: {
+          surveyId: survey.id,
+          title: '整體滿意度',
+          type: 'SINGLE_CHOICE',
+          order: 0,
+          options: ['滿意', '普通', '不滿意'],
+        },
+      });
+
+      const text = await prisma.question.create({
+        data: {
+          surveyId: survey.id,
+          title: '還有什麼想說的',
+          type: 'TEXT',
+          order: 1,
+          options: [],
+        },
+      });
+
+      for (const pick of picks) {
+        await prisma.response.create({
+          data: {
+            surveyId: survey.id,
+            // ⚠️ createdAt 寫死而不是靠 default(now())：
+            // 三筆連續建立的時間可能只差幾微秒，「最新的排在前面」那條測試
+            // 會變成靠運氣。**要驗排序，就要自己決定順序。**
+            createdAt: new Date(pick.at),
+            answers: {
+              create: [
+                { questionId: choice.id, content: pick.choice },
+                { questionId: text.id, content: pick.text },
+              ],
+            },
+          },
+        });
+      }
+
+      return { survey, choice, text };
+    }
+
+    it('三份填答，單選題的每個選項各算出正確的筆數', async () => {
+      const { survey } = await seedSurveyWithAnswers([
+        { choice: '滿意', text: '很好', at: '2026-01-01T00:00:00Z' },
+        { choice: '滿意', text: '不錯', at: '2026-01-02T00:00:00Z' },
+        { choice: '普通', text: '還可以', at: '2026-01-03T00:00:00Z' },
+      ]);
+
+      const res = await request(app.getHttpServer())
+        .get(`/surveys/${survey.id}/responses/summary`)
+        .set(...authHeader(authToken))
+        .expect(200);
+
+      const body = res.body as SummaryBody;
+
+      expect(body.responseCount).toBe(3);
+      expect(body.questions).toHaveLength(2);
+
+      const choice = body.questions[0];
+      expect(choice.type).toBe('SINGLE_CHOICE');
+      expect(choice.answerCount).toBe(3);
+      // 斷言到**值**而不是「有 options」：只驗「有」的話，數字全錯也會綠。
+      expect(choice.options).toEqual([
+        { option: '滿意', count: 2 },
+        { option: '普通', count: 1 },
+        { option: '不滿意', count: 0 },
+      ]);
+    });
+
+    // ← 這一輪的主角。
+    //
+    // groupBy **只回出現過的值** —— 沒有人選的「不滿意」那一組根本不會出現在
+    // 查詢結果裡。以 groupBy 的結果為基準去組裝的話，那個選項會**整個消失**：
+    // 畫面上只有兩條長條，使用者理解成「這題只有兩個選項」，
+    // 而且百分比還會算對（2/3、1/3）—— 沒有錯誤、沒有 0、完全看不出來。
+    //
+    // 上一條全綠也擋不住它，因為有人選的那些數字都是對的。
+    it('沒有人選的選項也要出現，count 是 0', async () => {
+      const { survey } = await seedSurveyWithAnswers([
+        { choice: '滿意', text: 'a', at: '2026-01-01T00:00:00Z' },
+      ]);
+
+      const res = await request(app.getHttpServer())
+        .get(`/surveys/${survey.id}/responses/summary`)
+        .set(...authHeader(authToken))
+        .expect(200);
+
+      const options = (res.body as SummaryBody).questions[0].options!;
+
+      expect(options).toHaveLength(3);
+      expect(options.map((o) => o.option)).toEqual(['滿意', '普通', '不滿意']);
+      expect(options.find((o) => o.option === '不滿意')!.count).toBe(0);
+    });
+
+    it('簡答題回 answerCount 與最近幾筆原文，最新的排在前面', async () => {
+      const { survey } = await seedSurveyWithAnswers([
+        { choice: '滿意', text: '最舊的', at: '2026-01-01T00:00:00Z' },
+        { choice: '普通', text: '中間的', at: '2026-01-02T00:00:00Z' },
+        { choice: '不滿意', text: '最新的', at: '2026-01-03T00:00:00Z' },
+      ]);
+
+      const res = await request(app.getHttpServer())
+        .get(`/surveys/${survey.id}/responses/summary`)
+        .set(...authHeader(authToken))
+        .expect(200);
+
+      const text = (res.body as SummaryBody).questions[1];
+
+      expect(text.type).toBe('TEXT');
+      expect(text.answerCount).toBe(3);
+      // 簡答題沒有 options —— 兩種型別回的是不同的東西。
+      expect(text.options).toBeUndefined();
+      expect(text.samples).toEqual(['最新的', '中間的', '最舊的']);
+    });
+
+    // 上一條主角的極端版：groupBy 這時回**空陣列**。
+    // 以它為基準的實作會回一個「沒有任何題目」的摘要，
+    // 而正確答案是「每一題都在，每個選項都是 0」。
+    it('一份填答都沒有 → 200，responseCount 是 0，每個選項也都是 0', async () => {
+      const { survey } = await seedSurveyWithAnswers([]);
+
+      const res = await request(app.getHttpServer())
+        .get(`/surveys/${survey.id}/responses/summary`)
+        .set(...authHeader(authToken))
+        .expect(200);
+
+      const body = res.body as SummaryBody;
+
+      expect(body.responseCount).toBe(0);
+      expect(body.questions).toHaveLength(2);
+      expect(body.questions[0].answerCount).toBe(0);
+      expect(body.questions[0].options).toEqual([
+        { option: '滿意', count: 0 },
+        { option: '普通', count: 0 },
+        { option: '不滿意', count: 0 },
+      ]);
+      expect(body.questions[1].samples).toEqual([]);
+    });
+
+    // 摘要是「看結果」，跟 findAll 用同一套授權：只有擁有者與 ADMIN 看得到。
+    // 已發布的問卷別人看得到（canSeeSurvey），但不能碰 → 403 而不是 404。
+    it('別人已發布的問卷 → 403', async () => {
+      const { survey } = await seedSurveyWithAnswers([
+        { choice: '滿意', text: 'a', at: '2026-01-01T00:00:00Z' },
+      ]);
+
+      const otherToken = await registerAndLogin(app, 'other-user@example.com');
+
+      const res = await request(app.getHttpServer())
+        .get(`/surveys/${survey.id}/responses/summary`)
+        .set(...authHeader(otherToken))
+        .expect(403);
+
+      expect((res.body as ErrorBody).error.code).toBe('FORBIDDEN');
+    });
+
+    it('問卷不存在 → 404', async () => {
+      const res = await request(app.getHttpServer())
+        .get('/surveys/nonexistent-id/responses/summary')
+        .set(...authHeader(authToken))
+        .expect(404);
+
+      expect((res.body as ErrorBody).error.code).toBe('NOT_FOUND');
     });
   });
 });

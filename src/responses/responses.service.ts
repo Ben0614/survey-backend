@@ -39,6 +39,15 @@ import { isCompleteAnswerSet, isValidAnswer } from './responses.rules';
 import { CreateResponseDto } from './dto/create-response.dto';
 import { FindResponsesQueryDto } from './dto/find-responses-query.dto';
 import type { AuthUser } from '../auth/guards/jwt-auth.guard';
+import { QuestionType } from '../generated/prisma/enums';
+
+/**
+ * 簡答題的摘要最多回幾筆原文。
+ *
+ * 抽出成常數是為了讓「這是抽樣不是全部」這件事在程式碼裡看得見 ——
+ * 寫死一個 5 在 take 裡，讀的人不會知道那是產品決定還是隨手打的。
+ */
+const TEXT_SAMPLE_LIMIT = 5;
 
 @Injectable()
 export class ResponsesService {
@@ -312,5 +321,144 @@ export class ResponsesService {
     this.surveysService.assertCanManage(survey.status, survey.ownerId, user);
 
     return rest;
+  }
+
+  /**
+   * 一份問卷的填答摘要：每題的分佈（單選）或最近幾筆原文（簡答）。
+   *
+   * **這一支刻意不分頁。** 分頁是為了「不給你全部」而設計的，統計卻需要全部 ——
+   * 這就是 Ch17 輪 ⑤ 對「Ch4 定的分頁參數好不好用」的回答：
+   * 對「逐筆瀏覽」很好用，對「統計」完全不能用。
+   *
+   * 不分頁不等於把全部資料搬回來：底下的 groupBy 是一句 SQL，
+   * **回傳量只跟「有幾題、幾種不同的答案」有關，跟填答數無關**。
+   * 3000 份填答與 30 份填答，回來的東西一樣大。
+   */
+  async summarize(surveyId: string, user: AuthUser) {
+    // 授權跟 findAll 一模一樣：結果只有擁有者與 ADMIN 看得到。
+    const survey = await this.surveysService.assertExists(surveyId);
+    this.surveysService.assertCanManage(survey.status, survey.ownerId, user);
+
+    const [questions, responseCount, grouped] = await Promise.all([
+      this.prisma.question.findMany({
+        where: { surveyId },
+        orderBy: { order: 'asc' },
+        select: {
+          id: true,
+          title: true,
+          type: true,
+          options: true,
+          order: true,
+        },
+      }),
+
+      this.prisma.response.count({ where: { surveyId } }),
+
+      // [教學] groupBy 就是 SQL 的 GROUP BY：
+      //   by      要用哪幾個欄位分組（這裡是「哪一題 × 什麼答案」）
+      //   _count  每一組各有幾筆
+      //
+      // **Answer 表沒有 surveyId**（去看 schema.prisma，它只有 questionId 與
+      // responseId），所以要靠關聯往上過濾。兩條路都通：
+      //   { question: { surveyId } }  經由題目
+      //   { response: { surveyId } }  經由那份填答
+      // 選前者，因為底下組裝時本來就以「這份問卷的題目」為基準 ——
+      // 兩邊用同一個判準，就不會出現「groupBy 撈到了但組裝時找不到對應題目」的資料。
+      this.prisma.answer.groupBy({
+        by: ['questionId', 'content'],
+        where: { question: { surveyId } },
+        _count: { _all: true },
+      }),
+    ]);
+
+    // questionId → (答案內容 → 幾筆)
+    const countsByQuestion = new Map<string, Map<string, number>>();
+    for (const row of grouped) {
+      const byContent =
+        countsByQuestion.get(row.questionId) ?? new Map<string, number>();
+      byContent.set(row.content, row._count._all);
+      countsByQuestion.set(row.questionId, byContent);
+    }
+
+    // [教學] 簡答題的樣本 —— 這是 N+1，而且**這一次是可以接受的**。
+    //
+    // 判準不是「有沒有 N+1」，是 **N 有沒有上界**：
+    //   Ch17 輪 ①  N = 這一頁的問卷數 → 使用者改 pageSize 就能拉大，沒有上界
+    //   這裡        N = 這份問卷的簡答題數 → 由問卷本身決定，而且只算簡答題
+    //
+    // Answer 表沒有 createdAt，所以「最近」要從關聯的那一端排序
+    //（orderBy: { response: { createdAt: 'desc' } }）。
+    const textQuestions = questions.filter((q) => q.type === QuestionType.TEXT);
+    const samplesByQuestion = new Map(
+      await Promise.all(
+        textQuestions.map(async (question) => {
+          const rows = await this.prisma.answer.findMany({
+            where: { questionId: question.id },
+            orderBy: { response: { createdAt: 'desc' } },
+            take: TEXT_SAMPLE_LIMIT,
+            select: { content: true },
+          });
+
+          return [question.id, rows.map((row) => row.content)] as [
+            string,
+            string[],
+          ];
+        }),
+      ),
+    );
+
+    return {
+      surveyId,
+      responseCount,
+
+      // ⚠️ **以 questions 為基準跑迴圈，不是以 groupBy 的結果為基準。**
+      //
+      // groupBy **只回出現過的值**。一個「滿意／普通／不滿意」的題目，如果沒有人
+      // 選「不滿意」，那一組根本不會出現在結果裡 —— 以 grouped 為基準的話，
+      // 畫面上就只有兩條長條，而使用者會理解成「這題只有兩個選項」。
+      // 沒有錯誤、沒有 0、百分比還會算對（18/27、9/27），完全看不出來。
+      //
+      // 這個方向也順便處理了另一個極端：一份填答都沒有時 grouped 是空陣列，
+      // 以它為基準會回一個「沒有任何題目」的摘要，而正確答案是
+      // 「每一題都在，每個選項都是 0」。
+      questions: questions.map((question) => {
+        const byContent =
+          countsByQuestion.get(question.id) ?? new Map<string, number>();
+
+        // answerCount 用 groupBy 的**總和**而不是 options 的總和：
+        // 前者是「這一題實際收到幾筆答案」，包含 Ch17 輪 ④ 之前存進去的、
+        // 不在 options 裡的髒答案。那些答案不會出現在下面的 options 裡
+        //（以 options 為基準就是會丟掉它們），所以兩個總和可能對不上 ——
+        // 那是刻意的，而且分母該用 answerCount（見 summary.entity.ts）。
+        const answerCount = [...byContent.values()].reduce(
+          (sum, count) => sum + count,
+          0,
+        );
+
+        return {
+          questionId: question.id,
+          title: question.title,
+          type: question.type,
+          order: question.order,
+          answerCount,
+
+          // 只回原始數字，**不回百分比**。四捨五入之後加總不等於 100% 是常見的事，
+          // 而那是「怎麼呈現」的問題，該由畫面決定 —— 後端一旦回了百分比，
+          // 前端想改成一位小數就得改後端。
+          options:
+            question.type === QuestionType.SINGLE_CHOICE
+              ? question.options.map((option) => ({
+                  option,
+                  count: byContent.get(option) ?? 0,
+                }))
+              : undefined,
+
+          samples:
+            question.type === QuestionType.TEXT
+              ? (samplesByQuestion.get(question.id) ?? [])
+              : undefined,
+        };
+      }),
+    };
   }
 }

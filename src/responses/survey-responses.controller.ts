@@ -31,6 +31,7 @@ import {
   ResponseEntity,
   PaginatedResponsesEntity,
 } from './entities/response.entity';
+import { SurveySummaryEntity } from './entities/summary.entity';
 import { ErrorResponseEntity } from '../common/entities/error-response.entity';
 import { CurrentUser } from '../auth/decorators/current-user.decorator';
 import type { AuthUser } from 'src/auth/guards/jwt-auth.guard';
@@ -91,5 +92,32 @@ export class SurveyResponsesController {
     @CurrentUser() user: AuthUser,
   ) {
     return this.responsesService.findAll(surveyId, query, user);
+  }
+
+  // [教學] 網址是 /surveys/:surveyId/responses/**summary**，不是 /surveys/:id/summary。
+  //
+  // 摘要**是 responses 這個集合的一種檢視**，網址把那件事講出來；
+  // 而且這樣就掛得進這個既有的 controller，不必為了一支端點開一個新的。
+  //
+  // 上面 findAll 是 @Get()（= /responses），這一支是 @Get('summary')
+  //（= /responses/summary）—— **段數不同，所以不可能撞**。
+  // surveys.controller.ts 那段「@Get('published') 必須放在 @Get(':id') 上面」
+  // 講的是**同樣段數**的路由之間才有的順序問題，這裡沒有 @Get(':id')，不受影響。
+  //
+  // 沒有 409 也沒有 400：這一支不收 body（無從驗證），也不受問卷狀態影響
+  //（草稿也可以看自己的摘要，只是一份填答都沒有）。
+  @ApiOperation({ summary: '查詢填答摘要（每題的分佈，不分頁）' })
+  @ApiOkResponse({
+    description: '每一題的統計，依 order 由小到大',
+    type: SurveySummaryEntity,
+  })
+  @ApiNotFoundResponse({ description: '問卷不存在', type: ErrorResponseEntity })
+  @ApiForbiddenResponse({
+    description: '無此權限',
+    type: ErrorResponseEntity,
+  })
+  @Get('summary')
+  summary(@Param('surveyId') surveyId: string, @CurrentUser() user: AuthUser) {
+    return this.responsesService.summarize(surveyId, user);
   }
 }

@@ -113,14 +113,22 @@ describe('Swagger 契約（buildSwaggerDocument）', () => {
   // [教學] 這三條是便宜的煙霧測試：spec 根本產不出來的時候，
   // 下面兩條主角的失敗訊息會變成「Cannot read properties of undefined」，
   // 完全看不出發生什麼事。先讓最基本的假設各自有一條測試守著。
-  it('spec 產得出來：openapi 是 3 開頭，paths 共 12 條路徑', () => {
+  it('spec 產得出來：openapi 是 3 開頭，paths 共 13 條路徑', () => {
     const doc = buildSwaggerDocument(app);
 
     expect(doc.openapi.startsWith('3')).toBe(true);
     // Ch9 加了 /auth/register 與 /auth/login（9 → 11），Ch10 輪 3 加了
-    // /auth/me（11 → 12）。
+    // /auth/me（11 → 12），Ch17 輪 ⑤a 加了
+    // /surveys/{surveyId}/responses/summary（12 → 13）。
     // 這條會因為新增端點而紅是刻意的：它強迫你回頭確認新端點的契約標齊了。
-    expect(Object.keys(doc.paths)).toHaveLength(12);
+    //
+    // ⚠️ 這個數字**留著**，不像別處那樣把過期的數字刪掉 —— 判準是
+    // **它是不是論證的一部分**：這裡的 13 就是斷言本身（少了它這條測試什麼都不驗），
+    // 而被刪掉的那些數字只是「某份清單有幾項」。
+    //
+    // 附帶一提：Ch17 輪 ③ 的 PUT /surveys/:surveyId/questions **沒有**讓它紅，
+    // 因為那是往**既有路徑**加一個 method，路徑數不變。
+    expect(Object.keys(doc.paths)).toHaveLength(13);
   });
 
   it('POST /surveys 的 requestBody 指向 CreateSurveyDto，title 在 required 裡', () => {
