@@ -23,7 +23,7 @@
 // 忘了剔除的話回應會多一個 survey 欄位，而 ResponseEntity 沒有一致性測試 ——
 // 所以 Ch12 順手補了一條「回應不含 survey 欄位」來守它。
 //
-// 下一站：src/auth/auth.module.ts（第四個 feature：註冊登入，這個專案第一次處理機密資料）
+// 下一站：src/responses/responses.rules.ts（作答自己的兩條規則，Ch17 輪 ④ 加的）
 // ============================================================
 
 import {
@@ -35,6 +35,7 @@ import {
 import { PrismaService } from '../prisma/prisma.service';
 import { SurveysService } from '../surveys/surveys.service';
 import { canSubmitResponse } from '../surveys/survey.rules';
+import { isCompleteAnswerSet, isValidAnswer } from './responses.rules';
 import { CreateResponseDto } from './dto/create-response.dto';
 import { FindResponsesQueryDto } from './dto/find-responses-query.dto';
 import type { AuthUser } from '../auth/guards/jwt-auth.guard';
@@ -90,7 +91,7 @@ export class ResponsesService {
     }
 
     // [教學] 要問資料庫的問題不是「這些題目存在嗎」，而是
-    // **「這些題目裡，有幾筆是這份問卷的？」** —— 數量對得上就全部合格。
+    // **「這份問卷有哪些題目？」** —— 拿到那份清單之後，底下三件事都從它推出來。
     //
     // 為什麼非查不可：外鍵只保證「這個 questionId 在 Question 表裡找得到」，
     // **不保證它屬於這份問卷**。不查的話可以把 A 問卷的題目掛到 B 問卷的作答上，
@@ -98,19 +99,76 @@ export class ResponsesService {
     // 這是 Ch1 那句「唯一約束的作用範圍由它所在的表決定」的同族問題：
     // **約束只知道自己那張表的事**，「兩根外鍵的爸爸是不是同一個」超出它的視野。
     //
-    // 用 count 而不是 findMany：要的是「幾筆」，數數在資料庫裡完成就好（同 Ch3）。
-    // id: { in: [...] } 就是 SQL 的 IN (...)，也就是一串 OR 的簡寫。
-    const count = await this.prisma.question.count({
-      where: {
-        surveyId,
-        id: { in: questionIds },
-      },
+    // ⚠️ **Ch17 輪 ④ 把這裡從 count 換成 findMany，而且 where 也變了。** 兩個都要改：
+    //
+    //   舊：count({ where: { surveyId, id: { in: questionIds } } })
+    //       只回一個數字，而且只看「送來的那幾題」
+    //   新：findMany({ where: { surveyId } })
+    //       回這份問卷的**全部**題目，含 type / options / order
+    //
+    // 兩個改動各有各的理由，缺一個就做不到這一輪要的事：
+    //   where 不能再帶 id: { in: ... } —— 那樣「少答一題」永遠查不出來，
+    //                                     沒送的那一題本來就不在 IN 裡面
+    //   不能再用 count           —— 「答案在不在選項裡」要知道 type 與 options，
+    //                               數字給不了
+    //
+    // 這算「多撈」嗎？對照 assertExists 用 select 的判準是**有沒有上界**：
+    // 這裡的上界是一份問卷的題數，而我們本來就得認識每一題才判斷得出「答完了沒」。
+    // 而且**查詢次數沒有增加** —— 原本那一次 count 被換掉了，不是多加一次。
+    const questions = await this.prisma.question.findMany({
+      where: { surveyId },
+      // select 只挑用得到的四個欄位：title 這種拿來顯示的東西這裡不需要。
+      select: { id: true, type: true, options: true, order: true },
     });
 
-    // 回 400 而不是 404（那些題目確實存在）也不是 409（不是狀態衝突）——
-    // 是**請求內容本身有錯**。
-    if (count !== questionIds.length) {
-      throw new BadRequestException('有題目不屬於這份問卷');
+    // 用 Map 而不是每次 questions.find(...)：N 個答案 × M 題會變成 N×M 次比對，
+    // 而且**更重要的是下面兩個檢查因此共用同一份資料**（見接下來那段）。
+    const questionById = new Map(questions.map((q) => [q.id, q]));
+
+    // [教學] 這裡有兩個檢查，而且**看起來重疊、其實防的是不同的東西**：
+    //
+    //   A. 送來的題目，都屬於這份問卷嗎？
+    //   B. 這份問卷的題目，都答了嗎？（Ch17 輪 ④ 新增）
+    //
+    // 很容易覺得「B 成立就代表 A 成立」然後把 A 刪掉。**不成立。**
+    // 一份 3 題的問卷，送三個**別人問卷的題目 id**：
+    //   B 檢查 → 答案 3 筆、本問卷 3 題，通過
+    //   外鍵   → 那三個 questionId 真的存在（在別人的問卷裡），資料庫也不擋
+    //   結果   → 一筆作答掛在 A 問卷底下，答案卻指向 B 問卷的題目
+    // **201 Created，沒有任何錯誤**，要到看結果時才發現有一批答案對不上任何題目。
+    //
+    // 反過來刪掉 B 也不行 —— 那就退回「只答一題就能送出」。
+    //
+    // 對策是結構性的：兩個檢查都從上面那個 Map 推出來，
+    // A 是「每個答案都查得到」、B 是「題數等於答案數」，同一個來源，
+    // 就不會有人以為可以只留一個。
+    //
+    // 而且 A 加上「先擋重複」（上一段）之後，B 才等於「一題一個答案」——
+    // 三個檢查是一組，這也是 responses.rules.ts 裡 isCompleteAnswerSet
+    // 的註解說「成立的前提在呼叫端」的意思。
+    for (const answer of dto.answers) {
+      const question = questionById.get(answer.questionId);
+
+      // 回 400 而不是 404（那些題目確實存在）也不是 409（不是狀態衝突）——
+      // 是**請求內容本身有錯**。
+      if (!question) {
+        throw new BadRequestException('有題目不屬於這份問卷');
+      }
+
+      // 訊息帶上題號：這兩條 400 是 **service 丟的，不是 ValidationPipe 丟的**，
+      // 所以回應**沒有 fields**（那是 Ch15 攤平巢狀驗證錯誤時產的），
+      // 前端標不到那一格、只拿得到一句話。訊息裡沒有題號就等於沒有線索。
+      if (!isValidAnswer(question.type, question.options, answer.content)) {
+        throw new BadRequestException(
+          `第 ${question.order + 1} 題的答案不在選項裡`,
+        );
+      }
+    }
+
+    if (!isCompleteAnswerSet(questions.length, dto.answers.length)) {
+      throw new BadRequestException(
+        `這份問卷有 ${questions.length} 題，必須全部作答`,
+      );
     }
 
     // [教學] 巢狀 write：一次呼叫寫兩張表。

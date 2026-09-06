@@ -53,9 +53,12 @@ export class SurveyResponsesController {
     description: '送出後的作答（不含 answers）',
     type: ResponseEntity,
   })
+  // ⚠️ 這一段 description 是**契約的一部分**，加規則就要跟著加 ——
+  // 後兩項是 Ch17 輪 ④ 補的。前端讀不到「有哪些 400」的話，只能把每一種
+  // 都當成同一句通用訊息（而這幾條是 service 丟的，回應裡沒有 fields）。
   @ApiBadRequestResponse({
     description:
-      '請求內容不合法：欄位驗證失敗、題目 ID 重複、或題目不屬於這份問卷',
+      '請求內容不合法：欄位驗證失敗、題目 ID 重複、題目不屬於這份問卷、沒有答完全部題目、或單選題的答案不在選項裡',
     type: ErrorResponseEntity,
   })
   @ApiNotFoundResponse({ description: '問卷不存在', type: ErrorResponseEntity })

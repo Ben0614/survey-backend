@@ -132,18 +132,39 @@ git ls-files --eol <檔案>          # 權威答案：i/ 是索引、w/ 是工�
 
 **E2E 優先**：後端絕大多數程式碼是「HTTP 請求 → Prisma → 資料庫狀態」的轉發，mock 掉 Prisma 等於在測 mock。E2E 測試連真實資料庫（Neon test branch，`.env.test`），從 Ch2 開始每章的驗收標準就是該章 E2E 綠燈。
 
-**單元測試只寫在有真正商業邏輯的地方**——目前全專案只有一支：`src/surveys/survey.rules.spec.ts`。
+**單元測試只寫在有真正商業邏輯的地方**——目前有這幾支：
 
-判準不是「這段程式碼重不重要」，而是**「拿掉外部依賴之後還剩下什麼」**——剩下判斷邏輯才值得單元測試，什麼都不剩就別寫。`survey.rules.ts` 的四個函式都符合（純判斷、無依賴、不碰 HTTP）：
+- `src/surveys/survey.rules.spec.ts` —— 問卷的商業規則與授權
+- `src/responses/responses.rules.spec.ts` —— 作答的規則（Ch17 輪 ④）
+- `src/common/cors-origins.spec.ts` —— 環境變數的解析與兩個防呆（Ch16）
+
+（**不要在這裡寫「共 N 支」** —— 這份清單本身就是答案。`survey.rules.ts` 的檔頭
+因為維護一個會過期的數字而錯了兩次，這裡不重蹈覆轍。）
+
+判準不是「這段程式碼重不重要」，而是**「拿掉外部依賴之後還剩下什麼」**——剩下判斷邏輯才值得單元測試，什麼都不剩就別寫。下面每一條都符合（純判斷、無依賴、不碰 HTTP）：
+
+`survey.rules.ts`（問卷）
 
 - `canEditQuestions(status)` —— 只有 `DRAFT` 能增刪改題目（Ch3）
 - `canUnpublish(responseCount)` —— 沒有任何填答才能撤回發布（Ch3）
 - `canSubmitResponse(status)` —— 只有 `PUBLISHED` 的問卷能被填答（Ch5）
 - `canManageSurvey(ownerId, user)` —— 擁有者或 `ADMIN` 才能管這份問卷（Ch12）
+- `canSeeSurvey(status, ownerId, user)` —— 看不到就當它不存在（Ch15）
+- `canDelete(responseCount)` —— 已經有人填答就不能刪（Ch17 輪 ②）
+- `canPublish(questionCount)` —— 一題都沒有不能發布（Ch17 輪 ③）
 
-前三條回答「這件事現在能不能做」（→ 409），第四條回答「你能不能碰」（→ 403），而**授權要排在商業規則之前**。
+`responses.rules.ts`（作答，Ch17 輪 ④）
 
-**新規則一律加進 `survey.rules.ts`，不要寫進 service**——寫進 service 就得啟動 Nest 才測得到。加完**回頭改一次那個檔案的檔頭**：它從 Ch5 到 Ch12 一直寫著「兩條商業規則」，漏了七章沒人發現。
+- `isCompleteAnswerSet(questionCount, answerCount)` —— 整份必答
+- `isValidAnswer(type, options, content)` —— 單選題的答案必須是選項之一
+
+「這件事現在能不能做」→ 409、「你能不能碰」→ 403、「你看得到嗎」→ 404，
+而順序是**看得到 → 能不能碰 → 現在能不能做**（完整說明在 `survey.rules.ts` 的檔頭）。
+
+**新規則一律寫成純函式放進 rules 檔案，不要寫進 service**——寫進 service 就得啟動 Nest 才測得到。
+**放哪一個 rules 檔案的判準是「這條規則屬於哪個概念」**，不是「規則都放同一份」——
+Ch17 輪 ④ 因此新開了 `responses.rules.ts`，而不是把作答的規則塞進談問卷的那份。
+加完**回頭改一次那個檔案的檔頭**：`survey.rules.ts` 從 Ch5 到 Ch12 一直寫著「兩條商業規則」，漏了七章沒人發現。
 
 單元測試另一個獨有的價值是**它到得了 e2e 到不了的地方**：`canManageSurvey(null, 一般使用者)` 這個分支要靠「無主問卷」才觸發，而 e2e 的前提資料一律有擁有者，造不出來。
 

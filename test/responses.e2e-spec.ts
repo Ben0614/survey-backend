@@ -71,7 +71,9 @@ interface ErrorBody {
   error: {
     code: string;
     message: string;
-    details?: string[];
+    // Ch15 輪 ③ 把 details: string[] 換成結構化的 fields，這份手寫的介面漏掉了。
+    // 沒有症狀，因為沒有測試用到它 —— 手寫型別會安靜地過期。
+    fields?: { field: string; rule: string }[];
   };
 }
 
@@ -422,6 +424,153 @@ describe('Responses (e2e)', () => {
         .expect(201);
 
       expect(await prisma.response.count()).toBe(1);
+      expect(await prisma.answer.count()).toBe(1);
+    });
+
+    // [教學] 底下五條是 Ch17 輪 ④ 加的，全部圍繞同一件事：
+    // **「這份作答完整嗎、每個答案合法嗎」是 DTO 永遠做不到的檢查。**
+    //
+    // 前提資料都用 prisma 直接建（不走 API），理由見檔頭：
+    // 題目只有 DRAFT 能加、作答只有 PUBLISHED 能送，走 API 就得先建再發布，
+    // 而那不是這幾條要驗的東西。
+    //
+    // 一個共用的小工具：這一組每條都要「一份已發布、有 N 題的問卷」。
+    async function seedPublishedSurvey(
+      titles: { title: string; type: 'TEXT' | 'SINGLE_CHOICE' }[],
+    ) {
+      const survey = await prisma.survey.create({
+        data: { title: '已發布問卷', ownerId: userId, status: 'PUBLISHED' },
+      });
+
+      // 只標得到的最小形狀：這幾條測試需要的只有 id。
+      // 不寫型別的話 TS 會把 [] 推成 never[]，push 進去就編譯不過。
+      const questions: { id: string }[] = [];
+      for (const [index, q] of titles.entries()) {
+        questions.push(
+          await prisma.question.create({
+            data: {
+              surveyId: survey.id,
+              title: q.title,
+              type: q.type,
+              order: index,
+              options: q.type === 'SINGLE_CHOICE' ? ['甲', '乙'] : [],
+            },
+          }),
+        );
+      }
+
+      return { survey, questions };
+    }
+
+    it('一份 3 題的問卷只答 2 題 → 400', async () => {
+      const { survey, questions } = await seedPublishedSurvey([
+        { title: '題目一', type: 'TEXT' },
+        { title: '題目二', type: 'TEXT' },
+        { title: '題目三', type: 'TEXT' },
+      ]);
+
+      const res = await request(app.getHttpServer())
+        .post(`/surveys/${survey.id}/responses`)
+        .set(...authHeader(authToken))
+        .send({
+          answers: [
+            { questionId: questions[0].id, content: '答一' },
+            { questionId: questions[1].id, content: '答二' },
+          ],
+        })
+        .expect(400);
+
+      expect((res.body as ErrorBody).error.code).toBe('BAD_REQUEST');
+      expect(await prisma.response.count()).toBe(0);
+    });
+
+    // ← 這一輪的主角。
+    //
+    // 它是唯一會抓到「以為『題數對得上』就代表『題目都是這份問卷的』、
+    // 於是把歸屬檢查刪掉」那個 bug 的測試 —— 而那個 bug 的症狀是 **201**：
+    // 作答掛在 A 問卷底下，答案卻指向 B 問卷的題目，資料庫一聲都不吭。
+    //
+    // 後半段「沒有寫進任何作答」不能省：只看 400 的話，
+    // 「先寫入再檢查」的實作一樣是 400。
+    it('答案數對得上，但其中一題是別份問卷的 → 400，而且沒有寫進任何作答', async () => {
+      const { survey, questions } = await seedPublishedSurvey([
+        { title: '題目一', type: 'TEXT' },
+        { title: '題目二', type: 'TEXT' },
+      ]);
+
+      // 另一份問卷的題目 —— 它**真的存在**，所以外鍵擋不住它。
+      const other = await seedPublishedSurvey([
+        { title: '別份問卷的題目', type: 'TEXT' },
+      ]);
+
+      const res = await request(app.getHttpServer())
+        .post(`/surveys/${survey.id}/responses`)
+        .set(...authHeader(authToken))
+        .send({
+          // 兩個答案對兩題，數量剛好對得上 —— 但第二個是別份問卷的。
+          answers: [
+            { questionId: questions[0].id, content: '答一' },
+            { questionId: other.questions[0].id, content: '答二' },
+          ],
+        })
+        .expect(400);
+
+      expect((res.body as ErrorBody).error.code).toBe('BAD_REQUEST');
+      expect(await prisma.response.count()).toBe(0);
+      expect(await prisma.answer.count()).toBe(0);
+    });
+
+    it('單選題送一個不在選項裡的內容 → 400', async () => {
+      const { survey, questions } = await seedPublishedSurvey([
+        { title: '你選哪一個', type: 'SINGLE_CHOICE' },
+      ]);
+
+      const res = await request(app.getHttpServer())
+        .post(`/surveys/${survey.id}/responses`)
+        .set(...authHeader(authToken))
+        .send({
+          answers: [{ questionId: questions[0].id, content: '隨便打的' }],
+        })
+        .expect(400);
+
+      expect((res.body as ErrorBody).error.code).toBe('BAD_REQUEST');
+      expect(await prisma.response.count()).toBe(0);
+    });
+
+    it('單選題送選項裡的內容 → 201', async () => {
+      const { survey, questions } = await seedPublishedSurvey([
+        { title: '你選哪一個', type: 'SINGLE_CHOICE' },
+      ]);
+
+      await request(app.getHttpServer())
+        .post(`/surveys/${survey.id}/responses`)
+        .set(...authHeader(authToken))
+        .send({
+          answers: [{ questionId: questions[0].id, content: '甲' }],
+        })
+        .expect(201);
+
+      expect(await prisma.answer.count()).toBe(1);
+    });
+
+    // 這條看起來像廢話，它守的是**規則沒有誤擋**：
+    // isValidAnswer 若忘了先分岔 type，簡答題的 options 是空陣列，
+    // `[].includes(任何東西)` 永遠是 false —— 所有簡答作答都會被擋下來。
+    it('簡答題送任意內容 → 201，不受選項規則影響', async () => {
+      const { survey, questions } = await seedPublishedSurvey([
+        { title: '你想說什麼', type: 'TEXT' },
+      ]);
+
+      await request(app.getHttpServer())
+        .post(`/surveys/${survey.id}/responses`)
+        .set(...authHeader(authToken))
+        .send({
+          answers: [
+            { questionId: questions[0].id, content: '這句話不在任何選項裡' },
+          ],
+        })
+        .expect(201);
+
       expect(await prisma.answer.count()).toBe(1);
     });
   });
