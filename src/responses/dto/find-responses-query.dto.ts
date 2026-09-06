@@ -3,15 +3,19 @@
 //
 // 什麼時候被執行：每次有人打 GET /surveys/:surveyId/responses 時。
 //
-// 內容就是 find-surveys-query.dto.ts 的前半段（只有分頁，沒有排序與篩選），
+// 內容是 find-surveys-query.dto.ts 的一部分（分頁 + 排序方向，沒有 sort 與篩選），
 // 所以下面那些註解是從那邊搬過來的，機制完全一樣。
+//
+// **order 是 Ch17 輪 ⑤b 才加的**，而且刻意只加 order 沒有加 sort：
+// Response 只有 createdAt 一個可排序的欄位，給一個只有單一合法值的參數
+// 是假的彈性 —— 前端看到 sort 會以為有得選。
 //
 // **為什麼不直接共用 FindSurveysQueryDto**：它的 sort 白名單寫的是
 // ['createdAt', 'title'] —— 那是 Survey 的欄位，而 Response 根本沒有 title。
 // 共用會讓 ?sort=title 通過驗證、然後在執行期炸成 500（ch04 ② 坑 #8 的形狀）。
 // **白名單是綁定在特定資料表上的，不能跨表借用。**
 //
-// 下一站：src/responses/entities/response.entity.ts（三支端點回三種形狀）
+// 下一站：src/responses/entities/response.entity.ts（每支端點回自己的形狀）
 // ============================================================
 
 import { ApiPropertyOptional } from '@nestjs/swagger';

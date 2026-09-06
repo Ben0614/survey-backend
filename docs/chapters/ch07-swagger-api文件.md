@@ -94,6 +94,11 @@ Swagger 只認得 **class**（執行期才有東西可以讀 metadata），
 | --- | --- | --- |
 | `POST /surveys/:surveyId/responses` | `{ id, surveyId, createdAt }` | `ResponseEntity` |
 | `GET /surveys/:surveyId/responses` | 同上（列表刻意不帶 answers） | `ResponseEntity` |
+
+> ⚠️ **上表是 Ch7 當時的契約，其中一列已經被推翻**：`GET /surveys/:surveyId/responses`
+> 在 **Ch17 輪 ⑤b** 改成帶著 `answers`（回 `ResponseListItemEntity`），因為不帶的代價是
+> 前端每一筆再打一次 `/responses/:id`。理由見 [`ch17`](ch17-五個功能頁面.md)。
+> 這一列留著不改 —— 章節文件記的是那一章的現場，但**過期的地方要標出來**。
 | `GET /responses/:id` | 多一層 `answers[]`，每筆再帶 `question` | `ResponseDetailEntity` |
 
 照著 `schema.prisma` 抄一份含 `answers` 的 entity 然後三支都標它，

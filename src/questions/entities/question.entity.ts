@@ -8,7 +8,7 @@
 //   POST /surveys/:surveyId/questions   QuestionEntity
 //   PATCH / DELETE /questions/:id       QuestionEntity
 //
-// 對照 response.entity.ts：那邊三支端點回三種形狀，所以有三個 class。
+// 對照 response.entity.ts：那邊每支端點回自己的形狀，所以有好幾個 class。
 // **判準是「回應的形狀」，不是「資料表」** —— 剛好一樣才共用。
 //
 // 下一站：src/questions/questions.service.ts（通過檢查之後誰來處理）

@@ -1,20 +1,29 @@
 // ============================================================
-// [教學] response.entity.ts —— 同一張資料表，三支端點回三種形狀
+// [教學] response.entity.ts —— 同一張資料表，每支端點回自己的形狀
 //
 // 什麼時候被執行：**執行期永遠不會**（理由見 survey.entity.ts 檔頭）。
 //
 // 這個檔案是「entity 對應的是一次回應的形狀，不是一張資料表」最清楚的例子：
 //
-//   POST /surveys/:surveyId/responses   ResponseEntity        create 沒有 include，不帶 answers
-//   GET  /surveys/:surveyId/responses   ResponseEntity        列表刻意不帶 answers（見 service）
-//   GET  /responses/:id                 ResponseDetailEntity  include answers，每筆再 include question
+//   POST /surveys/:surveyId/responses   ResponseEntity          create 沒有 include，不帶 answers
+//   GET  /surveys/:surveyId/responses   ResponseListItemEntity  帶 answers，但 answers 不含 question
+//   GET  /responses/:id                 ResponseDetailEntity    帶 answers，每筆再 include question
+//
+// ⚠️ **這份對照表在 Ch17 輪 ⑤b 改過一次，而它原本寫的是假的。**
+// 原本第二行寫「ResponseEntity —— 列表刻意不帶 answers」，那是輪 ⑤b 之前的事實；
+// 輪 ⑤b 讓列表帶上 answers（消掉前端的 N+1），這裡就過期了。
+// **檔頭裡的對照表跟程式碼一樣會過期**，而且它比程式碼更容易被先讀到。
+//
+// 三種形狀的差別不是「帶不帶關聯」，是**帶多深**：
+// 列表那份的 answers 只有 { id, questionId, content } —— 題目屬於問卷，
+// 不屬於每一筆填答，帶著它會讓題目文字在每一筆裡重複一次。
 //
 // 照著 schema.prisma 抄一份含 answers 的 entity 然後三支都標它，
 // 症狀是前端看文件寫 res.answers.length，打 POST 之後拿到 undefined 直接 crash ——
 // 文件說有那個欄位，實際上沒有。這條規則在 DTO 那一側已經講過一次
 // （create-survey.dto.ts 檔頭：DTO 跟 Model 是兩件事，刻意不共用）。
 //
-// 下一站：src/responses/responses.service.ts（通過檢查之後誰來處理）
+// 下一站：src/responses/entities/summary.entity.ts（摘要那一支的形狀，Ch17 輪 ⑤a）
 // ============================================================
 
 import { ApiProperty } from '@nestjs/swagger';

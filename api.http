@@ -450,3 +450,108 @@ Authorization: Bearer {{token}}
 ### Ch7：OpenAPI 規格本身。/docs 是給人看的網頁，這個是給機器讀的
 ### Ch13 的 openapi-typescript 吃的就是這一份 —— spec 裡缺什麼，前端那邊就是 any
 GET {{host}}/docs-json
+
+### ============================================================
+### Ch17 —— 串接五個頁面時發現並修掉的 API 問題
+###
+### 這一章的每一支都是「做那一頁的時候才撞到」的，e2e 全綠也抓不到。
+### 順序照輪次，每一段開頭那句就是「在此之前是什麼樣子」。
+### ============================================================
+
+### 輪 ③：**整份取代**一份問卷的題目。順序就是陣列的順序。
+###
+### 在此之前：改標題、改題、加題、刪題各一支端點，一份 N 題的問卷要打 1 + N 次
+### 請求而且不是原子的；而且 order 完全改不了（CreateQuestionDto 刻意沒有它）。
+###
+### ⚠️ 回來的題目 **id 全是新的** —— 這一支是全刪重建，舊 id 一個都不能再用。
+PUT {{host}}/surveys/{{surveyId}}/questions
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{
+  "questions": [
+    { "title": "整體滿意度", "type": "SINGLE_CHOICE", "options": ["滿意", "普通", "不滿意"] },
+    { "title": "還有什麼想說的", "type": "TEXT", "options": [] }
+  ]
+}
+
+### 送空陣列 → 200，等於把題目清空（不是錯誤，是明確的意思）
+PUT {{host}}/surveys/{{surveyId}}/questions
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{ "questions": [] }
+
+### 已發布的問卷 → 409（只有 DRAFT 能改題目，Ch3 的規則）
+### 先跑上面的「公開問卷」再打這一支才看得到
+PUT {{host}}/surveys/{{surveyId}}/questions
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{ "questions": [{ "title": "想偷改", "type": "TEXT", "options": [] }] }
+
+### 輪 ③：**一題都沒有的問卷不能發布** → 409
+###
+### 在此之前 publish 只檢查擁有權，空問卷可以直接上架、出現在「可以填的」清單裡，
+### 點進去一片空白 —— 沒有錯誤，只是沒有東西。
+### 用上面那個「送空陣列」把題目清空之後打這一支就會看到。
+PATCH {{host}}/surveys/{{surveyId}}/publish
+Authorization: Bearer {{token}}
+
+### 輪 ④：**沒答完全部題目** → 400
+###
+### 在此之前驗證只有 @ArrayNotEmpty()，一份 10 題的問卷送一題就成立。
+### 後果延到結果頁才爆：算百分比時分母到底是填答人數還是這題的作答數？
+POST {{host}}/surveys/{{surveyId}}/responses
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{
+  "answers": [
+    { "questionId": "{{questionId}}", "content": "滿意" }
+  ]
+}
+
+### 輪 ④：**單選題的答案不在選項裡** → 400
+###
+### 在此之前 content 只有 @IsString @MaxLength(500)，
+### 送一句自由文字給單選題也會被存起來，結果頁會多出一個沒人認得的分類。
+POST {{host}}/surveys/{{surveyId}}/responses
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{
+  "answers": [
+    { "questionId": "{{questionId}}", "content": "這不是任何一個選項" },
+    { "questionId": "{{questionId2}}", "content": "簡答題不受這條規則影響" }
+  ]
+}
+
+### 輪 ⑤a：填答摘要。**刻意不分頁** —— 統計需要全部，而分頁是為了「不給你全部」。
+###
+### 不分頁不等於把資料搬回來：它用 GROUP BY 在資料庫算完才回，
+### 回傳量只跟「有幾題、幾個選項」有關，跟填答數無關。
+###
+### ⚠️ 看回應裡**沒有人選的那個選項 count 是不是 0** ——
+### groupBy 只回出現過的值，那一組零票的必須由 service 自己補回來。
+GET {{host}}/surveys/{{surveyId}}/responses/summary
+Authorization: Bearer {{token}}
+
+### 輪 ⑤b：逐筆填答。**現在帶著 answers 了。**
+###
+### 在此之前回的是 { id, surveyId, createdAt } —— 一串時間戳，
+### 前端要顯示內容得對每一筆再打 GET /responses/:id（十筆就是十一次請求）。
+###
+### answers 裡**沒有 question** —— 題目屬於問卷，不屬於每一筆填答。
+GET {{host}}/surveys/{{surveyId}}/responses?page=1&pageSize=5
+Authorization: Bearer {{token}}
+
+### 輪 ⑤b：order=asc → 最舊的排在前面（在此之前 orderBy 是寫死的 desc）
+GET {{host}}/surveys/{{surveyId}}/responses?order=asc
+Authorization: Bearer {{token}}
+
+### order 不是 asc/desc → **400 而不是 500**
+### 沒有白名單的話 orderBy: { createdAt: 'cac' } 會讓 Prisma 丟例外 →
+### 使用者輸入造成 500，一律算 bug（同 Ch4 的 ?sort=name）
+GET {{host}}/surveys/{{surveyId}}/responses?order=cac
+Authorization: Bearer {{token}}

@@ -1,12 +1,13 @@
 // ============================================================
-// [教學] survey-responses.controller.ts —— 掛在問卷底下的那兩支路由
+// [教學] survey-responses.controller.ts —— 掛在問卷底下的那幾支路由
 //
 // 什麼時候被執行：請求打到 /surveys/:surveyId/responses 時。
 //
 // 為什麼作答要拆成兩個 controller（跟 questions 同一套判準）：
 //   **需要知道「是哪一份問卷」的操作** → 巢狀路由，放這裡
-//     POST   /surveys/:surveyId/responses   提交（要知道填的是哪份）
-//     GET    /surveys/:surveyId/responses   列表（要知道看哪份的）
+//     POST   /surveys/:surveyId/responses           提交（要知道填的是哪份）
+//     GET    /surveys/:surveyId/responses           列表（要知道看哪份的）
+//     GET    /surveys/:surveyId/responses/summary   摘要（Ch17 輪 ⑤a）
 //   **已經知道自己 id 的操作** → 扁平路由，放 responses.controller.ts
 //     GET    /responses/:id
 //
