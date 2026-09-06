@@ -22,7 +22,13 @@
 // 下一站：src/swagger.ts（同樣由 main.ts 呼叫，但它產出的是「文件」而不是行為）
 // ============================================================
 
-import { INestApplication, ValidationPipe } from '@nestjs/common';
+import {
+  BadRequestException,
+  INestApplication,
+  ValidationPipe,
+} from '@nestjs/common';
+import { ValidationError } from 'class-validator';
+import { flattenValidationErrors } from './common/field-errors';
 import { AllExceptionsFilter } from './common/filters/all-exceptions.filter';
 
 /**
@@ -34,6 +40,24 @@ export function setupApp(app: INestApplication): INestApplication {
   // 裝飾器去檢查請求內容，不合格就直接回 400，controller 完全不會被呼叫。
   app.useGlobalPipes(
     new ValidationPipe({
+      // [教學] exceptionFactory 接管「ValidationError[] → 例外」這一步（Ch15 輪 ③）。
+      //
+      // 預設的 factory 會把那棵樹攤平成**字串陣列**
+      //（["password must be longer than or equal to 8 characters"]），
+      // 而字串一旦產生，欄位名與規則名就黏在句子裡拆不開了 ——
+      // 前端要標紅輸入框只能去解析英文。
+      //
+      // 所以要在**字串產生之前**接手，直接從 ValidationError 取結構
+      //（見 common/field-errors.ts）。
+      //
+      // 丟出去的 payload 帶一個 fields —— filter 靠它認出「這是驗證錯誤」，
+      // 而不是像以前那樣靠 Array.isArray(message)。那個判斷比較明確：
+      // service 自己丟的 BadRequestException 沒有 fields，不會被誤認。
+      exceptionFactory: (errors: ValidationError[]) =>
+        new BadRequestException({
+          fields: flattenValidationErrors(errors),
+        }),
+
       // DTO 沒宣告的欄位直接丟掉（不是報錯，是無聲移除）。
       // 這是實質的安全措施：沒有它，前端多送一個 status: 'PUBLISHED'
       // 就會被原封不動塞進 prisma.create()，繞過「只有發布中的問卷能填答」這類規則。

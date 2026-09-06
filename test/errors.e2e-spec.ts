@@ -32,7 +32,7 @@ interface ErrorBody {
   error: {
     code: string;
     message: string;
-    details?: string[];
+    fields?: { field: string; rule: string }[];
   };
 }
 
@@ -84,7 +84,7 @@ describe('錯誤回應格式 (e2e)', () => {
     expect(res.body).not.toHaveProperty('statusCode');
   });
 
-  it('驗證失敗時 code 是 VALIDATION_FAILED，details 列出每一條錯誤', async () => {
+  it('驗證失敗時 fields 逐欄列出，格式是 { field, rule }', async () => {
     const res = await request(app.getHttpServer())
       .post('/surveys')
       .set(...authHeader(authToken))
@@ -93,11 +93,77 @@ describe('錯誤回應格式 (e2e)', () => {
 
     const body = res.body as ErrorBody;
     expect(body.error.code).toBe('VALIDATION_FAILED');
-    // [教學] 這一條是這一章的核心：message **一律是字串**。
+    // [教學] 這一條是 Ch6 的核心：message **一律是字串**。
     // 改格式之前它在這種情況下是陣列、在其他情況是字串，前端每次都得先判斷型別。
     expect(typeof body.error.message).toBe('string');
-    expect(Array.isArray(body.error.details)).toBe(true);
-    expect(body.error.details?.length).toBeGreaterThan(0);
+
+    // [教學] Ch15 輪 ③ 之後，逐條細節從「英文句子陣列」換成結構化的欄位清單。
+    //
+    // 只斷言「是陣列而且非空」不夠 —— 那樣 fields 變成 [{}] 也會綠。
+    // 要驗到 field 與 rule 的值，才證明 exceptionFactory 真的取到了結構。
+    //
+    // 但也不能用 toEqual 綁死整個陣列：title 有三個驗證裝飾器
+    //（@IsString / @IsNotEmpty / @MaxLength），而**順序由 class-validator 決定**。
+    // 綁死的話，哪天加一條規則或它換了順序，這條測試就會為了不相干的理由紅。
+    expect(body.error.fields).toContainEqual({
+      field: 'title',
+      rule: 'isNotEmpty',
+    });
+
+    // 每一筆的 field 都該是 title —— 這一條抓的是「攤平時把欄位名弄丟」。
+    expect(body.error.fields?.every((f) => f.field === 'title')).toBe(true);
+  });
+
+  // [教學] 巢狀的驗證錯誤要攤平成完整路徑（answers.0.questionId）。
+  // 單層的錯誤抓不到遞迴寫錯 —— 這一條是 flattenValidationErrors 的偵測器。
+  it('巢狀欄位的 field 是完整路徑，例如 answers.0.questionId', async () => {
+    // 用 API 建而不是 prisma —— 這個檔案沒有 userId 變數，
+    // 而走 POST /surveys 的話 ownerId 會從 token 自動填上（Ch10）。
+    // 前提資料只要「存在且是我的」，用哪一種方式建都可以。
+    const created = await request(app.getHttpServer())
+      .post('/surveys')
+      .set(...authHeader(authToken))
+      .send({ title: '巢狀驗證用' })
+      .expect(201);
+
+    const surveyId = (created.body as { id: string }).id;
+
+    const res = await request(app.getHttpServer())
+      .post(`/surveys/${surveyId}/responses`)
+      .set(...authHeader(authToken))
+      .send({ answers: [{ questionId: '', content: 123 }] })
+      .expect(400);
+
+    const body = res.body as ErrorBody;
+    const paths = body.error.fields?.map((f) => f.field) ?? [];
+
+    expect(paths).toContain('answers.0.questionId');
+    expect(paths).toContain('answers.0.content');
+  });
+
+  // [教學] 409 以前只說「資料已存在」，前端連是哪個欄位重複都不知道。
+  //
+  // 這條斷言到值（不只是「有 fields」）是刻意的：欄位名藏在
+  // meta.driverAdapterError.cause.constraint.fields —— **Prisma 7 的內部結構**，
+  // 升級版本就可能變。變了的話 extractConflictFields 回 undefined，
+  // 而只驗「有沒有 fields」的測試在那時候不會紅。
+  it('P2002 衝突時 fields 是 [{ field: email, rule: unique }]', async () => {
+    const email = 'conflict-probe@example.com';
+    const password = 'zxcv1234';
+
+    await request(app.getHttpServer())
+      .post('/auth/register')
+      .send({ email, password })
+      .expect(201);
+
+    const res = await request(app.getHttpServer())
+      .post('/auth/register')
+      .send({ email, password })
+      .expect(409);
+
+    const body = res.body as ErrorBody;
+    expect(body.error.code).toBe('CONFLICT');
+    expect(body.error.fields).toEqual([{ field: 'email', rule: 'unique' }]);
   });
 
   it('商業規則衝突時 code 是 CONFLICT，message 是 service 寫的那句中文', async () => {
@@ -157,7 +223,7 @@ describe('錯誤回應格式 (e2e)', () => {
     expect(body.error.message).toBe('有重複的題目ID');
     // 這一條 400 不是驗證失敗，所以**不該有 details 欄位**。
     // 混成一種的話前端會去讀 details 準備標紅欄位，拿到 undefined → 畫面空白。
-    expect(body.error.details).toBeUndefined();
+    expect(body.error.fields).toBeUndefined();
   });
 
   it('成功的回應完全不受影響，body 沒有 error 欄位', async () => {

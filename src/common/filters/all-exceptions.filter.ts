@@ -22,6 +22,7 @@ import {
 } from '@nestjs/common';
 import type { Response } from 'express';
 import { Prisma } from '../../generated/prisma/client';
+import { extractConflictFields, FieldError } from '../field-errors';
 
 // [教學] 狀態碼 → code 的對照表，寫成白名單。
 //
@@ -110,7 +111,7 @@ export class AllExceptionsFilter implements ExceptionFilter {
     let status: number;
     let code: string;
     let message: string;
-    let details: string[] | undefined;
+    let fields: FieldError[] | undefined;
 
     // [教學] 先把「這是不是一個我認得的 Prisma 錯誤」算成兩個區域變數，
     // 再拿它當分支條件 —— 而不是直接寫 if (exception instanceof Prisma...)。
@@ -157,6 +158,16 @@ export class AllExceptionsFilter implements ExceptionFilter {
       code = STATUS_TO_CODE[status] ?? FALLBACK_CODE;
       message = prismaError.message;
 
+      // 唯一約束衝突時補上「是哪個欄位重複」（Ch15 輪 ③）。
+      // filter 只把欄位名交出去 —— 文案是前端的事，而只有前端知道
+      // 這個畫面該說「這個 Email 已經註冊過了」還是別的。
+      //
+      // 取不到就是 undefined，409 照樣回。那個路徑是 Prisma 7 的內部結構，
+      // 不能讓它把一個 409 變成 500（理由見 field-errors.ts）。
+      if (exception instanceof Prisma.PrismaClientKnownRequestError) {
+        fields = extractConflictFields(exception);
+      }
+
       // [教學] 翻譯成功了還是要留一筆 log —— 用 warn 不是 error。
       //
       // 理由是這支分支的定位：它是**安全網，不是主要防線**（輪 1 拍板的決定 3）。
@@ -193,6 +204,15 @@ export class AllExceptionsFilter implements ExceptionFilter {
           ? payload
           : (payload as { message?: string | string[] }).message;
 
+      // Ch15 輪 ③ 之後，ValidationPipe 丟的 payload 帶一個 fields
+      //（見 setup-app.ts 的 exceptionFactory）。用它認出「這是驗證錯誤」，
+      // 比原本的 Array.isArray(message) 明確：service 自己丟的
+      // BadRequestException 沒有 fields，不會被誤認成 VALIDATION_FAILED。
+      const validationFields =
+        typeof payload === 'object' && payload !== null
+          ? (payload as { fields?: FieldError[] }).fields
+          : undefined;
+
       // [教學] 這個 if 是整支 filter 最容易寫錯的地方。
       //
       // ValidationPipe 的 400 跟 service 丟的 BadRequestException **狀態碼一樣、
@@ -204,14 +224,20 @@ export class AllExceptionsFilter implements ExceptionFilter {
       // 混成一種的後果：前端拿到 VALIDATION_FAILED 就會去讀 details 準備標紅欄位，
       // 結果 details 是 undefined → 畫面空白，而**狀態碼完全正確、沒有任何錯誤訊息**。
       // e2e 的「service 丟的 400 code 是 BAD_REQUEST」就是專門抓這個的。
-      if (Array.isArray(raw)) {
+      if (validationFields) {
+        code = VALIDATION_CODE;
+        message = VALIDATION_MESSAGE;
+        fields = validationFields;
+      } else if (Array.isArray(raw)) {
+        // 保險：Nest 內建的例外（例如 ParseIntPipe）也可能給字串陣列，
+        // 那些沒經過我們的 exceptionFactory，欄位路徑就只能留空。
         code = VALIDATION_CODE;
 
         // message 一律是「一句給人看的字串」，逐條細節搬到 details。
         // 改成這樣的理由：原本 message 這個欄位在驗證錯誤是陣列、其他錯誤是字串，
         // 前端每次都得先判斷自己拿到的是哪一種。
         message = VALIDATION_MESSAGE;
-        details = raw;
+        fields = raw.map((rule) => ({ field: '', rule }));
       } else {
         code = STATUS_TO_CODE[status] ?? FALLBACK_CODE;
         message = typeof raw === 'string' ? raw : FALLBACK_MESSAGE;
@@ -246,7 +272,7 @@ export class AllExceptionsFilter implements ExceptionFilter {
     // 注意不能寫成 ...details：details 是陣列，展開陣列到物件裡會變成
     // { 0: 'a', 1: 'b' }。展開的必須是物件。
     res.status(status).json({
-      error: { code, message, ...(details ? { details } : {}) },
+      error: { code, message, ...(fields ? { fields } : {}) },
     });
   }
 }

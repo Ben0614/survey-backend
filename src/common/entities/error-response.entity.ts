@@ -18,6 +18,29 @@
 
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 
+/**
+ * 一筆「哪個欄位違反哪條規則」。對應 common/field-errors.ts 的 FieldError。
+ *
+ * 這是給**機器**看的，跟 message 的分工很清楚：
+ *   message  給人看，可能隨版本變動，前端不要解析它
+ *   field    給程式看，前端拿它標紅對應的輸入框
+ *   rule     給程式看，前端拿它查自己的文案表
+ */
+export class FieldErrorEntity {
+  @ApiProperty({
+    description: '出錯的欄位路徑；巢狀時是完整路徑',
+    example: 'answers.0.questionId',
+  })
+  field: string;
+
+  @ApiProperty({
+    description:
+      '違反的規則名。驗證失敗時是 class-validator 的裝飾器名，唯一衝突時是 unique',
+    example: 'minLength',
+  })
+  rule: string;
+}
+
 export class ErrorBodyEntity {
   // enum 用寫死的清單，不是從 filter import 常數過來 ——
   // 那些常數在 filter 裡是幾個獨立的變數（STATUS_TO_CODE 的值、
@@ -59,12 +82,22 @@ export class ErrorBodyEntity {
 
   // details 只有 ValidationPipe 那條路徑會出現（filter 的 ...(details ? ... : {})），
   // 所以是選填 —— 404 / 409 的回應裡根本沒有這個 key。
+  // [教學] type: [FieldErrorEntity] 不能省 —— 陣列的元素型別**反射記不到**
+  // （design:type 只會記成 Array）。這是 Ch13 那條判準的另一面：
+  // 聯集要自己寫 type，陣列也要。
+  //
+  // 兩種錯誤都會有它，而且形狀一樣：
+  //   VALIDATION_FAILED  [{ field: 'password', rule: 'minLength' }]
+  //   CONFLICT           [{ field: 'email',    rule: 'unique' }]
+  //
+  // 這是刻意的：前端一套邏輯處理兩者。改之前 details 只有驗證失敗會有，
+  // 而 409 連哪個欄位衝突都沒說。
   @ApiPropertyOptional({
-    description: '驗證失敗時每條規則的訊息，只有 400 VALIDATION_FAILED 會有',
-    type: [String],
-    example: ['title should not be empty'],
+    description:
+      '出錯的欄位清單。驗證失敗（400）與唯一衝突（409）會有，其餘錯誤沒有',
+    type: [FieldErrorEntity],
   })
-  details?: string[];
+  fields?: FieldErrorEntity[];
 }
 
 export class ErrorResponseEntity {
