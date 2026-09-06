@@ -16,7 +16,7 @@
 // swagger 產出的是一份 JSON → 文件 → 留在 main.ts。
 //
 // 而那個判準是**測試逼出來的**：走 Test.createTestingModule() 的 e2e 不會執行
-// main.ts，enableCors 放那裡的話 test/cors.e2e-spec.ts 三條會全部拿不到標頭 ——
+// main.ts，enableCors 放那裡的話 test/cors.e2e-spec.ts 會全部拿不到標頭 ——
 // CORS 就成了一個沒有測試守著的設定。
 //
 // **Ch16 把 CORS 的白名單改成從環境變數來**，而那件事又補了一條通則：

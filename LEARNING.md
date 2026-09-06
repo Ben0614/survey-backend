@@ -16,11 +16,11 @@
 > 換機或開新對話時**先讀這一節**。對話歷史與 AI 記憶都在 `~/.claude/` 底下，不跟 git 走 ——
 > 這裡沒寫的東西，換一台機器就等於沒發生過。
 
-**進度：** Ch0 ~ Ch15 完成。**階段三只剩 Ch16 ~ Ch17。**
+**進度：** Ch0 ~ Ch16 完成。**階段三只剩 Ch17 ~ Ch18。**
 線上位址 `https://survey-backend-0dku.onrender.com`（Render 免費方案 + Neon 的 `production` branch）。
-`pnpm test:e2e` **147 passed**、`pnpm test` **15 passed**、`tsc --noEmit` 0 errors、`lint` 0 problems。
+`pnpm test:e2e` **148 passed**、`pnpm test` **21 passed**、`tsc --noEmit` 0 errors、`lint` 0 problems。
 
-下一步是 **Ch16（環境變數分離與 production build）**，接續點在下方「**Ch16 接續點**」。
+下一步是 **Ch17（五個功能頁面）**，接續點在下方「**Ch17 接續點**」。
 
 **⚠️ Ch13 起換一個 repo。** 前端是獨立的 **Nuxt 4** 專案（`survey-frontend`），
 跟這個並排放在 `Desktop/train/survey/` 底下，不是這個目錄的子資料夾。
@@ -641,15 +641,15 @@ Ch8 留下的「`/docs` 要不要公開」因此變成一個真正的選擇，
 
 ---
 
-### Ch16 接續點（2026-09-06）
+### Ch17 接續點（2026-09-06）
 
-**目前狀態**：`pnpm test:e2e` **147 passed**、`pnpm test` **15 passed**、
-`tsc --noEmit` 0 errors、`eslint` 0 problems。**Ch0 ~ Ch15 完成。**
+**目前狀態**：`pnpm test:e2e` **148 passed**、`pnpm test` **21 passed**、
+`tsc --noEmit` 0 errors、`eslint` 0 problems。**Ch0 ~ Ch16 完成。**
 
 > **階段三的兩層不一樣**：程式碼寫在**另一個 repo**，而且**那些程式碼由 AI 寫**。
 > 每一章的驗收標準是**後端的交付物** —— 這一節記的是後端留下了什麼、還缺什麼。
 
-#### Ch13 ~ Ch15 做完了什麼
+#### Ch13 ~ Ch16 做完了什麼
 
 **Ch13 契約驗收** — [`ch13`](docs/chapters/ch13-契約驗收.md)
 修掉 `ownerId` 的聯集型別與 `order` 不成立的 `default`；契約有 401 的端點 2 → 16。
@@ -664,19 +664,34 @@ Ch8 留下的「`/docs` 要不要公開」因此變成一個真正的選擇，
 統一的欄位級錯誤（`fields` 取代 `details`）。
 **三個問題 e2e 都抓不到 —— 要有人真的去用才會撞到。** 那正是階段三存在的理由。
 
-前端現在能：註冊、登入、reload 之後靠 `/auth/me` 還原身分、登出。
+**Ch16 環境變數分離與 production build** — [`ch16`](docs/chapters/ch16-環境變數分離.md)
+兩輪：CORS 的白名單改成從 `CORS_ORIGIN` 來（拿不到就**啟動失敗**）、前端 `.env.example`
+與第一次 `pnpm build`。主題其實是**「設定值來自外部，就要決定外部沒給怎麼辦」**，
+而判準是**預設值安不安全** —— 所以後端選大聲失敗、前端選退回預設值，同一條判準兩個答案。
+
+前端現在能：註冊、登入、reload 之後靠 `/auth/me` 還原身分、登出，
+而且整條鏈**在 production 產物（`pnpm preview`）上驗過**，不只是 `pnpm dev`。
 `/surveys` 仍是**佔位頁**（只顯示身分與登出）。
 
-#### Ch16 的起點
+#### Ch17 的起點
 
-主題是**環境變數分離與 production build**，驗收標準見進度表。三件事已經知道了：
+主題是**五個功能頁面**，一頁一輪：`/surveys`（列表 + ADMIN 才看得到的刪除）、
+`/surveys/new`、`/surveys/:id/edit`、`/surveys/:id/fill`、`/surveys/:id/result`。
+**驗收標準是後端的交付物** —— 頁面由 AI 寫，重點在「做這一頁的時候，API 哪裡不好用」。
 
-1. **線上的 CORS origin 還是 `http://localhost:3000`**（Ch14 輪 ① 寫死的）。
-   前端要接 `NUXT_PUBLIC_API_BASE`，後端要接一個 origin 的環境變數 ——
-   `runtimeConfig` 那一側前端已經備好了，加 `.env` 就生效，不必改程式碼。
-2. **前端還沒有 production build 跑過。** `pnpm build` 從來沒執行過，
-   而 SSR 的產物跟 `pnpm dev` 的行為可能不同（例如 `useCookie` 那個 tick 競態就是只在瀏覽器發生的）。
-3. **`.env.example` 只有後端有。** 前端需要一份，否則換機時不知道要建哪些變數。
+已經知道會撞到的四件事：
+
+1. **`GET /surveys` 的第四種分類「我填過的」還沒做**（見下面那三件事的第 1 條）。
+   `/surveys` 那一輪要決定它算不算這一章的範圍。
+2. **`/surveys/:id/edit` 會同時撞到 403 與 409**：擁有權（Ch12/Ch15）與
+   「`DRAFT` 才能改題目」（Ch5）。前端要分辨得出這兩種失敗，而它們的 `code` 不同。
+3. **`/surveys/:id/result` 會考驗分頁參數好不好用**（Ch4 定的 `page` / `pageSize` / `sort`）。
+   前十六章沒有任何人真的拿它做過一個分頁 UI。
+4. **每個頁面都會需要 `fields` 標紅輸入框**（Ch15 輪 ③ 的產出）。
+   `stores/notification.ts` 現在只顯示一句通用訊息，那裡留了一段註解說明接法。
+
+環境已經備好，Ch17 開工前**不必**再處理設定：`.env` 兩邊都有範本、
+`pnpm build` 通過、前端的 `apiBase` 走環境變數。
 
 #### 留給之後的三件事（都不急，但別忘了）
 
@@ -686,6 +701,7 @@ Ch8 留下的「`/docs` 要不要公開」因此變成一個真正的選擇，
 3. **`common/field-errors.ts` 的兩個純函式沒有單元測試。** e2e 蓋到了主要路徑
    （而且突變測試證明有效），但 `flattenValidationErrors` 的邊界（空 children、多層巢狀）
    用單元測試更好測 —— 它符合「拿掉外部依賴之後還剩下判斷邏輯」那條判準。
+   **Ch16 的 `cors-origins.spec.ts` 就是同一條判準的第二個現場**，照著它寫即可。
 
 #### 兩個 repo 怎麼分工（2026-09-03 定的）
 
@@ -769,11 +785,11 @@ GET  /docs、/docs-json     ← 這兩支不經過 Nest 的管線，guard 攔不
 | 網址 | `https://survey-backend-0dku.onrender.com` |
 | 平台 | Render 免費方案，Region Singapore，接 GitHub `main`（push 就自動重新部署） |
 | 資料庫 | Neon 的 `production` branch |
-| 環境變數 | `DATABASE_URL` + `JWT_SECRET` / `JWT_EXPIRES_IN` |
+| 環境變數 | `DATABASE_URL` + `JWT_SECRET` / `JWT_EXPIRES_IN` + `CORS_ORIGIN`（Ch16）。**三個都拿不到就啟動失敗** |
 | `/docs` | 公開（Ch10 重新評估後維持，理由見 `ch10`） |
 | 認證 | 除了上面那四支之外全部要帶 JWT |
 | 授權 | 刪問卷要 `ADMIN`；改問卷／題目、看填答結果要**擁有者或 `ADMIN`**。線上還沒有任何 admin |
-| CORS | ✅ Ch14 設定好了（`setup-app.ts`，白名單 `http://localhost:3000`，不開 credentials）。<br>⚠️ 線上那份的 origin 還是 localhost —— **依環境切換是 Ch16 的驗收標準** |
+| CORS | ✅ 白名單來自環境變數 `CORS_ORIGIN`（Ch16；逗號分隔，不開 credentials）。<br>線上目前填 `http://localhost:3000` —— **Ch18 部署前端時換成真的網址** |
 
 #### 後端還沒完 —— 前端一定會推著它改
 
@@ -784,13 +800,14 @@ GET  /docs、/docs-json     ← 這兩支不經過 Nest 的管線，guard 攔不
 
 `setup-app.ts` 的 `enableCors`：白名單 `http://localhost:3000`、
 `allowedHeaders: ['Content-Type', 'Authorization']`、**不開 credentials**。
-三條測試守著（`test/cors.e2e-spec.ts`）。完整記錄見 [`ch14`](docs/chapters/ch14-認證串接.md)。
+`test/cors.e2e-spec.ts` 守著。完整記錄見 [`ch14`](docs/chapters/ch14-認證串接.md)。
 
 留下來的那句話仍然值得記住 —— 它是這一類問題的通用症狀：
 **Console 一片紅 `Failed to fetch`，但 `curl` 或 `api.http` 打完全正常。**
 那兩個不是瀏覽器、沒有同源政策。撞到這個先想 CORS，不要去改 guard 或 service。
 
-⚠️ **線上那份的 origin 還是 `localhost:3000`** —— 依環境切換是 Ch16 的驗收標準。
+✅ **Ch16 改成從環境變數 `CORS_ORIGIN` 來了**（陣列，逗號分隔）。換成陣列之後 cors 才會真的
+比對請求的 Origin —— 字串模式是「一律回那個固定值」。線上實測確認過（見 [`ch16`](docs/chapters/ch16-環境變數分離.md)）。
 
 **很可能要改的：`GET /surveys` 現在回所有人的問卷。**
 
@@ -957,7 +974,7 @@ pnpm typecheck                             # 綠 = 契約可用
 | Ch13 | **契約驗收：從 Swagger 產型別** | 產出來的型別品質 **= entity 標記品質**。修掉 `ownerId` 的聯集型別與 `order` 不成立的 `default`；契約有 401 的端點 2 → 16（`@ApiAuthenticated()`）。**兩種錯要兩種偵測器** | ✅ |
 | Ch14 | **認證串接：CORS 與 401 的一致性** | `enableCors` 上線（放 `setup-app.ts`；**不開 credentials** —— token 走標頭，瀏覽器不必自動帶 cookie）；401 的三種來源確認符合實務標準、不必改；`/auth/me` 夠用 | ✅ |
 | Ch15 | **串接暴露的 API 設計問題** | 三輪：讀取的擁有權（草稿不再外流、403 不再洩漏 id 存在）、驗證規則寫進契約、統一的欄位級錯誤（`fields` 取代 `details`）。**三個問題 e2e 都抓不到 —— 要有人真的去用才會撞到** | ✅ |
-| Ch16 | 環境變數分離與 production build | CORS 的 origin 依環境切換；前後端各自的 `.env` 分離 | ⬜ |
+| Ch16 | **環境變數分離與 production build** | 兩輪：CORS 的 origin 從 `CORS_ORIGIN` 來（拿不到就**啟動失敗** —— `getOrThrow` 擋不到空字串，所以自己判斷）；前端 `.env.example` 與第一次 `pnpm build`。**「設定值來自外部就要決定外部沒給怎麼辦」，而判準是預設值安不安全** | ✅ |
 | Ch17 | **五個功能頁面** | 每頁一輪，發現的 API 設計問題就地修。`/surveys`（列表 + ADMIN 才看得到的刪除）、`/surveys/new`、`/surveys/:id/edit`（擁有權 403、`DRAFT` 才能改題目的 409）、`/surveys/:id/fill`、`/surveys/:id/result`（分頁參數好不好用） | ⬜ |
 | Ch18 | 前端部署與端到端驗收 | 線上 origin 加進 CORS；跑通「建立 → 發布 → 填寫 → 看結果」 | ⬜ |
 
@@ -1052,6 +1069,7 @@ Ch15 的經驗支持這個判斷：三個已知問題就花了三輪，而課綱
 | Ch13 — 契約驗收 | [`docs/chapters/ch13-契約驗收.md`](docs/chapters/ch13-契約驗收.md) |
 | Ch14 — 認證串接 | [`docs/chapters/ch14-認證串接.md`](docs/chapters/ch14-認證串接.md) |
 | Ch15 — 串接暴露的 API 設計問題 | [`docs/chapters/ch15-串接暴露的API設計問題.md`](docs/chapters/ch15-串接暴露的API設計問題.md) |
+| Ch16 — 環境變數分離 | [`docs/chapters/ch16-環境變數分離.md`](docs/chapters/ch16-環境變數分離.md) |
 
 ## 跨章節文件
 

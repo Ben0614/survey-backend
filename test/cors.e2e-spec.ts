@@ -42,7 +42,7 @@ describe('CORS (e2e)', () => {
     // [教學] **這一行就是「enableCors 該放 main.ts 還是 setup-app.ts」的答案。**
     //
     // 放 main.ts 的話，測試環境（走 createNestApplication）永遠不會執行到它，
-    // 下面三條會全部拿不到任何 Access-Control-* 標頭 —— CORS 就成了沒有測試守著的設定。
+    // 下面每一條都會拿不到任何 Access-Control-* 標頭 —— CORS 就成了沒有測試守著的設定。
     // setup-app.ts 的定位本來就是「正式環境與測試共用的全域設定」，CORS 屬於那一類。
     //
     // 對照：src/swagger.ts 刻意**不**放進 setup-app（理由見它的檔頭）——
@@ -117,7 +117,7 @@ describe('CORS (e2e)', () => {
   // Origin 標頭永遠只有一個值（就是「我是誰」），瀏覽器不會送逗號分隔的清單。
   // 所以「測第二個」的意思是拿第二個當 Origin 去問，不是把兩個串起來送。
   //
-  // 這條是「只取了 origins[0]」唯一的偵測器 —— 那樣寫的話其他三條全綠。
+  // 這條是「只取了 origins[0]」唯一的偵測器 —— 那樣寫的話這個檔案其餘的測試全綠。
   // 期望值刻意自己寫一次，不去 import test/setup-env.ts 裡那個常數：
   // 兩邊讀同一個變數的話，值被改錯了測試照樣綠。
   it('清單裡的第二個 origin，也拿得到 Access-Control-Allow-Origin', async () => {
