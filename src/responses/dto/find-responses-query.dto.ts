@@ -15,7 +15,7 @@
 // ============================================================
 
 import { ApiPropertyOptional } from '@nestjs/swagger';
-import { IsInt, Min, Max } from 'class-validator';
+import { IsInt, Min, Max, IsIn } from 'class-validator';
 import { Type } from 'class-transformer';
 
 export class FindResponsesQueryDto {
@@ -79,4 +79,12 @@ export class FindResponsesQueryDto {
   // 100 本身是慣例、可以調，重點是有一個。
   @Max(100)
   pageSize: number = 10;
+
+  @ApiPropertyOptional({
+    description: '順序',
+    default: 'desc',
+    enum: ['asc', 'desc'],
+  })
+  @IsIn(['asc', 'desc'])
+  order: 'asc' | 'desc' = 'desc';
 }

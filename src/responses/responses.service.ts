@@ -248,12 +248,31 @@ export class ResponsesService {
     const [data, total] = await this.prisma.$transaction([
       this.prisma.response.findMany({
         where,
-        // [教學] 列表**刻意不帶 answers**：100 份作答 × 每份 20 題 = 2000 筆答案
-        // 塞進一個回應。要細節就打 GET /responses/:id ——
-        // 這是 Ch4 ③「回傳形狀由呼叫端決定」的第二次應用。
-        orderBy: { createdAt: 'desc' },
+        // ⚠️ **這裡原本寫著「列表刻意不帶 answers」，Ch17 輪 ⑤b 推翻了它。**
+        //
+        // 當時的理由是「100 份作答 × 每份 20 題 = 2000 筆答案塞進一個回應」，
+        // 而那句話漏掉一件事：**列表是分頁的**。一頁 10 筆就是 10 × 20 = 200 筆，
+        // 有上界，而且那個上界由 pageSize 控制。
+        //
+        // 不帶的代價才是真的大：前端要顯示內容得對每一筆再打 GET /responses/:id，
+        // 十筆就是十一次請求 —— 跟輪 ① 的 N+1 是同一個形狀。
+        //
+        // 判準因此修正成：**「回傳形狀由呼叫端決定」不等於「預設給最少」** ——
+        // 而是「別讓呼叫端為了拼出一個畫面而發 N 次請求」。
+        orderBy: { createdAt: query.order },
         skip,
         take,
+        // [教學] include 底下要挑欄位得再包一層 select，不能直接寫 { id: true }
+        // —— include 收的是「要不要帶這個關聯」，select 才是「帶哪些欄位」。
+        //
+        // 挑掉 responseId：它就是外層那筆 Response 的 id，重複帶沒有意義
+        //（同 assertExists 用 select 的判準：不是「能省就省」，是「這個欄位有沒有用」）。
+        // questionId **不能挑掉** —— 呼叫端要靠它把答案對回題目。
+        include: {
+          answers: {
+            select: { id: true, questionId: true, content: true },
+          },
+        },
       }),
       this.prisma.response.count({ where }),
     ]);

@@ -68,6 +68,16 @@ interface LoginBody {
   accessToken: string;
 }
 
+interface PaginatedResponseListBody {
+  data: {
+    id: string;
+    surveyId: string;
+    createdAt: string;
+    answers: { id: string; questionId: string; content: string }[];
+  }[];
+  meta: { page: number; pageSize: number; total: number; totalPages: number };
+}
+
 interface SummaryBody {
   surveyId: string;
   responseCount: number;
@@ -738,6 +748,135 @@ describe('Responses (e2e)', () => {
       const body = res.body as ErrorBody;
 
       expect(body.error.code).toBe('FORBIDDEN');
+    });
+
+    // [教學] 底下五條是 Ch17 輪 ⑤b 加的。前提資料共用同一個 helper，
+    // 而它把 createdAt 寫死 —— 兩條排序測試靠的就是那個順序，
+    // 用 default(now()) 的話三筆只差幾微秒，測試會變成靠運氣。
+    async function seedThreeResponses() {
+      const survey = await prisma.survey.create({
+        data: { title: '列表用問卷', ownerId: userId, status: 'PUBLISHED' },
+      });
+
+      const question = await prisma.question.create({
+        data: {
+          surveyId: survey.id,
+          title: '整體滿意度',
+          type: 'SINGLE_CHOICE',
+          order: 0,
+          options: ['滿意', '普通'],
+        },
+      });
+
+      for (const [content, at] of [
+        ['最舊的', '2026-01-01T00:00:00Z'],
+        ['中間的', '2026-01-02T00:00:00Z'],
+        ['最新的', '2026-01-03T00:00:00Z'],
+      ] as const) {
+        await prisma.response.create({
+          data: {
+            surveyId: survey.id,
+            createdAt: new Date(at),
+            answers: { create: [{ questionId: question.id, content }] },
+          },
+        });
+      }
+
+      return { survey, question };
+    }
+
+    it('列表的每一筆都帶著 answers，不必再打 GET /responses/:id', async () => {
+      const { survey, question } = await seedThreeResponses();
+
+      const res = await request(app.getHttpServer())
+        .get(`/surveys/${survey.id}/responses`)
+        .set(...authHeader(authToken))
+        .expect(200);
+
+      const body = res.body as PaginatedResponseListBody;
+
+      expect(body.data).toHaveLength(3);
+      // 斷言到**內容**而不是「有 answers」：只驗「有」的話，
+      // 一個回空陣列的實作照樣綠。
+      for (const item of body.data) {
+        expect(item.answers).toHaveLength(1);
+        expect(item.answers[0].questionId).toBe(question.id);
+        expect(typeof item.answers[0].content).toBe('string');
+      }
+    });
+
+    // 這條看起來在測「沒有什麼」，它其實是**把設計決定寫成規格**：
+    // AnswerEntity 身上有一個必填的 question，重用它的話題目文字會在
+    // 每一筆填答裡重複一次（10 筆 × 4 題 = 40 份）。
+    // 哪天有人為了方便把 include: { answers: { include: { question: true } } }
+    // 加回去，這條會紅 —— **而那是正確的紅**。
+    it('列表的 answers 不含 question —— 題目資料不在每一筆裡重複', async () => {
+      const { survey } = await seedThreeResponses();
+
+      const res = await request(app.getHttpServer())
+        .get(`/surveys/${survey.id}/responses`)
+        .set(...authHeader(authToken))
+        .expect(200);
+
+      const answer = (res.body as PaginatedResponseListBody).data[0].answers[0];
+
+      expect(answer).not.toHaveProperty('question');
+      // responseId 也挑掉了：它就是外層那筆 Response 的 id。
+      expect(answer).not.toHaveProperty('responseId');
+      expect(Object.keys(answer).sort()).toEqual([
+        'content',
+        'id',
+        'questionId',
+      ]);
+    });
+
+    it('不給 order 時，最新的填答排在第一筆', async () => {
+      const { survey } = await seedThreeResponses();
+
+      const res = await request(app.getHttpServer())
+        .get(`/surveys/${survey.id}/responses`)
+        .set(...authHeader(authToken))
+        .expect(200);
+
+      const contents = (res.body as PaginatedResponseListBody).data.map(
+        (item) => item.answers[0].content,
+      );
+
+      expect(contents).toEqual(['最新的', '中間的', '最舊的']);
+    });
+
+    it('order=asc 時，最舊的填答排在第一筆', async () => {
+      const { survey } = await seedThreeResponses();
+
+      const res = await request(app.getHttpServer())
+        .get(`/surveys/${survey.id}/responses`)
+        .query({ order: 'asc' })
+        .set(...authHeader(authToken))
+        .expect(200);
+
+      const contents = (res.body as PaginatedResponseListBody).data.map(
+        (item) => item.answers[0].content,
+      );
+
+      expect(contents).toEqual(['最舊的', '中間的', '最新的']);
+    });
+
+    // ← 這一輪的主角。
+    //
+    // order 若只宣告成 string 而沒有白名單，ValidationPipe 會放行（它確實是字串），
+    // 然後 `orderBy: { createdAt: 'whatever' }` 讓 Prisma 丟例外 → **500**。
+    // **使用者輸入造成 500 一律算 bug**，而且 500 對前端毫無資訊。
+    // 這是 Ch4 那條「排序要用白名單」的第二個現場：那時擋的是欄位名，這次是方向。
+    it('order 不是 asc 或 desc → 400', async () => {
+      const { survey } = await seedThreeResponses();
+
+      const res = await request(app.getHttpServer())
+        .get(`/surveys/${survey.id}/responses`)
+        .query({ order: 'whatever' })
+        .set(...authHeader(authToken))
+        .expect(400);
+
+      expect((res.body as ErrorBody).error.code).toBe('VALIDATION_FAILED');
     });
   });
 
