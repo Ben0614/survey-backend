@@ -183,12 +183,20 @@ export class SurveysService {
     //
     // （原子性那一面 Ch5 用到了：一筆 Response + N 筆 Answer 要嘛全寫、要嘛全不寫 ——
     // 那裡用的是巢狀 write，Prisma 自己包了交易，不必自己寫 $transaction。）
-    const [data, total] = await this.prisma.$transaction([
+    const [rows, total] = await this.prisma.$transaction([
       this.prisma.survey.findMany({
         where,
         orderBy: { [query.sort]: query.order },
         skip,
         take,
+        include: {
+          _count: {
+            select: {
+              questions: true,
+              responses: true,
+            },
+          },
+        },
       }),
 
       // [教學] count 沒有帶 skip / take —— 它要數的是**符合條件的全部**，不是這一頁。
@@ -198,6 +206,12 @@ export class SurveysService {
       // 這裡把 where 拿掉，49 條測試只有一條會紅 —— 「meta.total 是篩選後的筆數」那條。
       this.prisma.survey.count({ where }),
     ]);
+
+    const data = rows.map(({ _count, ...survey }) => ({
+      ...survey,
+      questionCount: _count.questions,
+      responseCount: _count.responses,
+    }));
 
     // 回應包成 { data, meta } 而不是裸陣列：分頁之後光有資料不夠用，
     // 前端要畫頁碼就得知道總共幾筆、幾頁。對照組（陣列 + X-Total-Count 標頭）
@@ -304,9 +318,15 @@ export class SurveysService {
     // [教學] 第二個參數收的是 boolean，**不是整包 DTO**（對照上面 findAll 收 DTO）。
     //
     // 判準是「這支方法需要幾個值」，不是「service 能不能碰 DTO」這種鐵律：
-    //   findAll 需要六個（page/pageSize/sort/order/status/q）→ 包成一個物件本來就合理
+    //   findAll 需要一整組（分頁 + 排序 + 篩選，而且還在長）→ 包成一個物件本來就合理
     //   findOne 需要一個 → 為了一個 boolean 而依賴一份由 HTTP 形狀決定的 class，
     //                      換不到任何東西
+    //
+    // 這裡原本寫著確切的個數，而它已經過期一次了（Ch15 加了 mine）。
+    // 但**不是每個過期的數字都該直接刪掉** —— 判準是「它在說服人，還是只在數東西」：
+    // 這一段靠的是「一整組 vs 一個」的量級對比，精確的 6 或 7 從來不重要，
+    // 所以改寫成不會過期的說法；而 survey.rules.ts 檔頭那個「四條規則」
+    // 純粹是清單長度，那種就直接拿掉。
     //
     // 檢驗方式：如果哪天不是 HTTP 在呼叫它（單元測試、排程、其他 service），
     // 它得先準備什麼？這裡的答案是 true / false，不是「先 new 一個 DTO」。

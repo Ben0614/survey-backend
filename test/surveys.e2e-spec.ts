@@ -42,6 +42,8 @@ interface SurveyBody {
   title: string;
   status: string;
   ownerId: string | null;
+  questionCount: number;
+  responseCount: number;
 }
 
 interface SurveyWithQuestionsBody extends SurveyBody {
@@ -570,6 +572,88 @@ describe('Surveys (e2e)', () => {
       expect(surveys.data).toHaveLength(1);
       expect(surveys.data[0].title).toBe('再次測試api');
       expect(surveys.meta.total).toBe(2);
+    });
+
+    it('列表的每一筆都帶 questionCount 與 responseCount，數字跟實際建立的題目／填答數相同', async () => {
+      const survey1 = await prisma.survey.create({
+        data: {
+          ownerId: userId,
+          title: 'A問卷',
+          createdAt: new Date('2026-01-02'),
+        },
+      });
+
+      await prisma.question.create({
+        data: {
+          surveyId: survey1.id,
+          title: '題目一',
+          type: 'SINGLE_CHOICE',
+          order: 0,
+        },
+      });
+      await prisma.question.create({
+        data: {
+          surveyId: survey1.id,
+          title: '題目二',
+          type: 'SINGLE_CHOICE',
+          order: 1,
+        },
+      });
+      await prisma.response.create({
+        data: {
+          surveyId: survey1.id,
+          createdAt: new Date('2026-01-01'),
+        },
+      });
+
+      await prisma.survey.create({
+        data: {
+          ownerId: userId,
+          title: 'B問卷',
+          createdAt: new Date('2026-01-03'),
+        },
+      });
+
+      const res = await request(app.getHttpServer())
+        .get(`/surveys`)
+        .set(...authHeader(authToken))
+        .expect(200);
+
+      const surveys = res.body as SurveyBodyList;
+
+      // [教學] ⚠️ **不要靠 data[0]。**
+      //
+      // 預設排序是 createdAt desc，所以 data[0] 其實是後建的 B問卷 ——
+      // 第一版就是這樣紅的（expected 2, received 0）。而那不是「把 0 換成 1」
+      // 就好的錯：靠索引等於把「預設排序是什麼」偷偷寫進一條跟排序無關的測試裡。
+      //
+      // 改用標題撈，這條測試就只依賴它自己造的資料。
+      // （也想過用 ?q=A問卷 去篩，但那會讓它依賴搜尋功能 ——
+      //   q 哪天壞了，這條會為了一個不相干的理由紅。）
+      const a = surveys.data.find((s) => s.title === 'A問卷');
+      const b = surveys.data.find((s) => s.title === 'B問卷');
+
+      // find 可能回 undefined，所以要 `?.`；而 undefined 撞上 toBe(2) 一樣會紅，
+      // 不會靜靜通過。
+      expect(a?.questionCount).toBe(2);
+      expect(a?.responseCount).toBe(1);
+
+      // [教學] B問卷（沒有題目、沒有填答）是一個**獨立的偵測器**，不是湊數的：
+      // 實作寫成 `_count.questions || 1` 這類的話，只有這兩行會紅。
+      // 而 A 的 2 / 1 刻意用兩個不同的數字 —— 都給 1 的話，
+      // questionCount 與 responseCount 寫反也照樣綠。
+      expect(b?.questionCount).toBe(0);
+      expect(b?.responseCount).toBe(0);
+
+      // [教學] 這裡**刻意不驗 key 集合**（第一版有一段 Object.keys(...).sort()）。
+      //
+      // 那段跟 test/swagger.e2e-spec.ts 的 SurveyListItemEntity 那條是
+      // **同一個偵測器** —— 突變確認過：把 service 的 `...survey` 改回 `...s`
+      // 讓 _count 外洩，兩條同時紅。
+      //
+      // 分工：這一條驗**值**，swagger 那一條驗**形狀**。
+      // ch05 那句「測試數字漲了不代表覆蓋增加了」，Ch14 補過一個形狀
+      //（還可能是重複的），這是第三次現場 —— 而這次是在寫完之前就發現的。
     });
   });
 

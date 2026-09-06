@@ -82,12 +82,48 @@ export class SurveyEntity {
   ownerId: string | null;
 }
 
+/**
+ * 列表用的問卷：比 SurveyEntity 多兩個統計數字（Ch17 輪 ①）。
+ *
+ * **為什麼是獨立的 class，而不是在 SurveyEntity 加兩個選填欄位：**
+ *
+ *   選填  契約說的是「可能有、可能沒有」→ 前端每一行都要 `?? 0`
+ *   分開  契約說的是「列表**一定有**、詳情**一定沒有**」→ 直接用
+ *
+ * 這是 Ch13 那句「**型別品質 = entity 標記品質**」的正面示範：
+ * 標成選填等於把「我沒想清楚」寫進契約，而代價由前端每一次存取付。
+ * `openapi-typescript` 會產出兩個型別，前端拿詳情的資料去讀 questionCount
+ * 會編譯不過 —— 那比任何測試都早。
+ *
+ * **為什麼詳情不需要這兩個數字：** 它已經有 `?includeQuestions=true`
+ * 可以把題目整包拿走，數量是 `questions.length`；而填答數在
+ * `GET /surveys/:id/responses` 的 `meta.total` 裡。列表不同 ——
+ * 列表**不可能**為了兩個數字對每一筆再打兩次 API（那是 N+1：
+ * 十筆問卷 = 二十一次往返），而 Prisma 的 `_count` 實測**多出零句 SQL**。
+ *
+ * `extends` 讓共同的七個欄位只寫一次；NestJS Swagger 會沿著原型鏈
+ * 把父類的 @ApiProperty 一起收進 spec，所以這裡只寫「新增的」。
+ */
+export class SurveyListItemEntity extends SurveyEntity {
+  @ApiProperty({
+    description: '這份問卷有幾題',
+    example: 5,
+  })
+  questionCount: number;
+
+  @ApiProperty({
+    description: '這份問卷被填寫多少次',
+    example: 10,
+  })
+  responseCount: number;
+}
+
 export class PaginatedSurveysEntity {
   @ApiProperty({
     description: '回傳資料',
-    type: [SurveyEntity],
+    type: [SurveyListItemEntity],
   })
-  data: SurveyEntity[];
+  data: SurveyListItemEntity[];
 
   @ApiProperty({
     description: '統計資訊',

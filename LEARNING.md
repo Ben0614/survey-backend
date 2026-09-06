@@ -693,7 +693,7 @@ Ch8 留下的「`/docs` 要不要公開」因此變成一個真正的選擇，
 環境已經備好，Ch17 開工前**不必**再處理設定：`.env` 兩邊都有範本、
 `pnpm build` 通過、前端的 `apiBase` 走環境變數。
 
-#### 留給之後的三件事（都不急，但別忘了）
+#### 留給之後的事（都不急，但別忘了）
 
 1. **`GET /surveys` 的第四種分類「我填過的」還沒做** —— 要 join `Response`，是新功能不是修 bug。
 2. **`SurveysService.findOne(id, includeQuestions = false, user)` 的參數順序**：
@@ -702,6 +702,24 @@ Ch8 留下的「`/docs` 要不要公開」因此變成一個真正的選擇，
    （而且突變測試證明有效），但 `flattenValidationErrors` 的邊界（空 children、多層巢狀）
    用單元測試更好測 —— 它符合「拿掉外部依賴之後還剩下判斷邏輯」那條判準。
    **Ch16 的 `cors-origins.spec.ts` 就是同一條判準的第二個現場**，照著它寫即可。
+4. ⚠️ **`role` 有兩個來源，而它們可以不一致**（Ch17 輪 ① 造測試資料時撞到）：
+
+   ```
+   RolesGuard        讀 JWT payload 的 role   ← 簽發那一刻的快照（jwt-auth.guard.ts:135）
+   GET /auth/me      查資料庫                  ← 現在的值（auth.service.ts:113）
+   前端 auth.isAdmin 來自 /auth/me
+   ```
+
+   把一個帳號在資料庫升成 ADMIN、但不重新登入，就會出現
+   **「刪除按鈕出現、按下去 403」** —— 前端問到新的、後端問到舊的。
+
+   `jwt-auth.guard.ts` 的註解已經知道 role 是快照，也明講那是「換掉每個請求查一次
+   資料庫」的代價，**但它沒有考慮到 /auth/me 會回一個比 token 更新的值**。
+   四條路：A 不改但要有明確 UX（權限變更請重新登入，多數 SaaS 的做法）、
+   B `/auth/me` 改回讀 token（一致但顯示過期資訊，只是把問題藏起來）、
+   C `RolesGuard` 查資料庫（一致且即時，每個請求多一次查詢，可加快取）、
+   D 縮短 token 壽命（Ch10 已決定不做 refresh token）。
+   **目前沒有任何測試守著這個不一致。** 真正要選的是 A 還是 C，值得單獨一輪。
 
 #### 兩個 repo 怎麼分工（2026-09-03 定的）
 

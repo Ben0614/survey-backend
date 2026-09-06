@@ -457,4 +457,40 @@ describe('Swagger 契約（buildSwaggerDocument）', () => {
     expect(password.minLength).toBeUndefined();
     expect(password.maxLength).toBeUndefined();
   });
+
+  // [教學] 列表回的**不是** SurveyEntity（Ch17 輪 ①）。
+  //
+  // 同一個資源、兩種形狀：列表多了 questionCount / responseCount，詳情沒有。
+  // 兩條測試各自守一種 —— 上面那條打 GET /surveys/:id 比 SurveyEntity，
+  // 這條打 GET /surveys 比 SurveyListItemEntity。
+  //
+  // 這條同時是「_count 外洩」唯一的偵測器：service 若寫成 `...s`（不解構掉
+  // _count），回應會多一個契約沒描述過的 key —— 完全合法的 JSON、前端照常運作、
+  // 其他測試全綠，只有 expectSchemaMatches 的方向二會抓到。
+  //
+  // 前提資料只要一筆問卷就夠，**不必建題目或填答**：
+  // 這條驗的是形狀，questionCount: 0 一樣是一個合法的 key。
+  // （數字對不對是 surveys.e2e-spec.ts 那條的工作。）
+  it('SurveyListItemEntity 的屬性，跟實際打 GET /surveys 拿到的 data[0] 完全一致', async () => {
+    await request(app.getHttpServer())
+      .post('/surveys')
+      .set(...authHeader(authToken))
+      .send({ title: '員工滿意度調查' })
+      .expect(201);
+
+    // ⚠️ 別忘了帶 token —— 少了它是 401，而 .expect(200) 會紅在一個
+    // 跟契約完全無關的地方。
+    const res = await request(app.getHttpServer())
+      .get('/surveys')
+      .set(...authHeader(authToken))
+      .expect(200);
+
+    const doc = buildSwaggerDocument(app);
+
+    // res.body 是 any，直接 .data[0] 會被 ESLint 的 no-unsafe-member-access
+    // 擋下來（tsc 不會紅，只有 pnpm lint 會）。
+    const body = res.body as { data: Record<string, unknown>[] };
+
+    expectSchemaMatches(doc, 'SurveyListItemEntity', body.data[0]);
+  });
 });
