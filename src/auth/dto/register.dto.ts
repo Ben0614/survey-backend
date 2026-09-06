@@ -23,12 +23,16 @@ export class RegisterDto {
   @ApiProperty({
     description: '電子信箱',
     example: 'someone@example.com',
+    format: 'email',
   })
   @IsEmail()
   email: string;
 
   @ApiProperty({
-    description: '密碼',
+    description: '密碼（bcrypt 的硬上限是 72 字元）',
+    minLength: 8,
+    maxLength: 72,
+    format: 'password',
   })
   @IsString()
   @MinLength(8)

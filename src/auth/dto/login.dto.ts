@@ -23,6 +23,7 @@ export class LoginDto {
   @ApiProperty({
     description: '電子信箱',
     example: 'someone@example.com',
+    format: 'email',
   })
   @IsEmail()
   email: string;

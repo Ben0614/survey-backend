@@ -29,6 +29,15 @@ import {
 
 // [教學] 這兩個介面跟 helper 裡的 SchemaLike 是同一種做法：宣告「我預期它長這樣」
 // 的最小形狀，取值時轉一次（理由見 helpers/expect-schema-matches.ts 檔頭）。
+// 一個屬性在 spec 裡長什麼樣。SchemaLike.properties 是 Record<string, unknown>，
+// 取出來的東西要先收窄成這個形狀才讀得到 minLength 之類的欄位。
+interface PropertyLike {
+  type?: string;
+  format?: string;
+  minLength?: number;
+  maxLength?: number;
+}
+
 interface ParameterLike {
   name: string;
   in: string;
@@ -384,5 +393,68 @@ describe('Swagger 契約（buildSwaggerDocument）', () => {
 
     // 同上：收集完再比，失敗訊息會一次列出所有不符的端點與它實際回的狀態碼。
     expect(wrong).toEqual([]);
+  });
+
+  // [教學] 這三條驗的是 Ch15 輪 ② 的產出：**把驗證規則寫進契約**。
+  //
+  // 後端的 @MinLength(8) 與 @ApiProperty 的 minLength: 8 是**兩個獨立的裝飾器**，
+  // 改一個忘了另一個不會有任何東西叫 —— 所以第一條只證明「契約寫了」，
+  // 第二條才證明「契約沒說謊」。這是這一章反覆出現的同一種測試
+  //（同 Ch13 那條「spec 說會回 401 的端點，不帶 token 打真的回 401」）。
+  it('RegisterDto 的 password 契約標了 minLength 8 / maxLength 72，email 標了 format email', () => {
+    const doc = buildSwaggerDocument(app);
+    const schema = doc.components?.schemas?.RegisterDto as SchemaLike;
+
+    const password = schema.properties?.password as PropertyLike;
+    const email = schema.properties?.email as PropertyLike;
+
+    // 8 與 72 不是隨便訂的：72 是 bcrypt 的硬上限（見 register.dto.ts 檔頭）。
+    expect(password.minLength).toBe(8);
+    expect(password.maxLength).toBe(72);
+
+    // format 是 OpenAPI 的標準字串，跟 createdAt 的 'date-time' 同一個位置。
+    expect(email.format).toBe('email');
+  });
+
+  // [教學] 這一輪的主角。上面那條只讀 spec，這條實際打一次 ——
+  // 它是唯一會抓到「@MinLength 改了、@ApiProperty 沒跟上」的測試。
+  //
+  // 壞掉的樣子：有人把 @MinLength(8) 改成 10，契約還寫著 8。
+  // 前端照契約做表單驗證，使用者輸入 9 碼、前端放行、後端回 400 ——
+  // 而 /docs 上白紙黑字寫著 8。沒有任何測試會紅。
+  it('契約說的 minLength 是真的：註冊送 7 碼密碼會被擋下', async () => {
+    const doc = buildSwaggerDocument(app);
+    const schema = doc.components?.schemas?.RegisterDto as SchemaLike;
+    const password = schema.properties?.password as PropertyLike;
+
+    // 不寫死 7，從契約讀出「最短幾碼」再送少一碼 ——
+    // 這樣規則改成 10 的時候，這條測試會跟著送 9 碼，不必手動改。
+    const tooShort = 'a'.repeat((password.minLength ?? 8) - 1);
+
+    const res = await request(app.getHttpServer())
+      .post('/auth/register')
+      .send({ email: 'min-length-check@example.com', password: tooShort })
+      .expect(400);
+
+    const body = res.body as { error: { code: string } };
+
+    expect(body.error.code).toBe('VALIDATION_FAILED');
+  });
+
+  // [教學] 反面對照，防的是「順手把 register 那份抄過去」。
+  //
+  // 登入的 password 只有 @IsNotEmpty()，**沒有長度限制是刻意的**：
+  // 密碼規則會變，而舊帳號的密碼可能不符合新規則 —— 那些人還是要登得進來
+  //（理由見 login.dto.ts 的檔頭：為什麼不重用 register 那份 DTO）。
+  //
+  // 抄過去就是「文件說謊的第三種形狀」：寫了一句不成立的話
+  //（契約說最少 8 碼，實際上 1 碼也收）。同 Ch13 的 QuestionEntity.order 那個 default: 0。
+  it('LoginDto 的 password 刻意沒有長度限制，契約也不能寫', () => {
+    const doc = buildSwaggerDocument(app);
+    const schema = doc.components?.schemas?.LoginDto as SchemaLike;
+    const password = schema.properties?.password as PropertyLike;
+
+    expect(password.minLength).toBeUndefined();
+    expect(password.maxLength).toBeUndefined();
   });
 });
