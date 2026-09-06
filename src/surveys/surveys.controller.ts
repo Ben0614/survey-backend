@@ -252,11 +252,15 @@ export class SurveysController {
   //
   // 兩支都沒有 @Body()，所以也不需要 DTO：要做什麼已經寫在網址裡了。
   // 網址也要注意大小寫 —— /unpublish 和 /unPublish 是兩條不同的路由。
-  @ApiOperation({ summary: '公開問卷' })
+  @ApiOperation({ summary: '公開問卷（至少要有一題）' })
   @ApiOkResponse({ description: '發布後的問卷', type: SurveyEntity })
   @ApiNotFoundResponse({ description: '問卷不存在', type: ErrorResponseEntity })
   @ApiForbiddenResponse({
     description: '無此權限',
+    type: ErrorResponseEntity,
+  })
+  @ApiConflictResponse({
+    description: '問卷沒有任何題目',
     type: ErrorResponseEntity,
   })
   @Patch(':id/publish')

@@ -1400,6 +1400,18 @@ describe('Surveys (e2e)', () => {
       const survey = await prisma.survey.create({
         data: { title: '待發布問卷', ownerId: userId },
       });
+      // ⚠️ 這一題是 Ch17 輪 ③ 補上的前提，不是裝飾。
+      // 加了 canPublish（一題都沒有不給發布）之後，原本這條測試的問卷是空的，
+      // 於是它從 200 變成 409 —— 而它紅的地方跟真正的改動無關，
+      // 訊息只會說「expected 200, got 409」。**規則變嚴時，舊測試的前提也會過期。**
+      await prisma.question.create({
+        data: {
+          surveyId: survey.id,
+          title: '題目一',
+          type: 'TEXT',
+          order: 0,
+        },
+      });
 
       const res = await request(app.getHttpServer())
         .patch(`/surveys/${survey.id}/publish`)
@@ -1407,6 +1419,33 @@ describe('Surveys (e2e)', () => {
         .expect(200);
 
       expect((res.body as SurveyBody).status).toBe(SurveyStatus.PUBLISHED);
+    });
+
+    // [教學] 這條是 Ch17 輪 ③ 做編輯頁時才發現要有的（見 survey.rules.ts 的 canPublish）。
+    //
+    // 前十六章走不到這裡：e2e 每次都是「建問卷 → 建題目 → 發布」，
+    // 那條路徑天生就有題目。**沒有人真的按過那顆發布按鈕，就不會問
+    // 「空的問卷發布了會怎樣」** —— 答案是它會出現在「可以填的」清單裡，
+    // 點進去一片空白，而且完全沒有錯誤。
+    //
+    // 斷言到 status 還是 DRAFT，而不是只看 409：規則若寫成「先 update 再檢查」，
+    // 狀態碼照樣是 409，問卷卻已經上架了。
+    it('一題都沒有的問卷 → 409，而且狀態還是 DRAFT', async () => {
+      const survey = await prisma.survey.create({
+        data: { title: '空的問卷', ownerId: userId },
+      });
+
+      const res = await request(app.getHttpServer())
+        .patch(`/surveys/${survey.id}/publish`)
+        .set(...authHeader(authToken))
+        .expect(409);
+
+      expect((res.body as ErrorBody).error.code).toBe('CONFLICT');
+
+      const after = await prisma.survey.findUniqueOrThrow({
+        where: { id: survey.id },
+      });
+      expect(after.status).toBe(SurveyStatus.DRAFT);
     });
 
     it('發布別人的問卷 → 404，code 是 NOT_FOUND', async () => {

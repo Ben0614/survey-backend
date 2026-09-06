@@ -4,6 +4,7 @@
 // 什麼時候被執行：service 在動資料之前呼叫它們問一句「可以嗎」。
 //   canEditQuestions   → QuestionsService 的 create / update / remove
 //   canUnpublish       → SurveysService 的 unpublish
+//   canPublish         → SurveysService 的 publish（Ch17 輪 ③）
 //   canDelete          → SurveysService 的 remove（Ch17 輪 ②）
 //   canSubmitResponse  → ResponsesService 的 create（Ch5）
 //   canManageSurvey    → 八個地方（Ch12），但都經由 SurveysService.assertCanManage
@@ -92,6 +93,20 @@ export function canUnpublish(responseCount: number): boolean {
  */
 export function canDelete(responseCount: number): boolean {
   return responseCount === 0;
+}
+
+/**
+ * 一題都沒有的問卷不能發布。
+ *
+ * 這條是 Ch17 輪 ③ 做編輯頁時才發現缺的：`publish` 原本只檢查擁有權，
+ * 所以一份空問卷可以直接上架，出現在「可以填的」清單裡，點進去是一片空白 ——
+ * **完全沒有錯誤，只是沒有東西**。前十六章沒人發現，因為沒有人真的走過
+ * 「建立 → 發布 → 填寫」這條路。
+ *
+ * 判準跟 canEditQuestions 一樣是「現在能不能做這件事」，所以回 409 不是 403。
+ */
+export function canPublish(questionCount: number): boolean {
+  return questionCount > 0;
 }
 
 export function canSubmitResponse(status: SurveyStatus): boolean {

@@ -30,6 +30,7 @@ import {
   canManageSurvey,
   canSeeSurvey,
   canDelete,
+  canPublish,
 } from './survey.rules';
 import { Role } from '../generated/prisma/enums';
 
@@ -160,6 +161,16 @@ describe('canSeeSurvey', () => {
     };
     expect(canSeeSurvey(status, ownerId, user)).toBe(false);
     expect(canSeeSurvey(status, ownerId, user2)).toBe(true);
+  });
+});
+
+describe('canPublish', () => {
+  it('有題目就可以發布', () => {
+    expect(canPublish(1)).toBe(true);
+  });
+
+  it('一題都沒有就不能發布', () => {
+    expect(canPublish(0)).toBe(false);
   });
 });
 

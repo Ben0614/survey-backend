@@ -54,6 +54,7 @@ import { CreateSurveyDto } from './dto/create-survey.dto';
 import { UpdateSurveyDto } from './dto/update-survey.dto';
 import { FindSurveysQueryDto } from './dto/find-surveys-query.dto';
 import {
+  canPublish,
   canUnpublish,
   canManageSurvey,
   canSeeSurvey,
@@ -582,6 +583,25 @@ export class SurveysService {
     const survey = await this.assertExists(id);
 
     this.assertCanManage(survey.status, survey.ownerId, user);
+
+    // 一題都沒有就不給發布（Ch17 輪 ③）。
+    //
+    // 這個洞在前十六章都沒被發現，因為**沒有人真的走過「建立 → 發布 → 填寫」**：
+    // e2e 每次都是先建題目再發布，那條路徑天生就有題目。要做編輯頁、按下那顆
+    // 發布按鈕時才會問「空的問卷發布了會怎樣」—— 答案是它會出現在「可以填的」
+    // 清單裡，點進去一片空白，而且沒有任何錯誤。
+    //
+    // 上面那段講的冪等性不受影響：已發布的問卷一定有題目（不然它發布不了），
+    // 所以重複呼叫仍然會走到同一句 UPDATE、回同一種形狀。
+    //
+    // count 不是 findMany().length：只要一個數字，不必把題目撈進記憶體（同 remove）。
+    const questionCount = await this.prisma.question.count({
+      where: { surveyId: id },
+    });
+
+    if (!canPublish(questionCount)) {
+      throw new ConflictException('問卷沒有任何題目，無法發布');
+    }
 
     return this.prisma.survey.update({
       where: { id },
