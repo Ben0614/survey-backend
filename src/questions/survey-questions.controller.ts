@@ -1,5 +1,5 @@
 // ============================================================
-// [教學] survey-questions.controller.ts —— 掛在問卷底下的那兩支路由
+// [教學] survey-questions.controller.ts —— 掛在問卷底下的那三支路由
 //
 // 什麼時候被執行：請求打到 /surveys/:surveyId/questions 時。
 //
@@ -24,9 +24,10 @@ import {
   ApiConflictResponse,
   ApiForbiddenResponse,
 } from '@nestjs/swagger';
-import { Controller, Get, Post, Param, Body } from '@nestjs/common';
+import { Controller, Get, Post, Param, Body, Put } from '@nestjs/common';
 import { QuestionsService } from './questions.service';
 import { CreateQuestionDto } from './dto/create-question.dto';
+import { ReplaceQuestionsDto } from './dto/replace-questions.dto';
 import { QuestionEntity } from './entities/question.entity';
 import { ErrorResponseEntity } from '../common/entities/error-response.entity';
 import { CurrentUser } from '../auth/decorators/current-user.decorator';
@@ -88,5 +89,46 @@ export class SurveysQuestionsController {
     @CurrentUser() user: AuthUser,
   ) {
     return this.questionsService.create(surveyId, createQuestionDto, user);
+  }
+
+  // [教學] 為什麼是 @Put 而不是 @Patch —— 這是 surveys.controller.ts 那段
+  // 「Put 整份取代 / Patch 部分更新」第一次真的用到 Put 的地方。
+  //
+  // 這一支存在的理由是輪 ③ 撞出來的：編輯頁要改標題、改題目、加題、刪題、調順序，
+  // 用既有端點做是 1 + N 次請求而且**不是原子的**（第 3 個請求失敗就留下改一半的狀態）。
+  // 另外 order 本來完全改不了 —— CreateQuestionDto 刻意沒有它，
+  // UpdateQuestionDto 是它的 PartialType，所以也沒有。
+  // 整份取代讓順序變成「陣列的位置」，不必為它多設計一個欄位。
+  //
+  // ⚠️ @Put() 括號是空的。裡面放字串會被當成**接在前綴後面的下一段路徑** ——
+  // 寫成 @Put('surveyId') 註冊到的是 /surveys/:surveyId/questions/surveyId
+  // （字面上那八個字），所有請求 404，而且是經過 filter 的漂亮 404，
+  // 看起來像 service 的 assertExists 在叫。實際寫錯過一次。
+  // 真正在對接 :surveyId 的是下面 @Param('surveyId') 的那個字串，兩者無關。
+  @ApiOperation({
+    summary: '整份取代問卷的題目（順序即陣列順序，只有 DRAFT 能改）',
+  })
+  @ApiOkResponse({
+    description: '取代後的全部題目，依 order 由小到大',
+    type: QuestionEntity,
+    isArray: true,
+  })
+  @ApiBadRequestResponse({ description: '參數錯誤', type: ErrorResponseEntity })
+  @ApiNotFoundResponse({ description: '問卷不存在', type: ErrorResponseEntity })
+  @ApiForbiddenResponse({
+    description: '無此權限',
+    type: ErrorResponseEntity,
+  })
+  @ApiConflictResponse({
+    description: '問卷已發布，或已經有人填答',
+    type: ErrorResponseEntity,
+  })
+  @Put()
+  replace(
+    @Param('surveyId') surveyId: string,
+    @Body() replaceQuestionsDto: ReplaceQuestionsDto,
+    @CurrentUser() user: AuthUser,
+  ) {
+    return this.questionsService.replace(surveyId, replaceQuestionsDto, user);
   }
 }

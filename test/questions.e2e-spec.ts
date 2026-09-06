@@ -34,7 +34,11 @@ interface ErrorBody {
   error: {
     code: string;
     message: string;
-    details?: string[];
+    // Ch15 輪 ③ 把 details: string[] 換成結構化的 fields，
+    // 這份手寫的介面漏掉了兩章（surveys.e2e-spec.ts 那份在 Ch17 輪 ② 已經改過）。
+    // 沒有症狀，因為在此之前沒有測試用到它 —— 手寫型別會安靜地過期，
+    // 那正是前端 Ch15 那個 ApiError 的同一課。
+    fields?: { field: string; rule: string }[];
   };
 }
 
@@ -811,6 +815,301 @@ describe('Questions (e2e)', () => {
       const body = res.body as ErrorBody;
 
       expect(body.error.code).toBe('NOT_FOUND');
+    });
+  });
+
+  // [教學] 整份取代這一組的斷言有兩種形狀，混在一起就會漏掉一半：
+  //
+  //   成功的路徑  斷言**回傳值**（幾題、順序、id 是不是新的）
+  //   失敗的路徑  斷言**副作用沒有發生**（題目一題都沒少）
+  //
+  // 第二種特別容易漏。403 / 409 / 404 只看狀態碼的話，「檢查排在 deleteMany
+  // 之後」這個 bug 完全抓不到 —— 狀態碼照樣正確，題目已經被刪光了。
+  describe('PUT /surveys/:surveyId/questions', () => {
+    it('原本 3 題，送 2 題上去 → 200，回傳 2 題，順序照送出的順序', async () => {
+      const survey = await prisma.survey.create({
+        data: { title: '要被整份取代的問卷', ownerId: userId },
+      });
+      await prisma.question.createMany({
+        data: [
+          { surveyId: survey.id, title: '舊題一', type: 'TEXT', order: 0 },
+          { surveyId: survey.id, title: '舊題二', type: 'TEXT', order: 1 },
+          { surveyId: survey.id, title: '舊題三', type: 'TEXT', order: 2 },
+        ],
+      });
+
+      const res = await request(app.getHttpServer())
+        .put(`/surveys/${survey.id}/questions`)
+        .set(...authHeader(authToken))
+        .send({
+          // 刻意讓送出的順序跟任何「自然排序」都不一樣（B 在 A 前面），
+          // 否則就算 order 是亂算的、或 findMany 沒有 orderBy，也可能剛好對。
+          questions: [
+            { title: '新題 B', type: 'SINGLE_CHOICE', options: ['甲', '乙'] },
+            { title: '新題 A', type: 'TEXT', options: [] },
+          ],
+        })
+        .expect(200);
+
+      const body = res.body as QuestionBody[];
+
+      // 這三行合起來才是「主角」：它們同時要求回傳值真的是**題目陣列**。
+      // service 若把 createMany 的結果直接回傳（`{ count: 2 }`），
+      // 第一行就會紅 —— 而只斷言狀態碼 200 的測試完全看不出來。
+      expect(body).toHaveLength(2);
+      expect(body.map((q) => q.title)).toEqual(['新題 B', '新題 A']);
+      expect(body.map((q) => q.order)).toEqual([0, 1]);
+    });
+
+    // [教學] 這一條看起來在測一件廢話，它其實是**把整份取代的代價寫成規格**：
+    // 「更新」在這支端點裡是刪掉重建，所以 id 全換。前端存完之後若沒有用
+    // 回傳值取代本地狀態，手上那些舊 id 會在下一個動作變成 404。
+    //
+    // 哪天有人把實作改成 diff（依 id 分成 create / update / delete，實務上
+    // master-detail save 的標準做法），這條會紅 —— 而那是**正確的紅**，
+    // 它在提醒「這個對外承諾變了」。
+    it('回傳的題目 id 全是新的 —— 舊的三個 id 一個都不在', async () => {
+      const survey = await prisma.survey.create({
+        data: { title: '要被整份取代的問卷', ownerId: userId },
+      });
+
+      await prisma.question.createMany({
+        data: [
+          { surveyId: survey.id, title: '舊題一', type: 'TEXT', order: 0 },
+          { surveyId: survey.id, title: '舊題二', type: 'TEXT', order: 1 },
+          { surveyId: survey.id, title: '舊題三', type: 'TEXT', order: 2 },
+        ],
+      });
+
+      // ⚠️ 舊 id 一定要**在打 API 之前**先撈出來。取代之後那三筆就不存在了，
+      // 事後再查只會拿到新的三個，變成自己跟自己比，測試永遠綠。
+      const before = await prisma.question.findMany({
+        where: { surveyId: survey.id },
+        select: { id: true },
+      });
+      const oldIds = before.map((q) => q.id);
+      expect(oldIds).toHaveLength(3);
+
+      const res = await request(app.getHttpServer())
+        .put(`/surveys/${survey.id}/questions`)
+        .set(...authHeader(authToken))
+        .send({
+          questions: [
+            { title: '新題 B', type: 'SINGLE_CHOICE', options: ['甲', '乙'] },
+            { title: '新題 A', type: 'TEXT', options: [] },
+            { title: '新題 C', type: 'TEXT', options: [] },
+          ],
+        })
+        .expect(200);
+
+      const body = res.body as QuestionBody[];
+
+      expect(body).toHaveLength(3);
+      // 逐一比對，而不是 expect(newIds).not.toEqual(oldIds) ——
+      // 後者只要求「兩個陣列不完全相同」，三個裡面留了兩個舊的照樣通過。
+      for (const question of body) {
+        expect(oldIds).not.toContain(question.id);
+      }
+    });
+
+    it('送空陣列 → 200 回 []，再打 GET 也是 0 題', async () => {
+      const survey = await prisma.survey.create({
+        data: { title: '要被整份取代的問卷', ownerId: userId },
+      });
+      await prisma.question.createMany({
+        data: [
+          { surveyId: survey.id, title: '舊題一', type: 'TEXT', order: 0 },
+          { surveyId: survey.id, title: '舊題二', type: 'TEXT', order: 1 },
+          { surveyId: survey.id, title: '舊題三', type: 'TEXT', order: 2 },
+        ],
+      });
+
+      const res = await request(app.getHttpServer())
+        .put(`/surveys/${survey.id}/questions`)
+        .set(...authHeader(authToken))
+        .send({
+          questions: [],
+        })
+        .expect(200);
+
+      const body = res.body as QuestionBody[];
+
+      expect(body).toHaveLength(0);
+
+      // 名稱裡承諾了「再打 GET 也是 0 題」，就要真的打。
+      // 只看回傳值的話，一個「什麼都沒做、直接回 []」的實作也會通過 ——
+      // 這一段才是在確認**資料庫真的被清空了**（同 ch02「寫入型端點要二次查詢」）。
+      const after = await request(app.getHttpServer())
+        .get(`/surveys/${survey.id}/questions`)
+        .set(...authHeader(authToken))
+        .expect(200);
+
+      expect(after.body as QuestionBody[]).toHaveLength(0);
+    });
+
+    it('別人的草稿 → 404（不是 403），而且原本的題目一題都沒被動到', async () => {
+      // ⚠️ 這條的狀態碼是 404 不是 403，而且那是對的：
+      // assertCanManage 先問 canSeeSurvey —— 看不到就當它不存在（Ch15）。
+      // 回 403 等於承認「這個 id 存在」，別人就能靠掃 id 列舉全站的草稿。
+      // 會拿到 403 的是「別人**已發布**的問卷」（看得到，但不能碰），那是下一條。
+      const survey = await prisma.survey.create({
+        data: { title: '別人的草稿', ownerId: userId },
+      });
+      await prisma.question.create({
+        data: {
+          surveyId: survey.id,
+          title: '原本就有的題目',
+          type: 'TEXT',
+          order: 0,
+        },
+      });
+
+      // email 不能用預設值 —— beforeEach 已經註冊過它了（見上面 GET 那組的說明）。
+      const otherToken = await registerAndLogin(app, 'other-user@example.com');
+
+      const res = await request(app.getHttpServer())
+        .put(`/surveys/${survey.id}/questions`)
+        .set(...authHeader(otherToken))
+        .send({ questions: [] })
+        .expect(404);
+
+      expect((res.body as ErrorBody).error.code).toBe('NOT_FOUND');
+
+      // 這一段才是這條測試真正的價值：三道檢查必須排在交易裡的 deleteMany **之前**。
+      // 順序寫反的話狀態碼照樣是 404，但那一題已經沒了。
+      const remaining = await prisma.question.findMany({
+        where: { surveyId: survey.id },
+      });
+      expect(remaining).toHaveLength(1);
+      expect(remaining[0]?.title).toBe('原本就有的題目');
+    });
+
+    // [教學] 這一條跟上一條是**同一組**：同樣是「別人的問卷」，只因為狀態不同，
+    // 正確答案就從 404 變成 403。兩條都要有，少一條等於沒測到那個分界。
+    //
+    //   別人的 DRAFT      canSeeSurvey 就 false  → 404（連存在都不承認）
+    //   別人的 PUBLISHED  看得到、但不能碰       → 403
+    //
+    // 而且這裡的 403 還壓過了 409（已發布不能改題目）——「授權排在商業規則之前」
+    // 那條原則的現場：回 409 等於告訴一個不相干的人「這份問卷已經發布了」。
+    // 上面 PATCH 那組的「改別人『已發布』問卷的題目 → 403 而不是 409」是同一件事。
+    it('別人已發布的問卷 → 403 而不是 409，題目也一題都沒被動到', async () => {
+      const survey = await prisma.survey.create({
+        data: {
+          title: '別人已發布的問卷',
+          ownerId: userId,
+          status: SurveyStatus.PUBLISHED,
+        },
+      });
+      await prisma.question.create({
+        data: {
+          surveyId: survey.id,
+          title: '原本就有的題目',
+          type: 'TEXT',
+          order: 0,
+        },
+      });
+
+      const otherToken = await registerAndLogin(app, 'other-user@example.com');
+
+      const res = await request(app.getHttpServer())
+        .put(`/surveys/${survey.id}/questions`)
+        .set(...authHeader(otherToken))
+        .send({ questions: [{ title: '想偷改', type: 'TEXT', options: [] }] })
+        .expect(403);
+
+      expect((res.body as ErrorBody).error.code).toBe('FORBIDDEN');
+
+      const remaining = await prisma.question.findMany({
+        where: { surveyId: survey.id },
+      });
+      expect(remaining).toHaveLength(1);
+      expect(remaining[0]?.title).toBe('原本就有的題目');
+    });
+
+    // 這一條才是 409 真正的現場：問卷是**自己的**（看得到、也能碰），
+    // 純粹卡在「已發布就不能改題目」這條商業規則上。
+    // 正式路徑是先 unpublish 再改 —— 那也是為什麼 canUnpublish 要求零填答。
+    it('自己已發布的問卷 → 409，而且題目一題都沒被動到', async () => {
+      const survey = await prisma.survey.create({
+        data: {
+          title: '自己已發布的問卷',
+          ownerId: userId,
+          status: SurveyStatus.PUBLISHED,
+        },
+      });
+      await prisma.question.create({
+        data: {
+          surveyId: survey.id,
+          title: '原本就有的題目',
+          type: 'TEXT',
+          order: 0,
+        },
+      });
+
+      const res = await request(app.getHttpServer())
+        .put(`/surveys/${survey.id}/questions`)
+        .set(...authHeader(authToken))
+        .send({ questions: [{ title: '想改題目', type: 'TEXT', options: [] }] })
+        .expect(409);
+
+      expect((res.body as ErrorBody).error.code).toBe('CONFLICT');
+
+      const remaining = await prisma.question.findMany({
+        where: { surveyId: survey.id },
+      });
+      expect(remaining).toHaveLength(1);
+      expect(remaining[0]?.title).toBe('原本就有的題目');
+    });
+
+    it('問卷不存在 → 404', async () => {
+      const res = await request(app.getHttpServer())
+        .put('/surveys/nonexistent-id/questions')
+        .set(...authHeader(authToken))
+        .send({ questions: [{ title: '題目一', type: 'TEXT', options: [] }] })
+        .expect(404);
+
+      expect((res.body as ErrorBody).error.code).toBe('NOT_FOUND');
+    });
+
+    // [教學] 這一條同時在驗**兩件事**，而它們是兩個不同的機制：
+    //
+    //   1. 巢狀驗證真的有跑            ← @ValidateNested + @Type(() => CreateQuestionDto)
+    //   2. 錯誤指得出是「第 1 題的 options」← Ch15 的 flattenValidationErrors
+    //
+    // 少了 @Type 的話，元素只是普通 object、身上沒有裝飾器，規則整組不生效，
+    // 這條會拿到 200。ReplaceQuestionsDto 重用 CreateQuestionDto，所以那條
+    // 跨欄位規則（SingleChoiceNeedsOptions）是免費跟過來的。
+    //
+    // 斷言到 fields 的**值**而不是「有沒有 fields」，理由見 surveys.e2e-spec.ts
+    // 的同一條測試：只驗「有」的話，規則失效時 fields 變成別的東西照樣綠。
+    //
+    // 前提資料照樣建一份正常的問卷 —— 驗證比 service 早跑，不建也會 400，
+    // 但驗證真的失效那一刻，訊息會變成 404 把人帶去查錯的地方（見上面 POST 那組）。
+    it('第 1 題是單選卻只給一個選項 → 400，fields 指到 questions.0.options', async () => {
+      const survey = await prisma.survey.create({
+        data: { title: '要被整份取代的問卷', ownerId: userId },
+      });
+
+      const res = await request(app.getHttpServer())
+        .put(`/surveys/${survey.id}/questions`)
+        .set(...authHeader(authToken))
+        .send({
+          questions: [
+            {
+              title: '你選哪一個',
+              type: 'SINGLE_CHOICE',
+              options: ['只有一個'],
+            },
+            { title: '簡答題', type: 'TEXT', options: [] },
+          ],
+        })
+        .expect(400);
+
+      expect((res.body as ErrorBody).error.fields).toContainEqual({
+        field: 'questions.0.options',
+        rule: 'singleChoiceNeedsOptions',
+      });
     });
   });
 });

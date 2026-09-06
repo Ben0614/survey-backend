@@ -30,6 +30,7 @@ import { PrismaService } from '../prisma/prisma.service';
 import { SurveysService } from '../surveys/surveys.service';
 import { CreateQuestionDto } from './dto/create-question.dto';
 import { UpdateQuestionDto } from './dto/update-question.dto';
+import { ReplaceQuestionsDto } from './dto/replace-questions.dto';
 import { canEditQuestions, canSeeSurvey } from '../surveys/survey.rules';
 import type { AuthUser } from '../auth/guards/jwt-auth.guard';
 
@@ -235,6 +236,85 @@ export class QuestionsService {
     // 那是 schema.prisma 的 onDelete: Cascade 由 PostgreSQL 執行的（見 ch01 / ch02）。
     return this.prisma.question.delete({
       where: { id },
+    });
+  }
+
+  /**
+   * 整份取代一份問卷的題目，回傳取代後的完整清單（依 order）。
+   *
+   * 這一支是 Ch17 輪 ③ 加的，補的是「編輯」這一側的原子性 ——
+   * 輪 ② 已經讓「建立」變成一次請求一個交易，編輯卻還要 1 + N 次呼叫
+   * （改標題、改題、加題、刪題各一支），中途失敗就留下改到一半的問卷。
+   *
+   * **順序由陣列位置決定**，這也順便解掉「order 完全改不了」那個洞。
+   */
+  async replace(surveyId: string, dto: ReplaceQuestionsDto, user: AuthUser) {
+    // 三道檢查與順序跟 create 完全一樣（理由見檔頭：看得到 → 能不能碰 → 現在能不能做）。
+    // 它們在交易**之前**，這一點對這支特別重要：底下第一件事就是 deleteMany，
+    // 檢查若排在交易裡面的刪除之後，403 / 409 照樣會回，但題目已經沒了。
+    const survey = await this.surveysService.assertExists(surveyId);
+
+    this.surveysService.assertCanManage(survey.status, survey.ownerId, user);
+
+    if (!canEditQuestions(survey.status)) {
+      throw new ConflictException('問卷已發布，無法編輯題目');
+    }
+
+    return this.prisma.$transaction(async (tx) => {
+      // 這道保險**預期永遠不會觸發**，而那正是它存在的理由。
+      //
+      // 「全刪重建」之所以安全，靠的是三條各自訂下的規則湊出來的結論：
+      //   canEditQuestions   只有 DRAFT 能改題目
+      //   canSubmitResponse  只有 PUBLISHED 能被填答
+      //   canUnpublish       有填答就不能撤回發布
+      // → **DRAFT 的問卷不可能有答案**，所以刪掉題目不會連帶銷毀任何人的填答。
+      //
+      // 那是一個**推導**，不是一個保證。哪天有人放寬 canEditQuestions（例如
+      // 「已發布也能改錯字」），這裡會安靜地把別人的答案 cascade 掉，
+      // 而且沒有任何測試會紅。這三行把推導變成執行期的事實。
+      //
+      // 為什麼不寫進 survey.rules.ts（CLAUDE.md 說新規則都要進去）：
+      // 那裡的規則回答「這件事現在能不能做」，而使用者**真的做得到**那件事，
+      // 每一條都有對應的使用情境與單元測試。這一條回答的是
+      // 「我推導出來的前提還成立嗎」，它沒有使用情境 —— 是斷言，不是規則。
+      const responseCount = await tx.response.count({ where: { surveyId } });
+      if (responseCount > 0) {
+        throw new ConflictException('已經有人填答，無法整份取代題目');
+      }
+
+      // 舊題目全刪。它們底下的 Answer 會被 PostgreSQL 一起 cascade 掉
+      //（見 schema.prisma），但上面那道保險已經確定了「沒有 Answer」。
+      await tx.question.deleteMany({ where: { surveyId } });
+
+      // [教學] createMany 是一句 SQL 插入 N 列，對照 for 迴圈裡呼叫 N 次 create。
+      // 3 題看不出差別，50 題就是 50 次來回。
+      //
+      // order 用陣列的 index —— 這是這支跟 create 最大的差別：create 要
+      // 「數現有幾題」才知道接在第幾號（而那個讀-算-寫的形狀有 race，見上面），
+      // 整份取代則是**先刪光再重建**，index 就是最終答案，不必去讀任何東西。
+      await tx.question.createMany({
+        data: dto.questions.map((question, index) => ({
+          title: question.title,
+          type: question.type,
+          options: question.options,
+          order: index,
+          // surveyId 來自網址、不來自 body —— 外面不能決定題目要長在誰身上。
+          surveyId,
+        })),
+      });
+
+      // ⚠️ **這一句不能省，也不能拿 createMany 的回傳值代替。**
+      // createMany 回的是 `{ count: 3 }`，不是那三列資料。直接回傳它的話：
+      // 狀態碼還是 200、@ApiOkResponse 照樣宣稱是 QuestionEntity[]（它只是文件，
+      // 不驗證任何東西），而前端拿到 { count: 3 } 去 .map() 才炸 ——
+      // 後端日誌一片乾淨。
+      //
+      // 前端也**必須**拿這份回傳值取代本地狀態：這些題目是刪掉重建的，
+      // id 全部是新的，舊 id 一個都不能再用。那是整份取代的代價。
+      return tx.question.findMany({
+        where: { surveyId },
+        orderBy: { order: 'asc' },
+      });
     });
   }
 }
