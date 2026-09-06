@@ -19,7 +19,11 @@
 // main.ts，enableCors 放那裡的話 test/cors.e2e-spec.ts 三條會全部拿不到標頭 ——
 // CORS 就成了一個沒有測試守著的設定。
 //
-// 下一站：src/swagger.ts（同樣由 main.ts 呼叫，但它產出的是「文件」而不是行為）
+// **Ch16 把 CORS 的白名單改成從環境變數來**，而那件事又補了一條通則：
+// 這裡的設定值一旦來自外部，就要處理「外部沒給」的情況。
+// 這個檔案的選擇是**啟動時就大聲失敗**，判斷本身抽在 common/cors-origins.ts。
+//
+// 下一站：src/common/cors-origins.ts（那份設定的值從哪來、拿不到時為什麼要炸掉）
 // ============================================================
 
 import {
@@ -28,13 +32,27 @@ import {
   ValidationPipe,
 } from '@nestjs/common';
 import { ValidationError } from 'class-validator';
+import { parseCorsOrigins } from './common/cors-origins';
 import { flattenValidationErrors } from './common/field-errors';
 import { AllExceptionsFilter } from './common/filters/all-exceptions.filter';
+import { ConfigService } from '@nestjs/config';
 
 /**
  * 套用全域設定。main.ts 與 E2E 測試都必須呼叫，兩邊行為才會一致。
  */
 export function setupApp(app: INestApplication): INestApplication {
+  // [教學] 從 DI 容器裡「撈」一個零件出來用（Ch16）。
+  //
+  // Ch10 的 auth.module.ts 也讀 ConfigService，但那裡是 useFactory + inject，
+  // 由 Nest 主動把零件送進來 —— 那是**容器內部**的寫法。
+  // setupApp 只是一個普通函式、沒有 @Injectable()，Nest 不會餵東西給它，
+  // 所以只能拿著 app 自己去 get。撈得到是因為 ConfigModule.forRoot
+  // 開了 isGlobal: true（見 app.module.ts）。
+  //
+  // 想過但否決的另一種寫法是 setupApp(app, { corsOrigin })：
+  // 那樣 main.ts 與**每一支 e2e**都要各自傳一次，而「兩邊行為一致」
+  // 就重新變回靠紀律。這個檔案的價值就在呼叫端不必知道細節。
+  const config = app.get(ConfigService);
   // [教學] Pipe 是 NestJS 的一種中介層，在請求抵達 controller 方法**之前**
   // 攔下參數做處理。ValidationPipe 做的是：拿 DTO 上的 class-validator
   // 裝飾器去檢查請求內容，不合格就直接回 400，controller 完全不會被呼叫。
@@ -72,7 +90,19 @@ export function setupApp(app: INestApplication): INestApplication {
 
   app.enableCors({
     allowedHeaders: ['Content-Type', 'Authorization'],
-    origin: 'http://localhost:3000',
+
+    // [教學] Ch14 這裡是寫死的 'http://localhost:3000'，Ch16 改成從環境變數來。
+    //
+    // 換成**陣列**之後 cors 的行為跟字串模式完全不同，這一點很重要：
+    //   字串  一律回那個固定值，根本不看請求的 Origin（沒有「不匹配」這回事）
+    //   陣列  比對請求的 Origin，中了就把**它**原樣回去，沒中就不加這個標頭
+    // test/cors.e2e-spec.ts 那條「不在白名單」的測試，是換成陣列之後才成立的。
+    //
+    // 用 config.get 而不是 config.getOrThrow —— 這不是偷懶，是刻意的：
+    // getOrThrow 的原始碼是 isUndefined(value) 才 throw，擋不到 `CORS_ORIGIN=`
+    // 那種空字串。把「什麼算沒設」整個交給 parseCorsOrigins 一個地方判斷，
+    // 三種形狀（沒設／空字串／只有逗號）才會走同一條路。理由見它的檔頭。
+    origin: parseCorsOrigins(config.get<string>('CORS_ORIGIN')),
   });
 
   // [教學] Filter 跟 Pipe 是同一個家族、位置相反的兩個中介層：
