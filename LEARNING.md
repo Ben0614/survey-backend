@@ -758,7 +758,19 @@ e2e 148 → 182、unit 21 → 32。「分頁參數好不好用」的答案是：
    （`survey-frontend-*.vercel.app`），而 `CORS_ORIGIN` 是精確字串比對。
    目前沒有 PR 流程所以用不到；真的要用時，改 `parseCorsOrigins` 支援 pattern
    之前先想清楚「不小心放行了不該放行的 origin」會長什麼樣（見 ch18 的作業 1）。
-10. **`useMyService.anonymous` 的第二個理由目前到不了**（Ch18 坑 #3）。
+10. ⚠️ **後端的自動部署壞著，而且沒有任何症狀**（Ch18 坑 #4，**這是目前唯一沒修的東西**）。
+    2026-09-06 砍掉重建 repo 之後，Render 收不到 push 通知了
+    （`github.com/<repo>/settings/hooks` 是空的），但 Manual Deploy 成功、
+    `/health` 正常、`Auto-Deploy` 的設定也顯示 `On Commit` ——
+    **設定說會自動部署，跟通知管道存在，是兩件事。**
+
+    **所以後端 push 之後要自己去 Render 按一次 Manual Deploy。**
+    前端的 Vercel 是自動的，兩邊不一樣，很容易忘。
+
+    決定是接受它（後端幾乎只會有文件變更，而文件不需要部署）。
+    還沒試過的：切一次 Auto-Deploy 開關、Disconnect 再 Connect。
+    保證會動的備案：Deploy Hook + GitHub Actions（好處是壞掉會在 Actions 頁面紅給你看）。
+11. **`useMyService.anonymous` 的第二個理由目前到不了**（Ch18 坑 #3）。
     「已登入的人在 `/login` 打錯密碼會被登出」那條路被路由守衛擋住了 ——
     旗標留著是縱深防禦。守衛哪天放寬（例如允許已登入的人切換帳號）就會現形。
 

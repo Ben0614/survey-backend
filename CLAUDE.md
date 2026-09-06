@@ -170,6 +170,15 @@ Ch17 輪 ④ 因此新開了 `responses.rules.ts`，而不是把作答的規則�
 
 不要回頭補測試：測試要在寫功能的當下寫，否則只是驗證「現在的行為」。
 
+## 部署
+
+⚠️ **後端 push 之後要自己去 Render 按 Manual Deploy** —— 自動部署在 2026-09-06
+砍掉重建 repo 之後就壞了，而且**沒有任何症狀**（Manual Deploy 成功、`/health` 正常、
+`Auto-Deploy` 的設定也顯示 `On Commit`，只有 GitHub 那邊的 webhook 是空的）。
+前端的 Vercel 是自動的，**兩邊不一樣**。
+
+完整說明與試過的做法見 [`ch18`](docs/chapters/ch18-前端部署與端到端驗收.md) 的坑 #4。
+
 ## 環境變數
 
 `.env` / `.env.test` 已 gitignore；新增變數時同步更新 `.env.example`（只放 key 的形狀）。本機 `PORT=3100`，`api.http` 也寫死這個 port。
