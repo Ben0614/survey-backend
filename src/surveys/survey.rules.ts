@@ -4,6 +4,7 @@
 // 什麼時候被執行：service 在動資料之前呼叫它們問一句「可以嗎」。
 //   canEditQuestions   → QuestionsService 的 create / update / remove
 //   canUnpublish       → SurveysService 的 unpublish
+//   canDelete          → SurveysService 的 remove（Ch17 輪 ②）
 //   canSubmitResponse  → ResponsesService 的 create（Ch5）
 //   canManageSurvey    → 八個地方（Ch12），但都經由 SurveysService.assertCanManage
 //   canSeeSurvey       → findOne、questions.findAll，以及 assertCanManage 的第一步（Ch15）
@@ -72,6 +73,24 @@ export function canEditQuestions(status: SurveyStatus): boolean {
  * 而舊答案是綁在舊題目上的，改完會對不起來。
  */
 export function canUnpublish(responseCount: number): boolean {
+  return responseCount === 0;
+}
+
+/**
+ * 已經有人填答就不能刪 —— 刪掉會連別人送出的填答一起銷毀（cascade）。
+ *
+ * ⚠️ **它跟 canUnpublish 現在一模一樣，而那是刻意分開的。**
+ *
+ * 長得一樣不代表是同一件事：
+ *   canUnpublish  撤回之後題目就能改，而舊答案綁在舊題目上，改完會對不起來
+ *   canDelete     刪掉是資料真的消失，而那些填答不是擁有者的東西
+ *
+ * 兩條規則各有各的理由，將來就可能分開變 —— 「撤回」哪天放寬成
+ * 「填答數 < 10 也可以」時，刪除不該跟著鬆。**合併它才是 bug 的來源**
+ * （長得一樣的重複叫 coincidental duplication，抽成同一個函式等於宣稱
+ * 「這兩件事永遠會一起變」，而那句話不成立）。
+ */
+export function canDelete(responseCount: number): boolean {
   return responseCount === 0;
 }
 

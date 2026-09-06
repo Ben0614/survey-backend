@@ -37,9 +37,7 @@ import { SurveysService } from './surveys.service';
 import { SurveyEntity, PaginatedSurveysEntity } from './entities/survey.entity';
 import { ErrorResponseEntity } from '../common/entities/error-response.entity';
 import { CurrentUser } from '../auth/decorators/current-user.decorator';
-import { Roles } from '../auth/decorators/roles.decorator';
 import type { AuthUser } from '../auth/guards/jwt-auth.guard';
-import { Role } from '../generated/prisma/enums';
 import { ApiAuthenticated } from '../auth/decorators/api-authenticated.decorator';
 
 // [教學] @Controller('surveys') 是這個 class 所有路由的共同前綴。
@@ -209,28 +207,35 @@ export class SurveysController {
   //
   // 但要記得那個 body 是**刪除前的快照** —— 它有內容，不代表資料還在。
   // 所以 e2e 除了看 body，還要再查一次資料庫確認真的沒了。
-  // [教學] **Ch11 起這支只有 ADMIN 能呼叫**（@Roles(Role.ADMIN)）。
+  // [教學] **這支的授權方式在 Ch17 輪 ② 換過一次，過程本身值得記。**
   //
-  // 那個裝飾器本身不擋任何人 —— 它只在這個方法上貼一張寫著 ['ADMIN'] 的紙條，
-  // 真正擋人的是 roles.guard.ts。只貼紙條卻沒註冊 guard 的話效果是零，
-  // 而且完全無聲（判準：新 guard 沒讓既有測試變紅，代表它根本沒生效）。
+  //   Ch11  @Roles(Role.ADMIN) —— 只有管理員能刪。當時的理由是「刪除不可逆」
+  //   Ch17  拿掉那個裝飾器，改成擁有者或管理員（assertCanManage）＋ 有填答就 409
   //
-  // 為什麼只有刪除要管理員、改跟發布不用：這一章的範圍就是「刪除是不可逆的」。
-  // Ch12 會補上另一種授權 —— 「只能改**自己的**問卷」，那是看資料的歸屬，
-  // guard 看不到資料，所以判斷位置會不一樣。
-  @ApiOperation({ summary: '刪除問卷（僅限管理員）' })
+  // 換掉的理由不是「Ch11 想錯了」，是**串接時才看得到的後果**：
+  // 使用者建到一半失敗會留下半成品草稿，而他連刪掉自己那份垃圾的權限都沒有。
+  // 「刪除很危險」是真的，但「危險」的對象是**別人的資料**，不是自己的草稿。
+  //
+  // 兩種授權的位置不一樣，這一點沒有變（Ch12 講過）：
+  //   @Roles       角色 —— guard 看得到（token 裡就有），擋在 controller 之前
+  //   擁有權       資料的歸屬 —— guard 看不到，要先查資料庫，所以判斷在 service
+  // 這也是為什麼這裡現在需要 @CurrentUser()：判斷要往下傳。
+  @ApiOperation({ summary: '刪除問卷（擁有者或管理員；已有填答則不能刪）' })
   @ApiOkResponse({ description: '刪除前的那一筆問卷', type: SurveyEntity })
   @ApiNotFoundResponse({ description: '問卷不存在', type: ErrorResponseEntity })
   @ApiForbiddenResponse({
     description: '無此權限',
     type: ErrorResponseEntity,
   })
-  @Roles(Role.ADMIN)
+  @ApiConflictResponse({
+    description: '問卷已被填寫，無法刪除',
+    type: ErrorResponseEntity,
+  })
   @Delete(':id')
-  remove(@Param('id') id: string) {
+  remove(@Param('id') id: string, @CurrentUser() user: AuthUser) {
     // [教學] 只吃網址、不吃 body —— DELETE 依規範不帶 body，
     // 「要刪哪一筆」是它唯一需要知道的事，而那個資訊在網址裡。
-    return this.surveysService.remove(id);
+    return this.surveysService.remove(id, user);
   }
 
   // [教學] 這兩支是**動作型端點**：網址表達的不是「哪一個資源」，而是「對它做什麼」。

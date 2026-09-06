@@ -16,6 +16,20 @@ import {
   IsString,
   MaxLength,
   IsEnum,
+  // [教學] 下面這四個是「自己寫一條規則」用的（Ch17 輪 ②）。
+  // 它們跟 @IsString 出自**同一個套件** class-validator，不是別的東西 ——
+  // @IsString 之類的內建裝飾器，底下也是用同一組機制做出來的。
+  //
+  //   ValidatorConstraint          貼在 class 上，宣告「這個 class 是一條規則」
+  //   ValidatorConstraintInterface 那個 class 要實作的介面（validate + defaultMessage）
+  //   ValidationArguments          validate 收到的第二個參數的型別
+  //   Validate                     把那條規則掛到某個屬性上（用法同 @IsString()）
+  Validate,
+  ValidatorConstraint,
+} from 'class-validator';
+import type {
+  ValidationArguments,
+  ValidatorConstraintInterface,
 } from 'class-validator';
 // [教學] QuestionType 是 schema.prisma 的 enum，由 prisma generate 產生。
 //
@@ -29,6 +43,53 @@ import {
 // 一次 import 兩種用途都拿到。
 import { ApiProperty } from '@nestjs/swagger';
 import { QuestionType } from '../../generated/prisma/enums';
+
+// [教學] 一條「規則取決於另一個欄位」的驗證（Ch17 輪 ②）。
+//
+// 內建的裝飾器一次只看一個值（@MaxLength 只看那個字串多長），
+// 但「單選題至少要有兩個選項」要同時看 options **與** type ——
+// 這種跨欄位的規則，class-validator 給的工具就是自訂 constraint。
+//
+// ⚠️ **這個 class 必須寫在 CreateQuestionDto 上面。**
+// 裝飾器是在 class 定義的當下就執行的，而 class 宣告不會被提升
+//（跟 function 不一樣）。寫在下面的話啟動時就是
+// `ReferenceError: Cannot access 'SingleChoiceNeedsOptions' before initialization`。
+//
+// ⚠️ **為什麼不用 @ValidateIf。** 最自然的寫法是這樣，而它是錯的：
+//
+//     @IsArray()
+//     @IsString({ each: true })
+//     @ValidateIf((o) => o.type === QuestionType.SINGLE_CHOICE)
+//     @ArrayMinSize(2)
+//     options: string[];
+//
+// @ValidateIf 的條件為 false 時，跳過的**不是它下面那一個裝飾器，
+// 是這個屬性的全部**。於是 TEXT 題送 `options: "我是字串不是陣列"` 會通過，
+// 而 @IsArray 那道防線安靜地消失了 —— 單選題那條規則看起來完全正常
+//（你會去測它），壞掉的是你沒想到要測的那一邊。
+//
+// @Validate 是獨立的一個裝飾器，不影響旁邊任何一個。
+@ValidatorConstraint({ name: 'singleChoiceNeedsOptions' })
+export class SingleChoiceNeedsOptions implements ValidatorConstraintInterface {
+  validate(value: unknown, args: ValidationArguments): boolean {
+    const dto = args.object as { type?: QuestionType };
+
+    // 不是單選題就一律通過 —— 這條規則管的只有單選題。
+    //
+    // type 是 undefined 時也走這裡。那發生在 UpdateQuestionDto
+    //（PartialType(CreateQuestionDto)，每個欄位都變選填）只送 options
+    // 不送 type 的時候 —— 也就是「把一個單選題的選項清空」目前擋不住。
+    // 那要拿資料庫裡現有的 type 才判斷得出來，是 service 的事，不是 DTO 的事。
+    // 輪 ③（編輯頁）會撞到，留在那裡處理。
+    if (dto.type !== QuestionType.SINGLE_CHOICE) return true;
+
+    return Array.isArray(value) && value.length >= 2;
+  }
+
+  defaultMessage(): string {
+    return '單選題至少要有兩個選項';
+  }
+}
 
 export class CreateQuestionDto {
   @ApiProperty({
@@ -60,12 +121,21 @@ export class CreateQuestionDto {
   //
   // 少了 each 就變成「這個陣列本身必須是字串」，永遠不會通過。
   // 這個 { each: true } 幾乎所有 @Is... 裝飾器都支援。
+  //
+  // @Validate 掛的是上面那條跨欄位規則（Ch17 輪 ②）。
+  //
+  // ⚠️ @ValidatorConstraint 的 name **不是裝飾用的** ——
+  // 它會變成錯誤回應裡 fields 的 rule（Ch15 輪 ③ 的形狀）：
+  //     { field: 'options', rule: 'singleChoiceNeedsOptions' }
+  // 前端拿那個 rule 去查文案表。取名時要當成 API 的一部分。
   @ApiProperty({
-    description: '選項',
+    description: '選項。SINGLE_CHOICE 至少兩個；TEXT 送空陣列',
     type: [String],
   })
   @IsArray()
   @IsString({ each: true })
+  @IsNotEmpty({ each: true }
+  @Validate(SingleChoiceNeedsOptions)
   options: string[];
 
   // 這裡刻意**沒有** order。

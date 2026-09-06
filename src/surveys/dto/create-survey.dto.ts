@@ -14,8 +14,26 @@
 // 下一站：src/surveys/dto/update-survey.dto.ts（同一份規則，改成「部分更新」版）
 // ============================================================
 
-import { ApiProperty } from '@nestjs/swagger';
-import { IsNotEmpty, IsString, MaxLength } from 'class-validator';
+import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
+import {
+  IsNotEmpty,
+  IsString,
+  MaxLength,
+  IsArray,
+  IsOptional,
+  ValidateNested,
+} from 'class-validator';
+import { Type } from 'class-transformer';
+// 重用 CreateQuestionDto，不在這裡複製一份一樣的規則（Ch17 輪 ②）。
+//
+// 跨 feature import DTO 沒問題 —— survey.entity.ts 早就 import 了 question.entity.ts。
+// 而複製一份的代價很具體：哪天 CreateQuestionDto 的 maxLength 改了、或多一條規則，
+// 這一份不會跟著變，**而且沒有人會發現**（兩邊都合法）。
+//
+// 重用的收益在這一輪就兌現了：「單選題至少兩個選項」寫在那一份裡，
+// POST /surveys 與 POST /surveys/:surveyId/questions **兩條路徑同時生效**，
+// 這裡一個字都不用多寫。
+import { CreateQuestionDto } from '../../questions/dto/create-question.dto';
 
 export class CreateSurveyDto {
   // [教學] 這些 @Is... 是 class-validator 的裝飾器，一個裝飾器一條規則，
@@ -63,6 +81,32 @@ export class CreateSurveyDto {
   @IsNotEmpty()
   @MaxLength(200)
   title: string;
+
+  // [教學] 巢狀的子資源（Ch17 輪 ②）。三個裝飾器缺一不可，
+  // 範本就是 Ch5 的 create-response.dto.ts（那裡是 answers）：
+  //
+  //   @IsArray()                    它得是一個陣列
+  //   @ValidateNested({ each: true }) 陣列裡**每一個元素**都要照它自己的規則檢查
+  //   @Type(() => CreateQuestionDto)  告訴 class-transformer 那些元素要轉成哪個 class
+  //
+  // ⚠️ 少了 @Type 最危險：JSON 進來時裡面是普通物件，class-validator
+  // 在普通物件上讀不到任何裝飾器 → **每一個元素都直接通過**。
+  // 沒有錯誤訊息，只是那一層驗證整個消失了。
+  //
+  // 為什麼是選填：建一份沒有題目的空草稿仍然合法（列表上就是 0 題那幾筆）。
+  // 「先建再慢慢加題目」跟「一次建好」兩種流程都要能走。
+  //
+  // 這裡刻意**沒有** order —— 題目的順序由陣列本身決定，service 用索引填。
+  // 理由同 create-question.dto.ts 結尾那段：不讓前端指定序號。
+  @ApiPropertyOptional({
+    description: '一併建立的題目。順序就是陣列的順序；不給就是一份空草稿',
+    type: [CreateQuestionDto],
+  })
+  @IsArray()
+  @ValidateNested({ each: true })
+  @Type(() => CreateQuestionDto)
+  @IsOptional()
+  questions?: CreateQuestionDto[];
 
   // 這裡刻意**沒有** status。
   //

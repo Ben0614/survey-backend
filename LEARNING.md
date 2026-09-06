@@ -720,6 +720,11 @@ Ch8 留下的「`/docs` 要不要公開」因此變成一個真正的選擇，
    C `RolesGuard` 查資料庫（一致且即時，每個請求多一次查詢，可加快取）、
    D 縮短 token 壽命（Ch10 已決定不做 refresh token）。
    **目前沒有任何測試守著這個不一致。** 真正要選的是 A 還是 C，值得單獨一輪。
+5. **`options: ["", ""]` 建得出一個「有兩個空白選項」的單選題**（Ch17 輪 ② 發現）。
+   `@IsString({ each: true })` 認為空字串是字串，而 `SingleChoiceNeedsOptions`
+   只數長度 —— 兩道檢查都過。前端 `/surveys/new` 用 required 擋住了，但那只是 UI。
+   後端補一行 `@IsNotEmpty({ each: true })` 就好（TEXT 題送空陣列不受影響：
+   each 對零個元素是通過的）。跟輪 ③ 的題目編輯一起處理也可以。
 
 #### 兩個 repo 怎麼分工（2026-09-03 定的）
 

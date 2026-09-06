@@ -33,7 +33,10 @@ interface ErrorBody {
   error: {
     code: string;
     message: string;
-    details?: string[];
+    // Ch15 輪 ③ 把 details: string[] 換成結構化的 fields。
+    // 這份手寫的介面當時漏掉了 —— 沒有症狀，因為沒有測試用到它，
+    // 直到 Ch17 輪 ② 第一次要斷言欄位級錯誤才現形。
+    fields?: { field: string; rule: string }[];
   };
 }
 
@@ -146,6 +149,112 @@ describe('Surveys (e2e)', () => {
         .set(...authHeader(authToken))
         .send({ title: '' })
         .expect(400);
+    });
+
+    // ── 一次建好問卷與題目（Ch17 輪 ②）────────────────────────
+    //
+    // 這一組存在的理由是「前端要建一份 5 題的問卷」這件事以前要打 6 次請求，
+    // 而中途失敗會留下半成品。改成巢狀 create 之後是一次請求、一個交易。
+
+    it('帶 questions 建立問卷 → 201，題目一起建好，order 依陣列順序是 0、1、2', async () => {
+      const res = await request(app.getHttpServer())
+        .post('/surveys')
+        .set(...authHeader(authToken))
+        .send({
+          title: '員工滿意度調查',
+          questions: [
+            { title: '你的姓名', type: 'TEXT', options: [] },
+            {
+              title: '你滿意嗎',
+              type: 'SINGLE_CHOICE',
+              options: ['滿意', '不滿意'],
+            },
+            { title: '其他建議', type: 'TEXT', options: [] },
+          ],
+        })
+        .expect(201);
+
+      const body = res.body as SurveyWithQuestionsBody;
+
+      // 回應要直接帶題目 —— 不然前端建完還要再查一次（輪 ① 那個 N+1 的同一件事）。
+      expect(body.questions).toHaveLength(3);
+
+      // order 是**伺服器**依陣列索引填的，DTO 裡根本沒有這個欄位。
+      // 要連「順序對不對」一起驗：只驗長度的話，order 全填 0 也會綠。
+      expect(body.questions.map((q) => [q.title, q.order])).toEqual([
+        ['你的姓名', 0],
+        ['你滿意嗎', 1],
+        ['其他建議', 2],
+      ]);
+    });
+
+    // [教學] **這一輪的主角。**
+    //
+    // 它是唯一會抓到「先建問卷、再迴圈建題目」那種寫法的測試 ——
+    // 那樣寫的話前兩題會成功、第三題 400，而問卷已經躺在資料庫裡了。
+    //
+    // 所以斷言不能只看回應是 400（那兩種寫法都會回 400），
+    // **要去資料庫確認那一筆根本沒被建立**。
+    //
+    // 半成品的代價在 Ch17 輪 ② 之前特別高：DELETE 當時要 ADMIN，
+    // 一般使用者連清掉自己那份垃圾的權限都沒有。
+    it('其中一題不合格時，整份問卷都不會被建立 —— 資料庫裡不留半成品', async () => {
+      const title = '會失敗的問卷';
+
+      await request(app.getHttpServer())
+        .post('/surveys')
+        .set(...authHeader(authToken))
+        .send({
+          title,
+          questions: [
+            { title: '第一題', type: 'TEXT', options: [] },
+            { title: '第二題', type: 'TEXT', options: [] },
+            // 第三題的 type 不在 enum 裡 → 整包 400
+            { title: '第三題', type: 'NOT_A_REAL_TYPE', options: [] },
+          ],
+        })
+        .expect(400);
+
+      expect(await prisma.survey.count({ where: { title } })).toBe(0);
+      expect(await prisma.question.count()).toBe(0);
+    });
+
+    // [教學] 跨欄位的驗證（create-question.dto.ts 的 SingleChoiceNeedsOptions）。
+    //
+    // 斷言到 fields 的**值**而不是「有沒有 fields」：只驗「有」的話，
+    // 規則失效時 fields 會是 [{ field: 'title', ... }] 之類的別的東西，測試照樣綠。
+    //
+    // field 是 questions.0.options 這種完整路徑（Ch15 的 flattenValidationErrors
+    // 攤平巢狀錯誤時接出來的），前端拿它就能標紅第 1 題的選項欄。
+    it('SINGLE_CHOICE 沒有選項 → 400，fields 指出是 options', async () => {
+      const res = await request(app.getHttpServer())
+        .post('/surveys')
+        .set(...authHeader(authToken))
+        .send({
+          title: '沒有選項的單選題',
+          questions: [
+            { title: '你選哪一個', type: 'SINGLE_CHOICE', options: [] },
+          ],
+        })
+        .expect(400);
+
+      expect((res.body as ErrorBody).error.fields).toContainEqual({
+        field: 'questions.0.options',
+        rule: 'singleChoiceNeedsOptions',
+      });
+    });
+
+    // questions 是選填的 —— 「先建空殼再慢慢加題目」那條路要留著。
+    it('不帶 questions 仍然可以建立一份空草稿', async () => {
+      const res = await request(app.getHttpServer())
+        .post('/surveys')
+        .set(...authHeader(authToken))
+        .send({ title: '空草稿' })
+        .expect(201);
+
+      const body = res.body as SurveyWithQuestionsBody;
+      expect(body.status).toBe('DRAFT');
+      expect(body.questions).toEqual([]);
     });
 
     it('沒有 title 時回 400', async () => {
@@ -1090,7 +1199,44 @@ describe('Surveys (e2e)', () => {
     // Answer 是三張裡最不能省的：它**沒有直接掛在 Survey 上**（見 schema.prisma），
     // 能被清掉是因為 Question（或 Response）先被清掉、再連鎖一次。
     // 少了它，驗到的只有第一層，多層連鎖哪天壞了不會有人發現。
-    it('ADMIN 刪除問卷會連帶刪掉題目、回覆與答案（cascade）', async () => {
+    // ⚠️ **這條測試在 Ch17 輪 ② 被拆成兩半，原因值得記。**
+    //
+    // 舊版是「建題目 + 建填答 + 建答案 → 打 DELETE → 三張表都清空」。
+    // 但輪 ② 加了「有人填答就不能刪」（409）之後，**那個前提在 API 上
+    // 已經是不可達的狀態** —— 有 Answer 就一定有 Response（外鍵），
+    // 有 Response 就刪不掉。舊版現在會拿到 409 而不是 200。
+    //
+    // 拆法：
+    //   這一條   走 API，驗 Survey → Question 那一層（沒有填答，刪得掉）
+    //   下一條   繞過 API 用 prisma 直接刪，驗完整的兩層連鎖
+    //
+    // 下一條為什麼還算數：這條規則本來就**不活在 API 裡**，它活在
+    // migration.sql 的 ON DELETE CASCADE（舊版的註解自己就寫了這句）。
+    // 驗它的正確方式從來不是「打某支端點」，而是「刪掉那一列之後看資料還在不在」。
+    it('刪除問卷會連帶刪掉題目（cascade，走 API）', async () => {
+      const survey = await prisma.survey.create({
+        data: { title: '有題目但沒人填過的問卷', ownerId: userId },
+      });
+
+      await prisma.question.create({
+        data: {
+          surveyId: survey.id,
+          title: '你滿意嗎？',
+          type: 'SINGLE_CHOICE',
+          order: 0,
+          options: ['滿意', '不滿意'],
+        },
+      });
+
+      await request(app.getHttpServer())
+        .delete(`/surveys/${survey.id}`)
+        .set(...authHeader(authToken))
+        .expect(200);
+
+      expect(await prisma.question.count()).toBe(0);
+    });
+
+    it('Answer 的兩層 cascade 由資料庫負責（繞過 API，因為有填答的問卷已經刪不掉）', async () => {
       const survey = await prisma.survey.create({
         data: { title: '有題目也有人填過的問卷' },
       });
@@ -1119,10 +1265,7 @@ describe('Surveys (e2e)', () => {
         },
       });
 
-      await request(app.getHttpServer())
-        .delete(`/surveys/${survey.id}`)
-        .set(...authHeader(adminToken))
-        .expect(200);
+      await prisma.survey.delete({ where: { id: survey.id } });
 
       // [教學] 這三行**必須用 prisma 直接查、不能改用 API**。
       // 要驗的規則活在 PostgreSQL 裡（prisma/migrations/*/migration.sql 的
@@ -1148,23 +1291,84 @@ describe('Surveys (e2e)', () => {
     // 而 /docs 的說明白紙黑字要前端「用 code 分支處理，不要解析 message」，
     // 所以前端會顯示「伺服器發生錯誤」，使用者一直重試一個永遠不會成功的操作。
     //
-    // 用外層那個 authToken（USER）打就好 —— 這一條要的正是「登入了、
-    // 但職稱不夠」。
-    it('USER 刪除問卷 → 403，code 是 FORBIDDEN', async () => {
-      const created = await request(app.getHttpServer())
-        .post('/surveys')
-        .set(...authHeader(authToken))
-        .send({ title: '員工滿意度調查' })
-        .expect(201);
+    // ⚠️ **這條測試在 Ch17 輪 ② 被改寫過，而它的前提整個換掉了。**
+    //
+    //   舊版  這個 USER 建立自己的問卷，然後刪它 → 403
+    //         驗的是「登入了，但**職稱**不夠」（Ch11 的 @Roles(Role.ADMIN)）
+    //   新版  刪**別人的**已發布問卷 → 403
+    //         驗的是「看得到，但**不是你的**」（Ch15 的 assertCanManage）
+    //
+    // 舊版現在會回 200 —— 因為那本來就是他自己的問卷，而規則改成
+    // 「擁有者或 ADMIN」之後那是合法操作。**測試紅了不是壞了，是規則真的變了。**
+    //
+    // 為什麼別人那份要是 PUBLISHED：Ch15 定的順序是「看得到才談得上授權」。
+    // 別人的**草稿**你看不到 → 404（就當它不存在），根本走不到 403 這一步。
+    it('刪除別人的問卷 → 403，code 是 FORBIDDEN', async () => {
+      const otherUser = await prisma.user.create({
+        data: {
+          email: `other-${Date.now()}@example.com`,
+          passwordHash: 'x',
+        },
+      });
 
-      const id = (created.body as SurveyBody).id;
+      const survey = await prisma.survey.create({
+        data: {
+          title: '別人的已發布問卷',
+          status: SurveyStatus.PUBLISHED,
+          ownerId: otherUser.id,
+        },
+      });
 
       const res = await request(app.getHttpServer())
-        .delete(`/surveys/${id}`)
+        .delete(`/surveys/${survey.id}`)
         .set(...authHeader(authToken))
         .expect(403);
 
       expect((res.body as ErrorBody).error.code).toBe('FORBIDDEN');
+    });
+
+    // 擁有權那一側的正向案例 —— 上面那條只證明「別人的不行」，
+    // 沒有證明「自己的可以」。把 assertCanManage 的條件寫反的話，
+    // 只有這一條會紅。
+    it('擁有者可以刪掉自己的問卷 → 200', async () => {
+      const survey = await prisma.survey.create({
+        data: { title: '我自己的草稿', ownerId: userId },
+      });
+
+      await request(app.getHttpServer())
+        .delete(`/surveys/${survey.id}`)
+        .set(...authHeader(authToken))
+        .expect(200);
+
+      expect(
+        await prisma.survey.findUnique({ where: { id: survey.id } }),
+      ).toBeNull();
+    });
+
+    // [教學] 商業規則那一層（Ch17 輪 ②）。順序是 404 → 403 → 409，
+    // 所以走到這裡代表「看得到、也是你的」，只是**現在不能做**。
+    //
+    // 這條規則的副作用很大，值得記住：**一份有人填答的問卷從此刪不掉，
+    // 連 ADMIN 也不行。** 那跟 unpublish 是一致的（Ch5 就決定了
+    // 「有人填答之後那份問卷就凍結」），但它讓下面那條 cascade 測試
+    // 沒辦法再走 API —— 見那裡的說明。
+    it('已經有人填答的問卷不能刪 → 409', async () => {
+      const survey = await prisma.survey.create({
+        data: { title: '已經有人填的問卷', ownerId: userId },
+      });
+      await prisma.response.create({ data: { surveyId: survey.id } });
+
+      const res = await request(app.getHttpServer())
+        .delete(`/surveys/${survey.id}`)
+        .set(...authHeader(authToken))
+        .expect(409);
+
+      expect((res.body as ErrorBody).error.code).toBe('CONFLICT');
+
+      // 沒被刪掉才算數 —— 只驗狀態碼的話，「回 409 但還是刪了」也會綠。
+      expect(
+        await prisma.survey.findUnique({ where: { id: survey.id } }),
+      ).not.toBeNull();
     });
 
     // [教學] 這一條驗的是**兩個 guard 的順序**（auth.module.ts 的 providers

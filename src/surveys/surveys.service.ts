@@ -53,7 +53,12 @@ import { PrismaService } from '../prisma/prisma.service';
 import { CreateSurveyDto } from './dto/create-survey.dto';
 import { UpdateSurveyDto } from './dto/update-survey.dto';
 import { FindSurveysQueryDto } from './dto/find-surveys-query.dto';
-import { canUnpublish, canManageSurvey, canSeeSurvey } from './survey.rules';
+import {
+  canUnpublish,
+  canManageSurvey,
+  canSeeSurvey,
+  canDelete,
+} from './survey.rules';
 import { SurveyStatus } from '../generated/prisma/enums';
 import { Prisma } from '../generated/prisma/client';
 import type { AuthUser } from '../auth/guards/jwt-auth.guard';
@@ -451,8 +456,38 @@ export class SurveysService {
     // 就算 whitelist 已經擋過一層，這裡再寫一次「我只接受這個欄位」——
     // 兩道防線的成本很低，而漏掉的代價是有人能直接寫入任意欄位。
     // 之後 dto 多了欄位時，這裡也會逼你想一次「這個該不該進資料庫」。
+    // [教學] 巢狀 create（Ch17 輪 ②）—— 一次請求把問卷與它的題目一起寫進去。
+    //
+    // **Prisma 的巢狀 write 自己就包了一個交易**，不必再寫 $transaction
+    //（同 Ch5 提交填答：一筆 Response + N 筆 Answer，見 responses.service.ts）。
+    // 所以「其中一題不合格」的結果是整份都不建立，資料庫裡不會留下半成品草稿。
+    //
+    // 那件事以前做不到：只能先 POST /surveys 拿到 id，再一題一題 POST 題目 ——
+    // 第 3 題失敗時前兩題已經寫進去了，而使用者連刪掉那份垃圾的權限都沒有
+    //（DELETE 當時要 ADMIN）。這一輪把兩件事一起修掉了。
+    //
+    // order 由**陣列索引**決定，不是使用者給的（DTO 裡刻意沒有這個欄位）。
+    // 對照 questions.service.ts 的 create：那裡是一題一題加，所以用 count 算下一個號碼。
+    //
+    // dto.questions 是 undefined 時，`create` 收到的也是 undefined ——
+    // 而 undefined 在 Prisma 眼中一律是「這件事不做」（同 findAll 的 where、
+    // update 的 data），所以不必寫 if。空草稿就是這樣建出來的。
     return this.prisma.survey.create({
-      data: { title: dto.title, ownerId },
+      data: {
+        title: dto.title,
+        ownerId,
+        questions: {
+          create: dto.questions?.map((question, index) => ({
+            title: question.title,
+            type: question.type,
+            options: question.options,
+            order: index,
+          })),
+        },
+      },
+      // 建完把題目一起回去，前端不必再查一次（輪 ① 那個 N+1 的同一個主題）。
+      // orderBy 不能省：資料表沒有固有順序，剛寫進去的也一樣。
+      include: { questions: { orderBy: { order: 'asc' } } },
     });
   }
 
@@ -497,11 +532,26 @@ export class SurveysService {
   }
 
   /** 刪除一份問卷，連同它的題目與回覆。回傳被刪掉的那一筆。 */
-  async remove(id: string) {
+  async remove(id: string, user: AuthUser) {
     // 404 的處理跟 update 同一套（理由見上面那段）。
     // 這正是當初選「先 assertExists 再操作」而不是 catch P2025 的好處 ——
     // 第二次要用的時候，一行原封不動搬過來就成立了。
-    await this.assertExists(id);
+    const survey = await this.assertExists(id);
+
+    this.assertCanManage(survey.status, survey.ownerId, user);
+
+    // [教學] responseCount 不會憑空出現 —— 規則是純函式，它只認得數字，
+    // **去數的那一步是 service 的工作**（同 unpublish，見下面那支）。
+    //
+    // 這裡不用 findMany().length：count 只回一個數字，不會把整批填答撈進記憶體。
+    const responseCount = await this.prisma.response.count({
+      where: { surveyId: id },
+    });
+
+    // 有人填過就不給刪 —— 刪掉會連別人送出的填答一起 cascade 掉（Ch17 輪 ②）。
+    if (!canDelete(responseCount)) {
+      throw new ConflictException('已經有人填答，無法刪除');
+    }
 
     // [教學] delete 回傳的是**被刪掉的那一筆資料**，不是「刪了幾筆」。
     // 它等於一張刪除前的快照 —— 那筆資料在資料庫裡此刻已經不存在了。

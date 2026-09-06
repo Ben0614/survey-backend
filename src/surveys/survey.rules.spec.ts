@@ -29,6 +29,7 @@ import {
   canSubmitResponse,
   canManageSurvey,
   canSeeSurvey,
+  canDelete,
 } from './survey.rules';
 import { Role } from '../generated/prisma/enums';
 
@@ -113,7 +114,9 @@ describe('canManageSurvey', () => {
     };
     expect(canManageSurvey(ownerId, user)).toBe(true);
   });
+});
 
+describe('canSeeSurvey', () => {
   it('PUBLISHED 的問卷，不是自己的也看得到', () => {
     const status = 'PUBLISHED';
     const ownerId = 'asdfg123456';
@@ -123,6 +126,7 @@ describe('canManageSurvey', () => {
     };
     expect(canSeeSurvey(status, ownerId, user)).toBe(true);
   });
+
   it('DRAFT 的問卷，自己的看得到', () => {
     const status = 'DRAFT';
     const ownerId = 'asdfg123456';
@@ -156,5 +160,15 @@ describe('canManageSurvey', () => {
     };
     expect(canSeeSurvey(status, ownerId, user)).toBe(false);
     expect(canSeeSurvey(status, ownerId, user2)).toBe(true);
+  });
+});
+
+describe('canDelete', () => {
+  it('沒有任何人填答時可以刪除', () => {
+    expect(canDelete(0)).toBe(true);
+  });
+
+  it('已經有人填答就不能刪除', () => {
+    expect(canDelete(1)).toBe(false);
   });
 });
