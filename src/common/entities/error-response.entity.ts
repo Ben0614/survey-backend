@@ -51,7 +51,7 @@ export class ErrorBodyEntity {
   // **而它在 Ch11 收尾時被發現漂移了兩章**：Ch9 加了 UNAUTHORIZED、
   // Ch11 加了 FORBIDDEN，兩次都只改了 filter，這裡都沒跟上。
   // 沒有任何工具會叫 —— swagger 的一致性測試只比對**欄位名**
-  // （code / message / details），不看 enum 裡列了哪些值。
+  // （code / message / fields），不看 enum 裡列了哪些值。
   //
   // 判準：**「刻意接受第二份真相」的前提是有偵測器。** 這裡實際上沒有，
   // 所以它不是取捨，是一個已知的破口。要補得寫一條測試比對
@@ -80,8 +80,8 @@ export class ErrorBodyEntity {
   })
   message: string;
 
-  // details 只有 ValidationPipe 那條路徑會出現（filter 的 ...(details ? ... : {})），
-  // 所以是選填 —— 404 / 409 的回應裡根本沒有這個 key。
+  // fields 只有「驗證失敗」與「唯一衝突」兩條路徑會出現
+  //（filter 的 ...(fields ? ... : {})），所以是選填 —— 404 的回應裡根本沒有這個 key。
   // [教學] type: [FieldErrorEntity] 不能省 —— 陣列的元素型別**反射記不到**
   // （design:type 只會記成 Array）。這是 Ch13 那條判準的另一面：
   // 聯集要自己寫 type，陣列也要。
@@ -90,8 +90,8 @@ export class ErrorBodyEntity {
   //   VALIDATION_FAILED  [{ field: 'password', rule: 'minLength' }]
   //   CONFLICT           [{ field: 'email',    rule: 'unique' }]
   //
-  // 這是刻意的：前端一套邏輯處理兩者。改之前 details 只有驗證失敗會有，
-  // 而 409 連哪個欄位衝突都沒說。
+  // 這是刻意的：前端一套邏輯處理兩者。Ch15 輪 ③ 之前這個欄位叫 details，
+  // 裝的是英文句子陣列，而且只有驗證失敗會有 —— 409 連哪個欄位衝突都沒說。
   @ApiPropertyOptional({
     description:
       '出錯的欄位清單。驗證失敗（400）與唯一衝突（409）會有，其餘錯誤沒有',

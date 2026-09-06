@@ -42,10 +42,11 @@ export function buildSwaggerDocument(app: INestApplication): OpenAPIObject {
       [
         '建立問卷、發布、填答與查詢結果。',
         '',
-        '**錯誤格式**：所有端點的錯誤回應都是 `{ error: { code, message, details? } }`，',
+        '**錯誤格式**：所有端點的錯誤回應都是 `{ error: { code, message, fields? } }`，',
         '`code` 是 `BAD_REQUEST` / `NOT_FOUND` / `CONFLICT` / `VALIDATION_FAILED` / `INTERNAL_ERROR` / `UNAUTHORIZED` / `FORBIDDEN` 其中之一。',
         '請用 `code` 分支處理，不要解析 `message`（它的內容會隨版本變動）。',
-        '`details` 只有欄位驗證失敗（`VALIDATION_FAILED`）時才會出現。',
+        '`fields` 是結構化的 `[{ field, rule }]`，欄位驗證失敗（`VALIDATION_FAILED`）',
+        '與唯一衝突（`CONFLICT`）時會出現 —— 拿 `field` 標紅輸入框、拿 `rule` 查自己的文案表。',
         '',
         '**三條商業規則**，違反時回 409：',
         '- 只有 `PUBLISHED` 的問卷能被填答',

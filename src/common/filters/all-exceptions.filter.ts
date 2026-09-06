@@ -9,7 +9,7 @@
 // {"statusCode":404,"message":"問卷不存在","error":"Not Found"} 就是它產生的），
 // setup-app.ts 掛上這一支之後就換成由它負責。
 //
-// 下一站：src/common/entities/error-response.entity.ts（上面這個形狀在文件裡怎麼描述）
+// 下一站：src/common/field-errors.ts（錯誤裡那個 fields 是怎麼算出來的）
 // ============================================================
 
 import {
@@ -221,8 +221,8 @@ export class AllExceptionsFilter implements ExceptionFilter {
       //   ValidationPipe → message 是陣列  ["title should not be empty", ...]
       //   service        → message 是字串  "有重複的題目ID"
       //
-      // 混成一種的後果：前端拿到 VALIDATION_FAILED 就會去讀 details 準備標紅欄位，
-      // 結果 details 是 undefined → 畫面空白，而**狀態碼完全正確、沒有任何錯誤訊息**。
+      // 混成一種的後果：前端拿到 VALIDATION_FAILED 就會去讀 fields 準備標紅欄位，
+      // 結果 fields 是 undefined → 畫面空白，而**狀態碼完全正確、沒有任何錯誤訊息**。
       // e2e 的「service 丟的 400 code 是 BAD_REQUEST」就是專門抓這個的。
       if (validationFields) {
         code = VALIDATION_CODE;
@@ -233,7 +233,7 @@ export class AllExceptionsFilter implements ExceptionFilter {
         // 那些沒經過我們的 exceptionFactory，欄位路徑就只能留空。
         code = VALIDATION_CODE;
 
-        // message 一律是「一句給人看的字串」，逐條細節搬到 details。
+        // message 一律是「一句給人看的字串」，逐條細節搬到 fields。
         // 改成這樣的理由：原本 message 這個欄位在驗證錯誤是陣列、其他錯誤是字串，
         // 前端每次都得先判斷自己拿到的是哪一種。
         message = VALIDATION_MESSAGE;
@@ -263,14 +263,14 @@ export class AllExceptionsFilter implements ExceptionFilter {
       );
     }
 
-    // [教學] ...(details ? { details } : {}) 是「有才加這個欄位」。
+    // [教學] ...(fields ? { fields } : {}) 是「有才加這個欄位」。
     //
-    // 直接寫 { code, message, details } 的話，沒有 details 時回應會出現
-    // "details": undefined —— JSON.stringify 雖然會把它拿掉，但語意上是在說
+    // 直接寫 { code, message, fields } 的話，沒有 fields 時回應會出現
+    // "fields": undefined —— JSON.stringify 雖然會把它拿掉，但語意上是在說
     // 「這個欄位存在，只是沒值」。展開空物件則是**這個欄位根本不存在**。
     //
-    // 注意不能寫成 ...details：details 是陣列，展開陣列到物件裡會變成
-    // { 0: 'a', 1: 'b' }。展開的必須是物件。
+    // 注意不能寫成 ...fields：fields 是陣列，展開陣列到物件裡會變成
+    // { 0: {...}, 1: {...} }。展開的必須是物件。
     res.status(status).json({
       error: { code, message, ...(fields ? { fields } : {}) },
     });

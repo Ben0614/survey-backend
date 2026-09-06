@@ -16,11 +16,11 @@
 > 換機或開新對話時**先讀這一節**。對話歷史與 AI 記憶都在 `~/.claude/` 底下，不跟 git 走 ——
 > 這裡沒寫的東西，換一台機器就等於沒發生過。
 
-**進度：** Ch0 ~ Ch14 完成。**階段三只剩 Ch15 ~ Ch17。**
+**進度：** Ch0 ~ Ch15 完成。**階段三只剩 Ch16 ~ Ch17。**
 線上位址 `https://survey-backend-0dku.onrender.com`（Render 免費方案 + Neon 的 `production` branch）。
-`pnpm test:e2e` **138 passed**、`pnpm test` **11 passed**、`tsc --noEmit` 0 errors、`lint` 0 problems。
+`pnpm test:e2e` **147 passed**、`pnpm test` **15 passed**、`tsc --noEmit` 0 errors、`lint` 0 problems。
 
-下一步是 **Ch15（串接暴露的 API 設計問題）**，接續點在下方「**Ch15 接續點**」。
+下一步是 **Ch16（環境變數分離與 production build）**，接續點在下方「**Ch16 接續點**」。
 
 **⚠️ Ch13 起換一個 repo。** 前端是獨立的 **Nuxt 4** 專案（`survey-frontend`），
 跟這個並排放在 `Desktop/train/survey/` 底下，不是這個目錄的子資料夾。
@@ -641,49 +641,52 @@ Ch8 留下的「`/docs` 要不要公開」因此變成一個真正的選擇，
 
 ---
 
-### Ch15 接續點（2026-09-05）
+### Ch16 接續點（2026-09-06）
 
-**目前狀態**：`pnpm test:e2e` **138 passed**、`pnpm test` **11 passed**、
-`tsc --noEmit` 0 errors、`eslint` 0 problems。**Ch0 ~ Ch14 完成。**
+**目前狀態**：`pnpm test:e2e` **147 passed**、`pnpm test` **15 passed**、
+`tsc --noEmit` 0 errors、`eslint` 0 problems。**Ch0 ~ Ch15 完成。**
 
 > **階段三的兩層不一樣**：程式碼寫在**另一個 repo**，而且**那些程式碼由 AI 寫**。
 > 每一章的驗收標準是**後端的交付物** —— 這一節記的是後端留下了什麼、還缺什麼。
 
-#### Ch13 ~ Ch14 做完了什麼
+#### Ch13 ~ Ch15 做完了什麼
 
-**Ch13（契約驗收）** —— 詳見 [`ch13`](docs/chapters/ch13-契約驗收.md)
-修掉 `ownerId` 的聯集型別與 `order` 不成立的 `default`；
-契約有 401 的端點 2 → 16（新增 `@ApiAuthenticated()`）。
+**Ch13 契約驗收** — [`ch13`](docs/chapters/ch13-契約驗收.md)
+修掉 `ownerId` 的聯集型別與 `order` 不成立的 `default`；契約有 401 的端點 2 → 16。
 一句話：**兩種錯要兩種偵測器**（e2e 抓 key 集合漂移，前端 typecheck 抓型別標錯）。
 
-**Ch14（認證串接）** —— 詳見 [`ch14`](docs/chapters/ch14-認證串接.md)
-`enableCors` 上線（放 `setup-app.ts`，**不開 credentials**）；
-401 的三種來源確認符合實務標準、不必改；前端 `/login` 頁與整條認證鏈完成。
-**這一章第一次有真的瀏覽器打後端。**
+**Ch14 認證串接** — [`ch14`](docs/chapters/ch14-認證串接.md)
+`enableCors` 上線（放 `setup-app.ts`、**不開 credentials**）；401 的三種來源確認符合實務標準；
+前端 `/login` 頁與整條認證鏈完成。**第一次有真的瀏覽器打後端。**
+
+**Ch15 串接暴露的 API 設計問題** — [`ch15`](docs/chapters/ch15-串接暴露的API設計問題.md)
+三輪：讀取的擁有權（草稿不再外流、403 不再洩漏 id 存在）、驗證規則寫進契約、
+統一的欄位級錯誤（`fields` 取代 `details`）。
+**三個問題 e2e 都抓不到 —— 要有人真的去用才會撞到。** 那正是階段三存在的理由。
 
 前端現在能：註冊、登入、reload 之後靠 `/auth/me` 還原身分、登出。
-`survey-frontend` 有 Vuetify + Pinia + `useMyService` + 全域路由守衛。
+`/surveys` 仍是**佔位頁**（只顯示身分與登出）。
 
-#### Ch15 的起點 —— 已經知道的四個 API 設計問題
+#### Ch16 的起點
 
-主題是「**串接暴露的 API 設計問題**」，而串接已經先送了四個過來：
+主題是**環境變數分離與 production build**，驗收標準見進度表。三件事已經知道了：
 
-1. **`GET /surveys` 回所有人的問卷**（含別人的草稿標題）。課綱早就記了這一條，
-   Ch15 的 `/surveys` 列表頁第一天就會看到它。
-2. **契約沒講密碼規則。** 後端 `RegisterDto` 有 `@MinLength(8)` / `@MaxLength(72)`
-   （72 是 bcrypt 的硬上限），但 `@ApiProperty` 沒標，所以 `schema.d.ts` 裡
-   `password` 是個沒有任何約束的 `string`。前端 `login.vue` 那兩條規則因此是**硬寫的**。
-   對照 `CreateSurveyDto.title` **有**標 `maxLength: 200` —— 同一份契約兩種待遇。
-   （`RegisterDto.email` 的 `@IsEmail()` 也沒反映成 `format: email`。）
-   ⚠️ 補了之後前端**仍然要自己寫一份**表單驗證 —— `minLength` 只會變成 JSDoc，
-   TypeScript 沒有「最短 8 字的字串」這種型別。補的收益是「有依據可對照」，不是消除硬寫。
-3. **`VALIDATION_FAILED` 的 `details` 是 class-validator 的英文原文**
-   （`"password must be longer than or equal to 8 characters"`），直接顯示給使用者不理想。
-4. **409 的 message 是通用的「資料已存在」** —— 註冊撞 email 時使用者看到這句話，
-   不知道是什麼資料、也不知道該怎麼辦。
+1. **線上的 CORS origin 還是 `http://localhost:3000`**（Ch14 輪 ① 寫死的）。
+   前端要接 `NUXT_PUBLIC_API_BASE`，後端要接一個 origin 的環境變數 ——
+   `runtimeConfig` 那一側前端已經備好了，加 `.env` 就生效，不必改程式碼。
+2. **前端還沒有 production build 跑過。** `pnpm build` 從來沒執行過，
+   而 SSR 的產物跟 `pnpm dev` 的行為可能不同（例如 `useCookie` 那個 tick 競態就是只在瀏覽器發生的）。
+3. **`.env.example` 只有後端有。** 前端需要一份，否則換機時不知道要建哪些變數。
 
-還有一件小的：前端 `contract-check.ts` 目前守著 5 件事，**沒有守 `UserEntity.role`**。
-Ch15 的列表頁要用 `role === 'ADMIN'` 決定刪除按鈕顯不顯示，值得補一條斷言。
+#### 留給之後的三件事（都不急，但別忘了）
+
+1. **`GET /surveys` 的第四種分類「我填過的」還沒做** —— 要 join `Response`，是新功能不是修 bug。
+2. **`SurveysService.findOne(id, includeQuestions = false, user)` 的參數順序**：
+   有預設值的排在必填前面，那個預設值實際上永遠用不到。
+3. **`common/field-errors.ts` 的兩個純函式沒有單元測試。** e2e 蓋到了主要路徑
+   （而且突變測試證明有效），但 `flattenValidationErrors` 的邊界（空 children、多層巢狀）
+   用單元測試更好測 —— 它符合「拿掉外部依賴之後還剩下判斷邏輯」那條判準。
+
 #### 兩個 repo 怎麼分工（2026-09-03 定的）
 
 ```
@@ -716,7 +719,7 @@ Desktop/train/survey/
 | | 在哪 | 給前端做什麼 |
 | --- | --- | --- |
 | **OpenAPI 規格** | `https://survey-backend-0dku.onrender.com/docs-json`（線上）<br>`http://localhost:3100/docs-json`（本機） | Ch13 用 `openapi-typescript` 產型別。**這是 Ch7 投資的兌現點** |
-| **錯誤格式** | 所有端點都是 `{ error: { code, message, details? } }` | 用 `code` 分支，**不要解析 `message`** |
+| **錯誤格式** | 所有端點都是 `{ error: { code, message, fields? } }` | 用 `code` 分支，**不要解析 `message`**；`fields` 是 `[{ field, rule }]`，拿 `field` 標紅輸入框、`rule` 查文案表（Ch15）|
 | **認證方式** | `Authorization: Bearer <token>`，token 從 `POST /auth/login` 拿 | 見下面那張表 |
 
 #### 前端一定會撞到的四件事
@@ -953,7 +956,7 @@ pnpm typecheck                             # 綠 = 契約可用
 | :---: | --- | --- | :---: |
 | Ch13 | **契約驗收：從 Swagger 產型別** | 產出來的型別品質 **= entity 標記品質**。修掉 `ownerId` 的聯集型別與 `order` 不成立的 `default`；契約有 401 的端點 2 → 16（`@ApiAuthenticated()`）。**兩種錯要兩種偵測器** | ✅ |
 | Ch14 | **認證串接：CORS 與 401 的一致性** | `enableCors` 上線（放 `setup-app.ts`；**不開 credentials** —— token 走標頭，瀏覽器不必自動帶 cookie）；401 的三種來源確認符合實務標準、不必改；`/auth/me` 夠用 | ✅ |
-| Ch15 | **串接暴露的 API 設計問題** | `GET /surveys` 回所有人的問卷（含別人的草稿標題）是已知的第一個；其餘由串接過程發現，每改一處都要有測試 | ⬜ |
+| Ch15 | **串接暴露的 API 設計問題** | 三輪：讀取的擁有權（草稿不再外流、403 不再洩漏 id 存在）、驗證規則寫進契約、統一的欄位級錯誤（`fields` 取代 `details`）。**三個問題 e2e 都抓不到 —— 要有人真的去用才會撞到** | ✅ |
 | Ch16 | 環境變數分離與 production build | CORS 的 origin 依環境切換；前後端各自的 `.env` 分離 | ⬜ |
 | Ch17 | 前端部署與端到端驗收 | 線上 origin 加進 CORS；跑通「建立 → 發布 → 填寫 → 看結果」 | ⬜ |
 
@@ -1034,6 +1037,7 @@ pnpm typecheck                             # 綠 = 契約可用
 | Ch12 — 資源層授權 | [`docs/chapters/ch12-資源層授權.md`](docs/chapters/ch12-資源層授權.md) |
 | Ch13 — 契約驗收 | [`docs/chapters/ch13-契約驗收.md`](docs/chapters/ch13-契約驗收.md) |
 | Ch14 — 認證串接 | [`docs/chapters/ch14-認證串接.md`](docs/chapters/ch14-認證串接.md) |
+| Ch15 — 串接暴露的 API 設計問題 | [`docs/chapters/ch15-串接暴露的API設計問題.md`](docs/chapters/ch15-串接暴露的API設計問題.md) |
 
 ## 跨章節文件
 
