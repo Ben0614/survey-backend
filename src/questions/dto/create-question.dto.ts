@@ -134,7 +134,7 @@ export class CreateQuestionDto {
   })
   @IsArray()
   @IsString({ each: true })
-  @IsNotEmpty({ each: true }
+  @IsNotEmpty({ each: true })
   @Validate(SingleChoiceNeedsOptions)
   options: string[];
 
