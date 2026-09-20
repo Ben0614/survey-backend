@@ -764,6 +764,103 @@ describe('Surveys (e2e)', () => {
       // ch05 那句「測試數字漲了不代表覆蓋增加了」，Ch14 補過一個形狀
       //（還可能是重複的），這是第三次現場 —— 而這次是在寫完之前就發現的。
     });
+
+    // ── 可見範圍（Ch15 的 OR 條件、mine 參數、以及 ADMIN 分支）──
+    //
+    // 前兩條是 Ch15 加 OR 條件時**沒寫**的護欄：從那一輪到現在，
+    // 「USER 看不到別人的草稿」與「mine=true 只回自己的」沒有任何測試守著。
+    // 後兩條是 ADMIN 分支的規格。四條共用同一組前提資料，所以抽成一個 helper。
+    describe('可見範圍', () => {
+      let otherToken: string;
+      let ids: {
+        myDraft: string;
+        myPublished: string;
+        otherDraft: string;
+        otherPublished: string;
+      };
+
+      const listedIds = (res: request.Response) =>
+        (res.body as SurveyBodyList).data.map((s) => s.id).sort();
+
+      beforeEach(async () => {
+        otherToken = await registerAndLogin(app, 'e2e-other@example.com');
+        const otherId = app
+          .get(JwtService)
+          .decode<{ sub: string }>(otherToken).sub;
+
+        const create = (title: string, ownerId: string, status: SurveyStatus) =>
+          prisma.survey.create({ data: { title, ownerId, status } });
+
+        ids = {
+          myDraft: (await create('我的草稿', userId, SurveyStatus.DRAFT)).id,
+          myPublished: (
+            await create('我的已發布', userId, SurveyStatus.PUBLISHED)
+          ).id,
+          otherDraft: (await create('別人的草稿', otherId, SurveyStatus.DRAFT))
+            .id,
+          otherPublished: (
+            await create('別人的已發布', otherId, SurveyStatus.PUBLISHED)
+          ).id,
+        };
+      });
+
+      it('USER 不帶參數時看得到別人已發布的問卷，看不到別人的草稿', async () => {
+        const res = await request(app.getHttpServer())
+          .get('/surveys')
+          .set(...authHeader(authToken))
+          .expect(200);
+
+        expect(listedIds(res)).toEqual(
+          [ids.myDraft, ids.myPublished, ids.otherPublished].sort(),
+        );
+        expect((res.body as SurveyBodyList).meta.total).toBe(3);
+      });
+
+      it('USER mine=true 只回自己建立的，別人已發布的也不出現', async () => {
+        const res = await request(app.getHttpServer())
+          .get('/surveys')
+          .query({ mine: true })
+          .set(...authHeader(authToken))
+          .expect(200);
+
+        expect(listedIds(res)).toEqual([ids.myDraft, ids.myPublished].sort());
+        expect((res.body as SurveyBodyList).meta.total).toBe(2);
+      });
+
+      it('ADMIN 不帶參數時連別人的草稿也回，total 是全表筆數', async () => {
+        const adminToken = await registerAndLoginAsAdmin(app, prisma);
+
+        const res = await request(app.getHttpServer())
+          .get('/surveys')
+          .set(...authHeader(adminToken))
+          .expect(200);
+
+        // ADMIN 自己一份問卷都沒建，所以列表裡的四份全是「別人的」。
+        expect(listedIds(res)).toEqual(Object.values(ids).sort());
+        expect((res.body as SurveyBodyList).meta.total).toBe(4);
+      });
+
+      // 這一條抓的是「ADMIN 判斷寫在 mine 前面」那個 bug：
+      // 那樣寫的話上一條照樣綠，只有這一條會回四筆。
+      it('ADMIN mine=true 仍然只回自己建立的，不是全站', async () => {
+        const adminToken = await registerAndLoginAsAdmin(app, prisma);
+        const adminId = app
+          .get(JwtService)
+          .decode<{ sub: string }>(adminToken).sub;
+        const adminSurvey = await prisma.survey.create({
+          data: { title: 'ADMIN 自己的', ownerId: adminId },
+        });
+
+        const res = await request(app.getHttpServer())
+          .get('/surveys')
+          .query({ mine: true })
+          .set(...authHeader(adminToken))
+          .expect(200);
+
+        expect(listedIds(res)).toEqual([adminSurvey.id]);
+        expect((res.body as SurveyBodyList).meta.total).toBe(1);
+      });
+    });
   });
 
   describe('GET /surveys/:id', () => {

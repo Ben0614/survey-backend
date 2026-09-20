@@ -40,7 +40,7 @@
 // 別人名下的問卷。這是 Ch2 把 status 留在 DTO 外面的同一個決定，
 // 但後果嚴重得多。
 //
-// 下一站：src/surveys/survey.rules.ts（service 借去問「可以嗎」的那四條純函式）
+// 下一站：src/surveys/survey.rules.ts（service 借去問「可以嗎」的那批純函式）
 // ============================================================
 
 import {
@@ -60,7 +60,7 @@ import {
   canSeeSurvey,
   canDelete,
 } from './survey.rules';
-import { SurveyStatus } from '../generated/prisma/enums';
+import { Role, SurveyStatus } from '../generated/prisma/enums';
 import { Prisma } from '../generated/prisma/client';
 import type { AuthUser } from '../auth/guards/jwt-auth.guard';
 
@@ -94,7 +94,7 @@ export class SurveysService {
     // 對策不是「記得兩邊都加」（人一定會忘），是**抽成同一個變數，
     // 讓「兩邊不一致」在結構上不可能發生**。
     //
-    // [教學] 這裡沒有任何 if —— **undefined 在 Prisma 眼中就是「不加這個條件」**。
+    // [教學] ① 那兩個篩選條件沒有任何 if —— **undefined 在 Prisma 眼中就是「不加這個條件」**。
     // 這是 Ch2 update 那個約定（見下面的 update：undefined = 不要動它）
     // 用在 where 而不是 data。連巢狀的 contains: undefined 也一樣被忽略，
     // 整個 title 條件會消失，而不是變成「比對空字串」。
@@ -116,12 +116,39 @@ export class SurveysService {
     // mode: 'insensitive' 會翻成 PostgreSQL 的 ILIKE ('%' || $1 || '%')。
     // 前面那個 % 讓一般的 B-tree 索引完全失效（索引是照開頭排序的）→ 全表掃描。
     // 這一章不做索引優化，但要知道「加一個搜尋框」在資料庫端不是免費的。
+
+    // 「能看什麼」的那一半（安全邊界），先算好再併進 where。
+    //
+    // 三個分支，**順序有意義**：mine 要排在 ADMIN 前面。反過來寫的話
+    // ADMIN 帶 mine=true 也會拿到全站 —— data 是全部、total 是全表筆數、
+    // 前端「我建立的」分頁列出別人的東西，而那是完全合法的 JSON，沒有任何錯誤。
+    // 用 if / else if 而不是兩個獨立的 if 各自展開，讓「mine 先問」在形狀上就成立。
+    //
+    // ADMIN 那一支是空物件：什麼條件都不加，等於「全部」。
+    // 不寫成 { OR: undefined } —— Ch15 那句「undefined 在 OR 裡是恆真」
+    // 這次剛好是想要的效果，但依賴它等於把一個坑當成功能用。
+    //
+    // 這條規則跟 canSeeSurvey（rules 檔，逐筆判斷）是同一件事的兩種寫法：
+    // 那邊是「PUBLISHED 或能管」，這邊是把「能管」拆成 ownerId 與 ADMIN 兩個分支。
+    // 兩份實作**曾經不一致**（ADMIN 那一半漏了，2026-09-20 補上）——
+    // 改任何一邊時要回頭對另一邊。
+    let visibility: Prisma.SurveyWhereInput;
+    if (query.mine) {
+      visibility = { ownerId: user.id };
+    } else if (user.role === Role.ADMIN) {
+      visibility = {};
+    } else {
+      visibility = {
+        OR: [{ status: SurveyStatus.PUBLISHED }, { ownerId: user.id }],
+      };
+    }
+
     const where: Prisma.SurveyWhereInput = {
       // ① 使用者的篩選條件 —— 原本就有的，不要動
       status: query.status,
       title: { contains: query.q, mode: 'insensitive' },
-      // ② 擁有權條件 —— 跟 canSeeSurvey 同一條規則，
-      //    左半邊是寫死的 PUBLISHED，不是 query.status
+      // ② 可見範圍 —— 上面算好的 visibility，
+      //    OR 那一支的左半邊是寫死的 PUBLISHED，不是 query.status
       // [教學] 這個物件裡的每一個 key 之間是 **AND**；要 OR 就得明寫一個 OR 陣列，
       // 而那個 OR key 本身跟旁邊的 key 仍然是 AND —— 陣列會自動被括號包起來：
       //
@@ -138,9 +165,7 @@ export class SurveysService {
       // 不帶參數時它是 undefined，而 **undefined 在 Prisma 裡代表「這個條件不存在」**
       // —— 在 AND 裡無害（少一個限制），在 OR 裡卻是**恆真**，整個邊界就失效了。
       // 更糟的是送 ?status=DRAFT 會變成「全站所有人的草稿」。
-      ...(query.mine
-        ? { ownerId: user.id }
-        : { OR: [{ status: SurveyStatus.PUBLISHED }, { ownerId: user.id }] }),
+      ...visibility,
     };
 
     // [教學] orderBy 不是可有可無的裝飾 —— **資料表沒有固有順序**
@@ -290,16 +315,17 @@ export class SurveysService {
 
   // [教學] 這支是 canManageSurvey（純規則）翻成 HTTP 的那一層，Ch12 抽的。
   //
-  // **它收 ownerId 而不是 surveyId**，這是刻意的：八個呼叫點裡有七個
+  // **它收 ownerId 而不是 surveyId**，這是刻意的：幾乎每個呼叫點
   // 手上早就有 ownerId 了（assertExists 的回傳、questions.findOne 的 include）。
-  // 收 surveyId 的話那七處會為了授權再查一次資料庫 —— 正是 Ch3
+  // 收 surveyId 的話那些地方會為了授權再查一次資料庫 —— 正是 Ch3
   // 「同一批題目撈了兩次」那個教訓的重演。
   //
   // 它是 QuestionsService / ResponsesService 也在用的第二個公開方法
   // （第一個是 assertExists），所以命名跟著它走：assert 開頭代表
   // 「呼叫我是為了讓不合格的情況直接中止」，不是為了取值。
   /**
-   * 八個「要動別人資料」的地方共用的守門員。
+   * 每一個「要動別人資料」的地方共用的守門員（Ch12 時是八處，Ch17 之後更多 ——
+   * 數量用 grep 數，不在註解裡維護）。
    *
    * **兩步的順序不能反（Ch15）：先問看得到嗎（404），再問能不能碰（403）。**
    * 反過來的話，一個看不到那份問卷的人會拿到 403 —— 而那等於承認它存在。
