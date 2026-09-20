@@ -76,6 +76,15 @@ Google 的 `fieldViolations`):**欄位名是獨立的資料,不是句子的一�
 漂亮的地方是**第三種分類不必寫任何程式碼**:`?status=DRAFT` 化簡之後
 (`DRAFT AND (PUBLISHED OR 我的)`)自動變成「我的草稿」——`DRAFT` 與 `PUBLISHED` 互斥。
 
+**後記(2026-09-20):這條規則其實有兩份實作,而它們曾經不一致。**
+`canSeeSurvey`(逐筆判斷)寫的是「PUBLISHED 或**能管**」,能管含 ADMIN;
+`findAll` 的 `where`(批次過濾)只翻譯了「或者是我的」那一半 ——
+於是 ADMIN 拿 id 直接打 `GET /surveys/:id` 看得到別人的草稿,列表卻不列出來。
+而且從這一章到那天,`GET /surveys` 的可見範圍與 `mine` 參數**零條 e2e**。
+補了 ADMIN 分支(`mine` 要排在它前面,否則 ADMIN 的「我建立的」會變成全站)與四條測試。
+同一天也補了 `POST /surveys/:id/responses` 漏掉的 `canSeeSurvey`:
+在那之前對別人的草稿送填答會回 409「問卷未發布」,正是核心概念第 3 節要防的那種洩漏。
+
 ### 補了 `minLength` 到契約,前端的硬寫**不會**消失
 
 `openapi-typescript` 產出來的 `password` 仍然是 `string`,`minLength` 連 JSDoc 都沒進去。

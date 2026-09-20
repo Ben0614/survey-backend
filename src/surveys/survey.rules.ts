@@ -7,8 +7,13 @@
 //   canPublish         → SurveysService 的 publish（Ch17 輪 ③）
 //   canDelete          → SurveysService 的 remove（Ch17 輪 ②）
 //   canSubmitResponse  → ResponsesService 的 create（Ch5）
-//   canManageSurvey    → 八個地方（Ch12），但都經由 SurveysService.assertCanManage
-//   canSeeSurvey       → findOne、questions.findAll，以及 assertCanManage 的第一步（Ch15）
+//   canManageSurvey    → 每一個「要動別人資料」的 service 方法（Ch12），但都經由 SurveysService.assertCanManage
+//                        （呼叫點的數量不寫在這裡 —— 用 LEARNING.md「這些數字怎麼驗」那行 grep 數，
+//                          這個檔頭寫過「八個」，Ch17 之後就錯了）
+//   canSeeSurvey       → findOne、questions.findAll、responses.create，
+//                        以及 assertCanManage 的第一步（Ch15；responses.create 是 2026-09-20 補的）
+//                        ※ SurveysService.findAll 的 where 是它的**批次版**（同一條規則翻成 SQL），
+//                          改這裡要回頭對那邊
 //
 // **三種問題，三個狀態碼，而且順序不能反：**
 //
@@ -45,8 +50,8 @@
 //    規則檔一旦認識 HTTP，「不必假裝發請求就能測」這個唯一的好處就沒了。
 //
 //    canManageSurvey 的翻譯層是 SurveysService.assertCanManage（Ch12 抽的）——
-//    因為它有**八個**呼叫點，八處各寫一次 `if (!canManageSurvey(...)) throw`
-//    就是八次寫反條件的機會。規則一個出口，翻譯也一個出口。
+//    因為它的呼叫點不只一處，每處各寫一次 `if (!canManageSurvey(...)) throw`
+//    就是每處一次寫反條件的機會。規則一個出口，翻譯也一個出口。
 //
 // 下一站：src/questions/questions.module.ts（子資源怎麼借用 SurveysService）
 // ============================================================

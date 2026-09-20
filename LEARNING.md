@@ -23,10 +23,20 @@
 前端  https://survey-frontend-1eep.vercel.app     Vercel
 ```
 
-`pnpm test:e2e` **182 passed**、`pnpm test` **32 passed**、`tsc --noEmit` 0 errors、`lint` 0 problems。
+`pnpm test:e2e` **187 passed**、`pnpm test` **32 passed**、`tsc --noEmit` 0 errors、`lint` 0 problems。
 線上端到端跑通過「註冊 → 建立 → 發布 → 填寫 → 看結果」。
 
 課綱走完了。**還沒做完的事集中在下方「留給之後的事」**，那一節是接下來唯一要看的地方。
+
+**2026-09-20 —— 課綱之後的一輪：可見範圍的兩個洞（182 → 187）。**
+回頭重讀授權那一段時發現兩份實作不一致：`canSeeSurvey` 說 ADMIN 看得到全部，
+`GET /surveys` 的 `where` 卻只翻譯了「或者是我的」那一半 —— ADMIN 拿 id 看得到別人的草稿，列表卻不列。
+而且列表的可見範圍與 `mine` 參數從 Ch15 到那天**零條 e2e**。同一輪補了
+`POST /surveys/:id/responses` 漏掉的 `canSeeSurvey`（對別人的草稿原本回 409，洩漏了 id 存在）。
+細節在 [`ch15`](docs/chapters/ch15-串接暴露的API設計問題.md) 的決策取捨後記。
+順帶更正一件從 Ch17 起就過期的說法：**`@Roles()` 目前沒有任何路由在用**
+（`DELETE` 在 Ch17 輪 ② 改成 `assertCanManage`），ADMIN 的權力全部走 `canManageSurvey` 那句 `|| role === ADMIN`；
+`RolesGuard` 留著但空轉。
 
 **⚠️ Ch13 起換一個 repo。** 前端是獨立的 **Nuxt 4** 專案（`survey-frontend`），
 跟這個並排放在 `Desktop/train/survey/` 底下，不是這個目錄的子資料夾。
@@ -655,7 +665,7 @@ Ch8 留下的「`/docs` 要不要公開」因此變成一個真正的選擇，
 ```
 後端  https://survey-backend-0dku.onrender.com
 前端  https://survey-frontend-1eep.vercel.app
-測試  e2e 182 passed、unit 32 passed、tsc 0、eslint 0
+測試  e2e 187 passed、unit 32 passed、tsc 0、eslint 0（2026-09-20 補了 5 條）
 契約  13 條路徑 / 20 支端點
 ```
 
@@ -817,7 +827,7 @@ Desktop/train/survey/
    而 `/auth/me` 的三種失敗（沒帶票／票無效／那個人已被刪）**對外一模一樣**，
    前端不必分辨。
 3. **403 有兩種來源**，但對外也一樣（`code` 都是 `FORBIDDEN`）：
-   角色不足（刪問卷要 `ADMIN`）、不是你的資源（改別人的問卷）。
+   角色不足（`RolesGuard`，目前沒有路由在用）、不是你的資源（改別人的問卷）。
    前端顯示「權限不足」即可，不要試圖分辨。
 4. **`GET /auth/me` 是還原身分的唯一入口**。`login` 只回 `{ accessToken }`，
    reload 之後前端手上只有 token，要靠它拿回 `id / email / role`。
@@ -831,11 +841,13 @@ POST /auth/login
 GET  /docs、/docs-json     ← 這兩支不經過 Nest 的管線，guard 攔不到（實測，見 ch10）
 ```
 
-**其餘全部要帶 token**，而其中**九支**還要再過一關（見 `ch11` / `ch12`）：
+**其餘全部要帶 token**，而其中**十一支**還要再過一關（見 `ch11` / `ch12`；數字更新於 2026-09-20）：
 
-- **8 支看擁有權**（`assertCanManage`）：`PATCH /surveys/:id`、`publish`、`unpublish`、
-  題目三支、看填答結果兩支
-- **1 支看角色**（`@Roles(Role.ADMIN)`）：`DELETE /surveys/:id`
+- **11 支看擁有權**（`assertCanManage`）：`PATCH /surveys/:id`、`DELETE /surveys/:id`、`publish`、`unpublish`、
+  題目四支（含 Ch17 的 `PUT`）、看填答結果三支（含 Ch17 的 `summary`）
+- **0 支看角色**：`@Roles(Role.ADMIN)` 原本只標在 `DELETE`，Ch17 輪 ② 改成擁有者也能刪之後就沒有路由在用了。
+  `RolesGuard` 仍然註冊著，每個請求都跑、每次都放行
+- **`POST /surveys/:id/responses` 只看可見性**（`canSeeSurvey`，2026-09-20 補的）：別人的草稿回 404，不看擁有權
 
 數法見本節最後的「這些數字怎麼驗」。
 
@@ -845,7 +857,7 @@ GET  /docs、/docs-json     ← 這兩支不經過 Nest 的管線，guard 攔不
 2. **`.env` 與 `.env.test` 各需要一組 `JWT_SECRET` / `JWT_EXPIRES_IN`**，
    三個環境互不相同。⚠️ `getOrThrow` 只擋 undefined：寫成 `JWT_SECRET=`
    應用起得來、`/health` 綠，**只有登入會 500**。
-3. **四項驗收**：`test:e2e` **133**、`test` **11**、`tsc` 0、`lint` 0。
+3. **四項驗收**：`test:e2e` **187**、`test` **32**、`tsc` 0、`lint` 0（以「目前狀態」那一節為準，這裡的數字會過期）。
 4. **改了回應形狀就是改了契約** —— Ch13 之後前端的型別是從 `/docs-json` 產的，
    改一個欄位會讓前端編譯不過。這是好事（改壞了會有人叫），但要預期它。
 
@@ -859,7 +871,7 @@ GET  /docs、/docs-json     ← 這兩支不經過 Nest 的管線，guard 攔不
 | 環境變數 | `DATABASE_URL` + `JWT_SECRET` / `JWT_EXPIRES_IN` + `CORS_ORIGIN`（Ch16）。**三個都拿不到就啟動失敗** |
 | `/docs` | 公開（Ch10 重新評估後維持，理由見 `ch10`） |
 | 認證 | 除了上面那四支之外全部要帶 JWT |
-| 授權 | 刪問卷要 `ADMIN`；改問卷／題目、看填答結果要**擁有者或 `ADMIN`**。線上還沒有任何 admin |
+| 授權 | 改問卷／題目、發布／撤回／刪除、看填答結果要**擁有者或 `ADMIN`**；ADMIN 的列表看得到所有人的草稿（2026-09-20）。線上還沒有任何 admin |
 | CORS | ✅ 白名單來自環境變數 `CORS_ORIGIN`（Ch16；逗號分隔，不開 credentials）。<br>線上目前填 `http://localhost:3000` —— **Ch18 部署前端時換成真的網址** |
 
 #### 後端還沒完 —— 前端一定會推著它改
