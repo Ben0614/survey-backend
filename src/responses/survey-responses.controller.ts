@@ -63,14 +63,20 @@ export class SurveyResponsesController {
       '請求內容不合法：欄位驗證失敗、題目 ID 重複、題目不屬於這份問卷、沒有答完全部題目、或單選題的答案不在選項裡',
     type: ErrorResponseEntity,
   })
-  @ApiNotFoundResponse({ description: '問卷不存在', type: ErrorResponseEntity })
+  @ApiNotFoundResponse({
+    description: '問卷不存在，或那是別人的草稿',
+    type: ErrorResponseEntity,
+  })
   @ApiConflictResponse({ description: '問卷未發布', type: ErrorResponseEntity })
   @Post()
   create(
     @Param('surveyId') surveyId: string,
     @Body() createResponseDto: CreateResponseDto,
+    @CurrentUser() user: AuthUser,
   ) {
-    return this.responsesService.create(surveyId, createResponseDto);
+    // 這支端點「刻意不保護」的意思是**不看擁有權**（任何登入的人都能填），
+    // 不是不看可見性 —— 別人的草稿仍然要當作不存在，所以 user 要往下傳。
+    return this.responsesService.create(surveyId, createResponseDto, user);
   }
 
   // [教學] 這一支同時吃三個來源裡的兩個：@Param 取路徑、@Query 取 ? 後面。

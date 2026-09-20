@@ -40,7 +40,7 @@ import {
 } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { SurveysService } from '../surveys/surveys.service';
-import { canSubmitResponse } from '../surveys/survey.rules';
+import { canSeeSurvey, canSubmitResponse } from '../surveys/survey.rules';
 import { isCompleteAnswerSet, isValidAnswer } from './responses.rules';
 import { CreateResponseDto } from './dto/create-response.dto';
 import { FindResponsesQueryDto } from './dto/find-responses-query.dto';
@@ -63,12 +63,25 @@ export class ResponsesService {
   ) {}
 
   /** 提交一份作答：一筆 Response 加 N 筆 Answer，一次寫進去。 */
-  async create(surveyId: string, dto: CreateResponseDto) {
+  async create(surveyId: string, dto: CreateResponseDto, user: AuthUser) {
     // [教學] 這行**接了回傳值**（對照 findAll 那行沒接）。
     // assertExists 的 select 裡放 status 就是為了這一刻 —— 一次查詢同時滿足
     // 「問卷存不存在」（404）和「能不能填答」（409）兩個問題。
     // 這是那個 select 的第三次兌現（前兩次在 questions.service.ts）。
     const survey = await this.surveysService.assertExists(surveyId);
+
+    // 看不到就當它不存在（同 questions.service.ts 的 findAll）。
+    //
+    // **這一步必須排在 canSubmitResponse 前面。** 反過來的話，別人的草稿會先撞到
+    // 409「問卷未發布」—— 那等於告訴對方「這個 id 存在，而且是草稿」，
+    // 而 GET /surveys/:id 對同一個 id 回的是 404。同一個問題兩支端點兩種答案，
+    // 就是 Ch15 要防的那種列舉（2026-09-20 補的，在此之前這裡真的會回 409）。
+    //
+    // 不用 assertCanManage：它的第二步會把「看得到但不是你的」擋成 403，
+    // 而填答本來就是給別人填的。訊息用同一句，理由見 surveys.service.ts 的 findOne。
+    if (!canSeeSurvey(survey.status, survey.ownerId, user)) {
+      throw new NotFoundException('問卷不存在');
+    }
 
     // [教學] 規則本身寫在 survey.rules.ts，這裡只負責把 false 翻譯成 409。
     // 選 409 而不是 403 / 400 的理由同 unpublish：

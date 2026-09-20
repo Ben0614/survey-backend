@@ -167,9 +167,17 @@ describe('錯誤回應格式 (e2e)', () => {
   });
 
   it('商業規則衝突時 code 是 CONFLICT，message 是 service 寫的那句中文', async () => {
-    const survey = await prisma.survey.create({
-      data: { title: '草稿問卷', status: SurveyStatus.DRAFT },
-    });
+    // 草稿要是**自己的**才走得到 409。這裡原本用 prisma 直接建、沒給 ownerId（無主草稿），
+    // 2026-09-20 填答端點補上 canSeeSurvey 之後，無主草稿對任何 USER 都是 404 ——
+    // 這條測的是 409 的格式，不是「無主草稿能不能填」，所以改用 API 建（ownerId 從 token 來，
+    // 同上面「巢狀欄位」那條的做法）。
+    const created = await request(app.getHttpServer())
+      .post('/surveys')
+      .set(...authHeader(authToken))
+      .send({ title: '草稿問卷' })
+      .expect(201);
+    const survey = created.body as { id: string };
+
     const question = await prisma.question.create({
       data: {
         surveyId: survey.id,

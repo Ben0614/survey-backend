@@ -240,6 +240,40 @@ describe('Responses (e2e)', () => {
       expect(await prisma.response.count()).toBe(0);
     });
 
+    // 上一條「DRAFT → 409」用的是**擁有者**的 token：看得到、但狀態不允許。
+    // 這一條換成別人：看不到，所以是 404，而且訊息要跟「真的不存在」一模一樣 ——
+    // 回 409 等於告訴對方「這個 id 存在，而且是草稿」（Ch15 的防列舉原則）。
+    //
+    // 它抓的是「canSeeSurvey 排在 canSubmitResponse 後面」那個寫法：
+    // 那樣寫的話別人的草稿仍然先撞到 409，這一條會紅、上一條照樣綠。
+    it('填別人的草稿 → 404，訊息跟「問卷不存在」一模一樣（不是 409）', async () => {
+      const survey = await prisma.survey.create({
+        data: { title: '別人的草稿', ownerId: userId },
+      });
+      const question = await prisma.question.create({
+        data: {
+          surveyId: survey.id,
+          title: '題目一',
+          type: 'SINGLE_CHOICE',
+          order: 0,
+          options: ['選項1', '選項2'],
+        },
+      });
+
+      const otherToken = await registerAndLogin(app, 'e2e-other@example.com');
+
+      const res = await request(app.getHttpServer())
+        .post(`/surveys/${survey.id}/responses`)
+        .set(...authHeader(otherToken))
+        .send({ answers: [{ questionId: question.id, content: '選項1' }] })
+        .expect(404);
+
+      const body = res.body as ErrorBody;
+      expect(body.error.code).toBe('NOT_FOUND');
+      expect(body.error.message).toBe('問卷不存在');
+      expect(await prisma.response.count()).toBe(0);
+    });
+
     it('answers 是空陣列時回 400', async () => {
       const survey = await prisma.survey.create({
         data: {
